@@ -140,7 +140,7 @@ export async function getMyOrganizationImages(
   accessToken: string
 ): Promise<DirectusImage[]> {
   const res = await fetch(
-    `${DIRECTUS_URL}/items/images?sort=-date_created&fields=id,title,file_public_preview,event_date,alarm_code,location,tags,is_public,published_at,organization.id,organization.name,organization.gewerk`,
+    `${DIRECTUS_URL}/items/images?sort=-event_date&fields=id,title,file_public_preview,event_date,alarm_code,location,tags,is_public,published_at,organization.id,organization.name,organization.gewerk`,
     {
       headers: { Authorization: `Bearer ${accessToken}` },
       cache: 'no-store',
