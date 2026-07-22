@@ -1,6 +1,5 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import LogoutButton from '@/components/LogoutButton';
 import UploadForm from '@/components/UploadForm';
 import MyImagesList from '@/components/MyImagesList';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
@@ -31,18 +30,15 @@ export default async function InternDashboard() {
   return (
     <section className="px-8 py-14">
       <div className="mx-auto max-w-[1180px]">
-        <div className="mb-8 flex items-start justify-between">
-          <div>
-            <h1 className="mb-2 font-display text-[32px] font-bold">
-              Willkommen, {user.first_name || user.email}
-            </h1>
-            <p className="text-[14px] text-ink-2">
-              {user.organization?.name
-                ? `Angemeldet für ${user.organization.name}`
-                : 'Deinem Konto ist noch keine Organisation zugeordnet -- bitte an die Redaktion wenden.'}
-            </p>
-          </div>
-          <LogoutButton />
+        <div className="mb-8">
+          <h1 className="mb-2 font-display text-[32px] font-bold">
+            Willkommen, {user.first_name || user.email}
+          </h1>
+          <p className="text-[14px] text-ink-2">
+            {user.organization?.name
+              ? `Angemeldet für ${user.organization.name}`
+              : 'Deinem Konto ist noch keine Organisation zugeordnet -- bitte an die Redaktion wenden.'}
+          </p>
         </div>
 
         {user.organization?.id ? (
