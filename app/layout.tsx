@@ -1,8 +1,10 @@
 import type { Metadata } from 'next';
 import { Barlow_Condensed, Inter, JetBrains_Mono } from 'next/font/google';
+import { cookies } from 'next/headers';
 import DateLine from '@/components/DateLine';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
+import { SESSION_COOKIE } from '@/lib/auth';
 import './globals.css';
 
 const barlow = Barlow_Condensed({
@@ -63,18 +65,34 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  // Nur prüfen, ob ein (noch gültiges) Sitzungs-Cookie existiert -- bewusst
+  // ohne eigenen Directus-Aufruf, damit das nicht jede einzelne Seite
+  // (auch die öffentlichen) verlangsamt. Die Middleware kümmert sich beim
+  // Betreten von /intern ohnehin schon um die echte Gültigkeitsprüfung.
+  const cookieStore = await cookies();
+  const raw = cookieStore.get(SESSION_COOKIE)?.value;
+  let loggedIn = false;
+  if (raw) {
+    try {
+      const session = JSON.parse(raw);
+      loggedIn = typeof session?.accessToken === 'string';
+    } catch {
+      loggedIn = false;
+    }
+  }
+
   return (
     <html lang="de">
       <body
         className={`${barlow.variable} ${inter.variable} ${jetbrains.variable} font-sans bg-paper text-ink antialiased`}
       >
         <DateLine />
-        <Header />
+        <Header loggedIn={loggedIn} />
         {children}
         <Footer />
       </body>
