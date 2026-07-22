@@ -81,21 +81,23 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const [originalId, previewId, downloadId] = await Promise.all([
-      uploadFileToDirectus(session.accessToken, originalFile, originalFile.name),
-      uploadFileToDirectus(
-        session.accessToken,
-        previewFile,
-        `preview-${originalFile.name}.jpg`,
-        PUBLIC_FOLDER_ID
-      ),
-      uploadFileToDirectus(
-        session.accessToken,
-        downloadFile,
-        `download-${originalFile.name}.jpg`,
-        PUBLIC_FOLDER_ID
-      ),
-    ]);
+    const originalId = await uploadFileToDirectus(
+      session.accessToken,
+      originalFile,
+      originalFile.name
+    );
+    const previewId = await uploadFileToDirectus(
+      session.accessToken,
+      previewFile,
+      `preview-${originalFile.name}.jpg`,
+      PUBLIC_FOLDER_ID
+    );
+    const downloadId = await uploadFileToDirectus(
+      session.accessToken,
+      downloadFile,
+      `download-${originalFile.name}.jpg`,
+      PUBLIC_FOLDER_ID
+    );
 
     const tags = tagsRaw
       .split(',')
