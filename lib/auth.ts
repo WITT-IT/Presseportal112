@@ -68,7 +68,7 @@ export async function logoutDirectus(refreshToken: string) {
 // internen Bereich und um zu prüfen, ob der Account wirklich freigeschaltet ist.
 export async function getCurrentUser(accessToken: string) {
   const res = await fetch(
-    `${DIRECTUS_URL}/users/me?fields=id,email,first_name,last_name,status,organization.id,organization.name,organization.gewerk`,
+    `${DIRECTUS_URL}/users/me?fields=id,email,first_name,last_name,status,organization.id,organization.name,organization.gewerk,organization.branding_label`,
     {
       headers: { Authorization: `Bearer ${accessToken}` },
       cache: 'no-store',
