@@ -31,12 +31,14 @@ export type Organization = {
   name: string;
   gewerk: string;
   organization_type?: string | null;
+  branding_label?: string | null;
 };
 
 export type DirectusImage = {
   id: string;
   organization: Organization | string | null;
   title: string | null;
+  article_body: string | null;
   file_public_preview: string | null; // Directus-Datei-UUID
   file_download: string | null;
   event_date: string;
