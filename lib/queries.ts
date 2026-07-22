@@ -1,4 +1,4 @@
-import { readItems } from '@directus/sdk';
+import { readItem, readItems } from '@directus/sdk';
 import { directus, DIRECTUS_URL } from './directus';
 import type { DirectusImage, Gewerk } from './types';
 
@@ -153,4 +153,37 @@ export async function getMyOrganizationImages(
   }
   const { data } = await res.json();
   return data;
+}
+
+// Einzelnes Bild für die öffentliche Artikelseite. Nutzt bewusst den
+// anonymen Public-Client (nicht den User-Token) -- so wird automatisch nur
+// ausgeliefert, was laut Public-Policy wirklich öffentlich ist, unabhängig
+// davon, wer die Seite gerade betrachtet. Existiert das Bild nicht oder ist
+// es (noch) nicht öffentlich, meldet Directus 403/404 -- beides fangen wir
+// gleich ab und behandeln es als "nicht gefunden".
+export async function getPublicImageById(id: string): Promise<DirectusImage | null> {
+  try {
+    const result = await directus.request(
+      readItem('images', id, {
+        fields: [
+          'id',
+          'title',
+          'article_body',
+          'file_public_preview',
+          'file_download',
+          'event_date',
+          'event_kind',
+          'alarm_code',
+          'location',
+          'tags',
+          'is_public',
+          'published_at',
+          { organization: ['id', 'name', 'gewerk', 'branding_label'] },
+        ],
+      })
+    );
+    return result as unknown as DirectusImage;
+  } catch {
+    return null;
+  }
 }
