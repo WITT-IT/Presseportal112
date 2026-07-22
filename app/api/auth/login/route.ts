@@ -13,8 +13,11 @@ export async function POST(request: NextRequest) {
 
   try {
     const session = await loginWithDirectus(email, password);
+    const isHttps =
+      request.headers.get('x-forwarded-proto') === 'https' ||
+      request.nextUrl.protocol === 'https:';
     const response = NextResponse.json({ ok: true });
-    response.cookies.set(SESSION_COOKIE, JSON.stringify(session), cookieOptions());
+    response.cookies.set(SESSION_COOKIE, JSON.stringify(session), cookieOptions(isHttps));
     return response;
   } catch {
     return NextResponse.json(
