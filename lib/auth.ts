@@ -20,7 +20,12 @@ export async function loginWithDirectus(
   });
 
   if (!res.ok) {
-    throw new Error('Anmeldung fehlgeschlagen');
+    const body = await res.json().catch(() => null);
+    const message =
+      body?.errors?.[0]?.message || `Directus antwortete mit Status ${res.status}`;
+    const error = new Error(message) as Error & { status?: number };
+    error.status = res.status;
+    throw error;
   }
 
   const { data } = await res.json();
