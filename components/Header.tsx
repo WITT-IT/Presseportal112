@@ -47,7 +47,7 @@ export default function Header() {
             <i className="ti ti-search text-[17px]" aria-hidden="true" />
           </button>
           <Link
-            href="/anmelden"
+            href="/login"
             className="rounded-md bg-ink px-[18px] py-[10px] text-[13px] font-semibold text-white transition-colors hover:bg-black"
           >
             Anmelden
@@ -81,7 +81,7 @@ export default function Header() {
               </Link>
             ))}
             <Link
-              href="/anmelden"
+              href="/login"
               className="mt-2 rounded-md bg-ink px-4 py-3 text-center text-[13.5px] font-semibold text-white"
             >
               Anmelden
