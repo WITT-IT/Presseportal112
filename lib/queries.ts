@@ -146,7 +146,11 @@ export async function getMyOrganizationImages(
       cache: 'no-store',
     }
   );
-  if (!res.ok) return [];
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    console.error(`getMyOrganizationImages fehlgeschlagen (Status ${res.status}):`, body);
+    return [];
+  }
   const { data } = await res.json();
   return data;
 }
