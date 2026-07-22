@@ -44,7 +44,8 @@ export default function ContactForm({ organizations }: { organizations: Organiza
         <i className="ti ti-circle-check mb-3 block text-[32px] text-ink" aria-hidden="true" />
         <h2 className="mb-2 font-display text-[22px] font-bold">Nachricht gesendet</h2>
         <p className="text-[13.5px] text-ink-2">
-          Danke, wir melden uns so schnell wie möglich zurück.
+          Deine Anfrage ist direkt an die zuständige Stelle unterwegs. Wir
+          melden uns so schnell wie möglich zurück.
         </p>
       </div>
     );
