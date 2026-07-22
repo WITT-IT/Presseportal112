@@ -34,7 +34,7 @@ export default async function InternDashboard() {
         <div className="mb-8 flex items-start justify-between">
           <div>
             <h1 className="mb-2 font-display text-[32px] font-bold">
-              Willkommen, {user.first_name ?? user.email}
+              Willkommen, {user.first_name || user.email}
             </h1>
             <p className="text-[14px] text-ink-2">
               {user.organization?.name
