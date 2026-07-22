@@ -1,5 +1,8 @@
 import type { Metadata } from 'next';
 import { Barlow_Condensed, Inter, JetBrains_Mono } from 'next/font/google';
+import DateLine from '@/components/DateLine';
+import Header from '@/components/Header';
+import Footer from '@/components/Footer';
 import './globals.css';
 
 const barlow = Barlow_Condensed({
@@ -39,7 +42,10 @@ export default function RootLayout({
       <body
         className={`${barlow.variable} ${inter.variable} ${jetbrains.variable} font-sans bg-paper text-ink antialiased`}
       >
+        <DateLine />
+        <Header />
         {children}
+        <Footer />
       </body>
     </html>
   );
