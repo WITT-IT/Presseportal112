@@ -7,6 +7,20 @@ import { DIRECTUS_URL } from '@/lib/directus';
 // nicht abrufbar (die filtert dort exakt auf diesen Ordner).
 const PUBLIC_FOLDER_ID = process.env.DIRECTUS_PUBLIC_FOLDER_ID;
 
+async function parseJsonResponse(res: Response, context: string) {
+  const text = await res.text();
+  if (!text) {
+    throw new Error(`${context}: leere Antwort vom Server (Status ${res.status}).`);
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(
+      `${context}: keine gültige JSON-Antwort (Status ${res.status}): ${text.slice(0, 300)}`
+    );
+  }
+}
+
 async function uploadFileToDirectus(
   accessToken: string,
   blob: Blob,
@@ -27,7 +41,7 @@ async function uploadFileToDirectus(
     const body = await res.text();
     throw new Error(`Datei-Upload fehlgeschlagen (${filename}): ${body}`);
   }
-  const { data } = await res.json();
+  const { data } = await parseJsonResponse(res, `Datei-Upload (${filename})`);
   return data.id as string;
 }
 
@@ -114,7 +128,7 @@ export async function POST(request: NextRequest) {
       throw new Error(body);
     }
 
-    const { data } = await itemRes.json();
+    const { data } = await parseJsonResponse(itemRes, 'Bild-Anlage');
     return NextResponse.json({ ok: true, id: data.id });
   } catch (error) {
     console.error('Upload fehlgeschlagen:', error);
