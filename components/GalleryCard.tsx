@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { directusAssetUrl } from '@/lib/directus';
 import type { DirectusImage } from '@/lib/types';
 import { GEWERK_COLORS, GEWERK_ICONS } from '@/lib/types';
+import AddToCartButton from './AddToCartButton';
 
 function formatDate(iso: string | null) {
   if (!iso) return '';
@@ -49,6 +50,7 @@ export default function GalleryCard({ img }: { img: DirectusImage }) {
         >
           {img.alarm_code ?? '—'}
         </span>
+        <AddToCartButton imageId={img.id} />
       </div>
       <div className="border-t border-line p-[15px]">
         <div className="mb-1.5 font-mono text-[10px] text-ink-3">
