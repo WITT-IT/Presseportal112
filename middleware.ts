@@ -17,6 +17,10 @@ export async function middleware(request: NextRequest) {
     return response;
   }
 
+  const isHttps =
+    request.headers.get('x-forwarded-proto') === 'https' ||
+    request.nextUrl.protocol === 'https:';
+
   // Läuft der Access Token in weniger als 60 Sekunden ab, jetzt schon
   // erneuern -- sonst würde die angeforderte Seite mit einem inzwischen
   // abgelaufenen Token laden und fehlschlagen.
@@ -28,7 +32,7 @@ export async function middleware(request: NextRequest) {
       return response;
     }
     const response = NextResponse.next();
-    response.cookies.set(SESSION_COOKIE, JSON.stringify(refreshed), cookieOptions());
+    response.cookies.set(SESSION_COOKIE, JSON.stringify(refreshed), cookieOptions(isHttps));
     return response;
   }
 
