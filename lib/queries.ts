@@ -172,13 +172,12 @@ export async function getPublicImageById(id: string): Promise<DirectusImage | nu
           'file_public_preview',
           'file_download',
           'event_date',
-          'event_kind',
           'alarm_code',
           'location',
           'tags',
           'is_public',
           'published_at',
-          { organization: ['id', 'name', 'gewerk', 'branding_label'] },
+          { organization: ['id', 'name', 'gewerk'] },
         ],
       })
     );
