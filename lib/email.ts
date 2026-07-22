@@ -56,3 +56,58 @@ export async function sendContactEmail({
     ].join('\n'),
   });
 }
+
+export async function sendSubscriptionConfirmEmail(to: string, token: string) {
+  const transport = getTransporter();
+  const from = process.env.SMTP_FROM || process.env.SMTP_USER!;
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+  const confirmUrl = `${siteUrl}/api/subscribe/confirm?token=${token}`;
+
+  await transport.sendMail({
+    from,
+    to,
+    subject: 'Presseportal112 -- Bitte Anmeldung bestätigen',
+    text: [
+      'Fast geschafft!',
+      '',
+      'Bitte bestätige deine Anmeldung für den Presse-Alarm über diesen Link:',
+      confirmUrl,
+      '',
+      'Falls du das nicht angefordert hast, kannst du diese E-Mail einfach ignorieren.',
+    ].join('\n'),
+  });
+}
+
+export async function sendNewImageAlert({
+  to,
+  unsubscribeToken,
+  imageTitle,
+  organizationName,
+  articleUrl,
+}: {
+  to: string;
+  unsubscribeToken: string;
+  imageTitle: string;
+  organizationName: string;
+  articleUrl: string;
+}) {
+  const transport = getTransporter();
+  const from = process.env.SMTP_FROM || process.env.SMTP_USER!;
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+  const unsubscribeUrl = `${siteUrl}/api/subscribe/unsubscribe?token=${unsubscribeToken}`;
+
+  await transport.sendMail({
+    from,
+    to,
+    subject: `Presseportal112 -- Neues Foto von ${organizationName}`,
+    text: [
+      `${organizationName} hat ein neues Pressefoto freigegeben:`,
+      imageTitle,
+      '',
+      articleUrl,
+      '',
+      '----------------------------------------',
+      `Presse-Alarm abbestellen: ${unsubscribeUrl}`,
+    ].join('\n'),
+  });
+}
