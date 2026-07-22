@@ -57,14 +57,6 @@ export default function Header({ loggedIn }: { loggedIn: boolean }) {
               {link.label}
             </Link>
           ))}
-          <button
-            type="button"
-            aria-label="Suche"
-            className="flex h-[34px] w-[34px] items-center justify-center rounded-full text-ink-2 transition-colors hover:bg-panel hover:text-ink"
-          >
-            <i className="ti ti-search text-[17px]" aria-hidden="true" />
-          </button>
-
           {loggedIn ? (
             <>
               <Link
