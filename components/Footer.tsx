@@ -10,6 +10,9 @@ export default function Footer() {
           presserechtlich frei nutzbar unter Quellenangabe.
         </p>
         <div className="flex gap-[22px] text-[12.5px] text-ink-2">
+          <Link href="/presse-alarm" className="hover:text-ink">
+            Presse-Alarm
+          </Link>
           <Link href="/impressum" className="hover:text-ink">
             Impressum
           </Link>
