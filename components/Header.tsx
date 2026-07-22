@@ -17,7 +17,14 @@ export default function Header({ loggedIn }: { loggedIn: boolean }) {
 
   async function handleLogout() {
     setLoggingOut(true);
-    await fetch('/api/auth/logout', { method: 'POST' });
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch {
+      // Netzwerkfehler beim Abmelden -- Cookie könnte serverseitig trotzdem
+      // schon weg sein oder gleich ablaufen, wir navigieren trotzdem los.
+    } finally {
+      setLoggingOut(false);
+    }
     setMenuOpen(false);
     router.push('/');
     router.refresh();
