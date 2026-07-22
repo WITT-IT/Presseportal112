@@ -79,10 +79,10 @@ export async function getCurrentUser(accessToken: string) {
   return data;
 }
 
-export function cookieOptions() {
+export function cookieOptions(secure: boolean) {
   return {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure,
     sameSite: 'lax' as const,
     path: '/',
     maxAge: 60 * 60 * 24 * 7, // 7 Tage -- entspricht der Directus-Refresh-Token-Gültigkeit
