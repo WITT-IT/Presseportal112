@@ -26,10 +26,24 @@ const jetbrains = JetBrains_Mono({
   display: 'swap',
 });
 
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+
 export const metadata: Metadata = {
-  title: 'Presseportal112.de — Offizielles Bild- und Medienportal',
+  metadataBase: new URL(siteUrl),
+  title: {
+    default: 'Presseportal112.de — Offizielles Bild- und Medienportal',
+    template: '%s — Presseportal112.de',
+  },
   description:
     'Freigegebene Einsatzfotos von Feuerwehr, DRK, Polizei und THW — geprüft, nach Alarmcode sortiert, sofort einsatzbereit für die Berichterstattung.',
+  openGraph: {
+    type: 'website',
+    locale: 'de_DE',
+    siteName: 'Presseportal112.de',
+    title: 'Presseportal112.de — Offizielles Bild- und Medienportal',
+    description:
+      'Freigegebene Einsatzfotos von Feuerwehr, DRK, Polizei und THW — geprüft, nach Alarmcode sortiert.',
+  },
 };
 
 export default function RootLayout({
