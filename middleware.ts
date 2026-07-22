@@ -21,9 +21,9 @@ export async function middleware(request: NextRequest) {
     request.headers.get('x-forwarded-proto') === 'https' ||
     request.nextUrl.protocol === 'https:';
 
-  // Läuft der Access Token in weniger als 60 Sekunden ab, jetzt schon
-  // erneuern -- sonst würde die angeforderte Seite mit einem inzwischen
-  // abgelaufenen Token laden und fehlschlagen.
+  // Läuft der Directus-Access-Token in weniger als 60 Sekunden ab, jetzt
+  // schon erneuern -- unabhängig von unserem eigenen Sitzungsfenster unten,
+  // sonst würde die angeforderte Seite mit einem abgelaufenen Token laden.
   if (session.expiresAt - Date.now() < 60_000) {
     const refreshed = await refreshDirectusSession(session.refreshToken);
     if (!refreshed) {
@@ -31,12 +31,16 @@ export async function middleware(request: NextRequest) {
       response.cookies.delete(SESSION_COOKIE);
       return response;
     }
-    const response = NextResponse.next();
-    response.cookies.set(SESSION_COOKIE, JSON.stringify(refreshed), cookieOptions(isHttps));
-    return response;
+    session = refreshed;
   }
 
-  return NextResponse.next();
+  // Gleitendes 10-Minuten-Sitzungsfenster: jeder Besuch im internen Bereich
+  // verlängert das Cookie um weitere 10 Minuten. Ganz ohne Aktivität dort
+  // läuft das Cookie von selbst ab (Browser wirft es weg), ohne dass wir
+  // hier aktiv etwas tun müssen -- die Anmeldung endet dann automatisch.
+  const response = NextResponse.next();
+  response.cookies.set(SESSION_COOKIE, JSON.stringify(session), cookieOptions(isHttps));
+  return response;
 }
 
 export const config = {
