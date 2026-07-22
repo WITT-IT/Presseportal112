@@ -3,6 +3,7 @@
 import { useState, type ChangeEvent, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { createWatermarkedVariants } from '@/lib/watermark';
+import RichTextEditor from '@/components/RichTextEditor';
 
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 const MAX_SIZE = 80 * 1024 * 1024;
@@ -15,6 +16,7 @@ export default function UploadForm({ watermarkText }: { watermarkText: string })
   const [alarmCode, setAlarmCode] = useState('');
   const [location, setLocation] = useState('');
   const [tags, setTags] = useState('');
+  const [articleBody, setArticleBody] = useState('');
   const [status, setStatus] = useState<
     'idle' | 'processing' | 'uploading' | 'error' | 'done'
   >('idle');
@@ -63,6 +65,7 @@ export default function UploadForm({ watermarkText }: { watermarkText: string })
       formData.append('alarm_code', alarmCode);
       formData.append('location', location);
       formData.append('tags', tags);
+      formData.append('article_body', articleBody);
 
       const res = await fetch('/api/intern/upload', { method: 'POST', body: formData });
 
@@ -78,6 +81,7 @@ export default function UploadForm({ watermarkText }: { watermarkText: string })
       setAlarmCode('');
       setLocation('');
       setTags('');
+      setArticleBody('');
       router.refresh();
     } catch (err) {
       setStatus('error');
@@ -158,6 +162,16 @@ export default function UploadForm({ watermarkText }: { watermarkText: string })
           onChange={(e) => setLocation(e.target.value)}
           className="w-full rounded-md border border-line-strong px-3 py-2 text-[14px] outline-none focus:border-ink"
         />
+      </div>
+
+      <div>
+        <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">
+          Artikeltext (optional)
+        </label>
+        <RichTextEditor value={articleBody} onChange={setArticleBody} />
+        <p className="mt-1 text-[11px] text-ink-3">
+          Erscheint auf der öffentlichen Artikelseite unter dem Bild.
+        </p>
       </div>
 
       <div>
