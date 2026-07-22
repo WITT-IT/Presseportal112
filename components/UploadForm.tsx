@@ -8,7 +8,13 @@ import RichTextEditor from '@/components/RichTextEditor';
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 const MAX_SIZE = 80 * 1024 * 1024;
 
-export default function UploadForm({ watermarkText }: { watermarkText: string }) {
+export default function UploadForm({
+  watermarkText,
+  existingTags,
+}: {
+  watermarkText: string;
+  existingTags: string[];
+}) {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState('');
@@ -183,8 +189,20 @@ export default function UploadForm({ watermarkText }: { watermarkText: string })
           value={tags}
           onChange={(e) => setTags(e.target.value)}
           placeholder="Zimmerbrand, Innenstadt"
+          list="tag-suggestions"
           className="w-full rounded-md border border-line-strong px-3 py-2 text-[14px] outline-none focus:border-ink"
         />
+        <datalist id="tag-suggestions">
+          {existingTags.map((tag) => (
+            <option key={tag} value={tag} />
+          ))}
+        </datalist>
+        {existingTags.length > 0 && (
+          <p className="mt-1 text-[11px] text-ink-3">
+            Tipp: Beim Tippen werden bereits verwendete Tags vorgeschlagen —
+            hilft, die Suche für alle konsistent zu halten.
+          </p>
+        )}
       </div>
 
       {error && <p className="text-[12.5px] text-signal-deep">{error}</p>}
