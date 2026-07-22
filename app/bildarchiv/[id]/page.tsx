@@ -5,6 +5,7 @@ import type { Metadata } from 'next';
 import { directusAssetUrl } from '@/lib/directus';
 import { getPublicImageById } from '@/lib/queries';
 import { GEWERK_COLORS } from '@/lib/types';
+import ArticleCartToggle from '@/components/ArticleCartToggle';
 
 export const dynamic = 'force-dynamic';
 
@@ -94,16 +95,19 @@ export default async function ImageArticlePage({ params }: Props) {
           </div>
         )}
 
-        {image.file_download && (
-          <a
-            href={directusAssetUrl(image.file_download)}
-            download
-            className="mb-10 inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-signal-deep hover:text-signal"
-          >
-            <i className="ti ti-download text-[14px]" aria-hidden="true" />
-            Originalgröße herunterladen (für Presseverwendung)
-          </a>
-        )}
+        <div className="mb-10 flex flex-wrap items-center gap-4">
+          {image.file_download && (
+            <a
+              href={directusAssetUrl(image.file_download)}
+              download
+              className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-signal-deep hover:text-signal"
+            >
+              <i className="ti ti-download text-[14px]" aria-hidden="true" />
+              Originalgröße herunterladen (für Presseverwendung)
+            </a>
+          )}
+          <ArticleCartToggle imageId={image.id} />
+        </div>
 
         {image.article_body && (
           <div
