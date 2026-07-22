@@ -18,7 +18,8 @@ export default async function KontaktPage() {
         <h1 className="mb-2 font-display text-[32px] font-bold">Kontakt</h1>
         <p className="mb-8 text-[13.5px] leading-[1.6] text-ink-2">
           Fragen zur Nutzung von Bildern, Presseanfragen oder ein Anliegen an
-          eine bestimmte Organisation — schreib uns.
+          eine bestimmte Organisation — deine Nachricht geht direkt an die
+          zuständige Stelle, du musst die Adresse nicht selbst kennen.
         </p>
         <ContactForm organizations={organizations} />
       </div>
