@@ -9,6 +9,7 @@ FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+RUN mkdir -p public
 ENV NEXT_TELEMETRY_DISABLED=1
 # Wird beim Build als NEXT_PUBLIC_-Variable in den Client-Code eingebacken --
 # in Coolify als Build-Argument setzen, siehe README.
