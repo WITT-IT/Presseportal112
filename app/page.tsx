@@ -1,0 +1,105 @@
+import Link from 'next/link';
+import DateLine from '@/components/DateLine';
+import Header from '@/components/Header';
+import Hero from '@/components/Hero';
+import Ticker from '@/components/Ticker';
+import GewerkeGrid from '@/components/GewerkeGrid';
+import PhotoMosaic from '@/components/PhotoMosaic';
+import StatStrip from '@/components/StatStrip';
+import Footer from '@/components/Footer';
+import {
+  getGewerke,
+  getLatestPublicImages,
+  getPublicImageCountsByGewerk,
+  getTotalOrganizationCount,
+  getTotalPublicImageCount,
+} from '@/lib/queries';
+
+// Diese Seite braucht immer den aktuellen Stand aus Directus (öffentliche
+// Bildfreigaben ändern sich laufend) -- deshalb kein statisches Caching.
+export const dynamic = 'force-dynamic';
+
+export default async function HomePage() {
+  // Fällt Directus mal aus, soll die Seite trotzdem laden statt komplett
+  // abzustürzen -- deshalb hier bewusst weich abgefangen, nicht einfach
+  // await Promise.all([...]) ohne Netz.
+  let gewerke: Awaited<ReturnType<typeof getGewerke>> = [];
+  let counts: Record<string, number> = {};
+  let latestImages: Awaited<ReturnType<typeof getLatestPublicImages>> = [];
+  let totalImages = 0;
+  let totalOrganizations = 0;
+  let directusError = false;
+
+  try {
+    gewerke = await getGewerke();
+    [counts, latestImages, totalImages, totalOrganizations] = await Promise.all([
+      getPublicImageCountsByGewerk(gewerke.map((g) => g.id)),
+      getLatestPublicImages(8),
+      getTotalPublicImageCount(),
+      getTotalOrganizationCount(),
+    ]);
+  } catch (error) {
+    console.error('Directus nicht erreichbar:', error);
+    directusError = true;
+  }
+
+  return (
+    <>
+      <DateLine />
+      <Header />
+
+      {directusError && (
+        <div className="border-b border-line bg-panel px-8 py-3 text-center text-[12.5px] text-ink-2">
+          Die Verbindung zu Directus steht gerade nicht -- diese Seite zeigt
+          keine aktuellen Daten. Bitte prüfe die{' '}
+          <code className="font-mono">NEXT_PUBLIC_DIRECTUS_URL</code> und ob
+          das Directus-Projekt erreichbar ist.
+        </div>
+      )}
+
+      <Hero />
+
+      <Ticker images={latestImages} />
+
+      <section className="px-8 py-16">
+        <div className="mx-auto max-w-[1180px]">
+          <div className="mb-7 flex flex-wrap items-end justify-between gap-3">
+            <h2 className="font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
+              Die vier Gewerke
+            </h2>
+            <Link
+              href="/organisationen"
+              className="flex items-center gap-1 text-[12.5px] font-semibold text-signal-deep"
+            >
+              Alle Organisationen
+              <i className="ti ti-arrow-up-right text-[14px]" aria-hidden="true" />
+            </Link>
+          </div>
+          <GewerkeGrid gewerke={gewerke} counts={counts} />
+        </div>
+      </section>
+
+      <section className="px-8 pb-16">
+        <div className="mx-auto max-w-[1180px]">
+          <div className="mb-7 flex flex-wrap items-end justify-between gap-3">
+            <h2 className="font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
+              Zuletzt freigegeben
+            </h2>
+            <Link
+              href="/bildarchiv"
+              className="flex items-center gap-1 text-[12.5px] font-semibold text-signal-deep"
+            >
+              Gesamtes Archiv
+              <i className="ti ti-arrow-up-right text-[14px]" aria-hidden="true" />
+            </Link>
+          </div>
+          <PhotoMosaic images={latestImages} />
+        </div>
+      </section>
+
+      <StatStrip totalImages={totalImages} totalOrganizations={totalOrganizations} />
+
+      <Footer />
+    </>
+  );
+}

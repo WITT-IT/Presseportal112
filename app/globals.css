@@ -1,0 +1,40 @@
+@import url('https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.47.0/tabler-icons.min.css');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@keyframes ticker-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes live-pulse {
+  0% {
+    transform: scale(0.55);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
+.animate-ticker {
+  animation: ticker-scroll 46s linear infinite;
+}
+
+.animate-live-pulse {
+  animation: live-pulse 2.2s ease-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-ticker,
+  .animate-live-pulse {
+    animation: none;
+  }
+}
