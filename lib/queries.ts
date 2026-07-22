@@ -241,3 +241,97 @@ export async function getPublicImagesByOrganization(
     })
   ) as Promise<DirectusImage[]>;
 }
+
+// Alle bisher verwendeten Tags über öffentliche Bilder hinweg -- Grundlage
+// für die Autocomplete-Vorschläge beim Hochladen. Bewusst über den
+// anonymen Public-Client, weil Organisation-Nutzer damit auch die Tags
+// anderer Organisationen als Vorschlag sehen (das ist gewollt: genau das
+// sorgt für Standardisierung statt Wildwuchs).
+export async function getAllUsedTags(): Promise<string[]> {
+  const result = await directus.request(
+    readItems('images', {
+      filter: { is_public: { _eq: true } },
+      fields: ['tags'],
+      limit: -1,
+    })
+  );
+  const all = new Set<string>();
+  for (const row of result as { tags: string[] | null }[]) {
+    (row.tags || []).forEach((t) => all.add(t));
+  }
+  return Array.from(all).sort((a, b) => a.localeCompare(b, 'de'));
+}
+
+// Echte Suche übers Bildarchiv. Holt bewusst eine größere Menge öffentlicher
+// Bilder und filtert/sortiert direkt in unserem eigenen Code, statt sich auf
+// Directus' Filterverhalten bei JSON-Feldern (tags) zu verlassen -- bei der
+// aktuellen Größenordnung (paar hundert Bilder) kostet das praktisch nichts,
+// garantiert aber korrektes Verhalten.
+export async function searchPublicImages({
+  query,
+  gewerkId,
+  page = 1,
+  pageSize = 24,
+}: {
+  query: string;
+  gewerkId?: string;
+  page?: number;
+  pageSize?: number;
+}): Promise<{ images: DirectusImage[]; hasNextPage: boolean; total: number }> {
+  const filter: Record<string, unknown> = { is_public: { _eq: true } };
+  if (gewerkId) {
+    filter.organization = { gewerk: { _eq: gewerkId } };
+  }
+
+  const candidates = (await directus.request(
+    readItems('images', {
+      filter,
+      sort: ['-published_at'],
+      limit: 500, // Obergrenze für die Textsuche -- reicht für die absehbare Größe
+      fields: [
+        'id',
+        'title',
+        'article_body',
+        'file_public_preview',
+        'event_date',
+        'alarm_code',
+        'location',
+        'tags',
+        'is_public',
+        'published_at',
+        { organization: ['id', 'name', 'gewerk'] },
+      ],
+    })
+  )) as DirectusImage[];
+
+  const q = query.trim().toLowerCase();
+  const scored = candidates
+    .map((img) => {
+      const tagsText = (img.tags || []).join(' ').toLowerCase();
+      const title = (img.title || '').toLowerCase();
+      const location = (img.location || '').toLowerCase();
+      const alarmCode = (img.alarm_code || '').toLowerCase();
+      const articleText = (img.article_body || '').replace(/<[^>]+>/g, ' ').toLowerCase();
+
+      let score = 0;
+      if (tagsText.includes(q)) score += 4;
+      if (title.includes(q)) score += 3;
+      if (alarmCode.includes(q)) score += 3;
+      if (location.includes(q)) score += 2;
+      if (articleText.includes(q)) score += 1;
+
+      return { img, score };
+    })
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score || (b.img.published_at || '').localeCompare(a.img.published_at || ''));
+
+  const total = scored.length;
+  const start = (page - 1) * pageSize;
+  const pageItems = scored.slice(start, start + pageSize).map((entry) => entry.img);
+
+  return {
+    images: pageItems,
+    hasNextPage: start + pageSize < total,
+    total,
+  };
+}
