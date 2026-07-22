@@ -1,6 +1,6 @@
 import { readItem, readItems } from '@directus/sdk';
 import { directus, DIRECTUS_URL } from './directus';
-import type { DirectusImage, Gewerk } from './types';
+import type { DirectusImage, Gewerk, Organization } from './types';
 
 // Vier Gewerke inkl. Sortierung, wie in der Taxonomie angelegt.
 export async function getGewerke(): Promise<Gewerk[]> {
@@ -186,4 +186,58 @@ export async function getPublicImageById(id: string): Promise<DirectusImage | nu
     console.error(`getPublicImageById(${id}) fehlgeschlagen:`, error);
     return null;
   }
+}
+
+// Alle Organisationen für das Organisationsverzeichnis, sortiert nach Name.
+export async function getAllOrganizations(): Promise<Organization[]> {
+  return directus.request(
+    readItems('organizations', {
+      sort: ['name'],
+      fields: ['id', 'name', 'gewerk'],
+    })
+  ) as Promise<Organization[]>;
+}
+
+// Einzelne Organisation für die öffentliche Profilseite.
+export async function getOrganizationById(id: string): Promise<Organization | null> {
+  try {
+    const result = await directus.request(
+      readItem('organizations', id, {
+        fields: ['id', 'name', 'gewerk'],
+      })
+    );
+    return result as unknown as Organization;
+  } catch (error) {
+    console.error(`getOrganizationById(${id}) fehlgeschlagen:`, error);
+    return null;
+  }
+}
+
+// Öffentliche Fotos einer bestimmten Organisation, für deren Profilseite.
+export async function getPublicImagesByOrganization(
+  organizationId: string,
+  limit = 24
+): Promise<DirectusImage[]> {
+  return directus.request(
+    readItems('images', {
+      filter: {
+        is_public: { _eq: true },
+        organization: { _eq: organizationId },
+      },
+      sort: ['-published_at'],
+      limit,
+      fields: [
+        'id',
+        'title',
+        'file_public_preview',
+        'event_date',
+        'alarm_code',
+        'location',
+        'tags',
+        'is_public',
+        'published_at',
+        { organization: ['id', 'name', 'gewerk'] },
+      ],
+    })
+  ) as Promise<DirectusImage[]>;
 }
