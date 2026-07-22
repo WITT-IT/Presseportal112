@@ -1,5 +1,5 @@
 import { readItems } from '@directus/sdk';
-import { directus } from './directus';
+import { directus, DIRECTUS_URL } from './directus';
 import type { DirectusImage, Gewerk } from './types';
 
 // Vier Gewerke inkl. Sortierung, wie in der Taxonomie angelegt.
@@ -131,4 +131,22 @@ export async function getPublicImagesPage({
     images: result.slice(0, pageSize),
     hasNextPage: result.length > pageSize,
   };
+}
+
+// Alle Bilder der eigenen Organisation -- öffentliche UND private Entwürfe.
+// Braucht deshalb den echten Access Token des eingeloggten Users statt des
+// anonymen Public-Clients, der private Bilder gar nicht sehen darf.
+export async function getMyOrganizationImages(
+  accessToken: string
+): Promise<DirectusImage[]> {
+  const res = await fetch(
+    `${DIRECTUS_URL}/items/images?sort=-date_created&fields=id,title,file_public_preview,event_date,alarm_code,location,tags,is_public,published_at,organization.id,organization.name,organization.gewerk`,
+    {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: 'no-store',
+    }
+  );
+  if (!res.ok) return [];
+  const { data } = await res.json();
+  return data;
 }
