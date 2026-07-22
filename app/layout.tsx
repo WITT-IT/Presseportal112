@@ -26,10 +26,27 @@ const jetbrains = JetBrains_Mono({
   display: 'swap',
 });
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+// Fällt NEXT_PUBLIC_SITE_URL leer oder ungültig aus, soll der Build trotzdem
+// durchlaufen -- lieber ein Fallback als ein abgestürzter Deploy wegen einer
+// einzelnen falsch gesetzten Variable.
+function resolveSiteUrl(): URL {
+  const raw = process.env.NEXT_PUBLIC_SITE_URL;
+  if (raw) {
+    try {
+      return new URL(raw);
+    } catch {
+      console.warn(
+        `NEXT_PUBLIC_SITE_URL ("${raw}") ist keine gültige URL, nutze Fallback.`
+      );
+    }
+  }
+  return new URL('http://localhost:3000');
+}
+
+const siteUrl = resolveSiteUrl();
 
 export const metadata: Metadata = {
-  metadataBase: new URL(siteUrl),
+  metadataBase: siteUrl,
   title: {
     default: 'Presseportal112.de — Offizielles Bild- und Medienportal',
     template: '%s — Presseportal112.de',
