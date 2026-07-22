@@ -87,3 +87,48 @@ export async function getLatestPublicImages(limit = 8): Promise<DirectusImage[]>
     })
   ) as Promise<DirectusImage[]>;
 }
+
+// Für das Bildarchiv: gefilterte, paginierte Liste öffentlicher Fotos.
+// limit+1-Trick: wir fragen ein Bild mehr ab, als wir zeigen -- taucht es
+// auf, wissen wir, dass es eine weitere Seite gibt, ohne eine separate
+// Zähl-Abfrage zu brauchen.
+export async function getPublicImagesPage({
+  gewerkId,
+  page = 1,
+  pageSize = 24,
+}: {
+  gewerkId?: string;
+  page?: number;
+  pageSize?: number;
+}): Promise<{ images: DirectusImage[]; hasNextPage: boolean }> {
+  const filter: Record<string, unknown> = { is_public: { _eq: true } };
+  if (gewerkId) {
+    filter.organization = { gewerk: { _eq: gewerkId } };
+  }
+
+  const result = await directus.request(
+    readItems('images', {
+      filter,
+      sort: ['-published_at'],
+      limit: pageSize + 1,
+      offset: (page - 1) * pageSize,
+      fields: [
+        'id',
+        'title',
+        'file_public_preview',
+        'event_date',
+        'alarm_code',
+        'location',
+        'tags',
+        'is_public',
+        'published_at',
+        { organization: ['id', 'name', 'gewerk'] },
+      ],
+    })
+  ) as DirectusImage[];
+
+  return {
+    images: result.slice(0, pageSize),
+    hasNextPage: result.length > pageSize,
+  };
+}
