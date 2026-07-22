@@ -1,12 +1,9 @@
 import Link from 'next/link';
-import DateLine from '@/components/DateLine';
-import Header from '@/components/Header';
 import Hero from '@/components/Hero';
 import Ticker from '@/components/Ticker';
 import GewerkeGrid from '@/components/GewerkeGrid';
 import PhotoMosaic from '@/components/PhotoMosaic';
 import StatStrip from '@/components/StatStrip';
-import Footer from '@/components/Footer';
 import {
   getGewerke,
   getLatestPublicImages,
@@ -45,9 +42,6 @@ export default async function HomePage() {
 
   return (
     <>
-      <DateLine />
-      <Header />
-
       {directusError && (
         <div className="border-b border-line bg-panel px-8 py-3 text-center text-[12.5px] text-ink-2">
           Die Verbindung zu Directus steht gerade nicht -- diese Seite zeigt
@@ -98,8 +92,6 @@ export default async function HomePage() {
       </section>
 
       <StatStrip totalImages={totalImages} totalOrganizations={totalOrganizations} />
-
-      <Footer />
     </>
   );
 }
