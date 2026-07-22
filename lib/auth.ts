@@ -90,6 +90,6 @@ export function cookieOptions(secure: boolean) {
     secure,
     sameSite: 'lax' as const,
     path: '/',
-    maxAge: 60 * 60 * 24 * 7, // 7 Tage -- entspricht der Directus-Refresh-Token-Gültigkeit
+    maxAge: 60 * 10, // 10 Minuten -- gleitendes Fenster, siehe middleware.ts
   };
 }
