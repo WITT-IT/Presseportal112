@@ -2,13 +2,18 @@
 
 import { useRef, useEffect } from 'react';
 
-const TOOLS: { label: string; command: string; value?: string; icon: string }[] = [
-  { label: 'Fett', command: 'bold', icon: 'ti-bold' },
-  { label: 'Kursiv', command: 'italic', icon: 'ti-italic' },
-  { label: 'Überschrift', command: 'formatBlock', value: 'h2', icon: 'ti-h-2' },
-  { label: 'Absatz', command: 'formatBlock', value: 'p', icon: 'ti-align-left' },
-  { label: 'Liste', command: 'insertUnorderedList', icon: 'ti-list' },
-  { label: 'Link', command: 'createLink', icon: 'ti-link' },
+const TOOLS: {
+  label: string;
+  command: string;
+  value?: string;
+  className: string;
+}[] = [
+  { label: 'Fett', command: 'bold', className: 'font-bold' },
+  { label: 'Kursiv', command: 'italic', className: 'italic' },
+  { label: 'Überschrift', command: 'formatBlock', value: 'h2', className: 'font-bold' },
+  { label: 'Absatz', command: 'formatBlock', value: 'p', className: '' },
+  { label: '• Liste', command: 'insertUnorderedList', className: '' },
+  { label: 'Link', command: 'createLink', className: 'underline' },
 ];
 
 export default function RichTextEditor({
@@ -44,16 +49,16 @@ export default function RichTextEditor({
 
   return (
     <div className="overflow-hidden rounded-md border border-line-strong">
-      <div className="flex flex-wrap gap-1 border-b border-line-strong bg-panel p-2">
+      <div className="flex flex-wrap gap-1.5 border-b border-line-strong bg-panel p-2">
         {TOOLS.map((tool) => (
           <button
             key={tool.label}
             type="button"
             onClick={() => exec(tool.command, tool.value)}
             title={tool.label}
-            className="flex h-7 w-7 items-center justify-center rounded text-ink-2 transition-colors hover:bg-line hover:text-ink"
+            className={`rounded border border-line-strong bg-white px-2.5 py-1 text-[12px] text-ink transition-colors hover:border-ink ${tool.className}`}
           >
-            <i className={`ti ${tool.icon} text-[15px]`} aria-hidden="true" />
+            {tool.label}
           </button>
         ))}
       </div>
