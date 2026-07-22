@@ -1,7 +1,22 @@
 import { randomUUID } from 'node:crypto';
+import sanitizeHtml from 'sanitize-html';
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
 import { DIRECTUS_URL } from '@/lib/directus';
+
+// Der Artikeltext landet später ungefiltert als HTML auf einer öffentlichen
+// Seite (dangerouslySetInnerHTML) -- deshalb hier serverseitig auf eine
+// bewusst kleine Liste erlaubter Tags einschränken. Das schützt vor
+// gespeichertem Cross-Site-Scripting, auch wenn jemand direkt die API statt
+// unseres eigenen Editors anspricht.
+const ARTICLE_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
+  allowedTags: ['p', 'br', 'b', 'strong', 'i', 'em', 'h2', 'ul', 'ol', 'li', 'a'],
+  allowedAttributes: { a: ['href', 'target', 'rel'] },
+  allowedSchemes: ['http', 'https', 'mailto'],
+  transformTags: {
+    a: sanitizeHtml.simpleTransform('a', { rel: 'noopener noreferrer', target: '_blank' }),
+  },
+};
 
 // UUID des Datei-Bibliothek-Ordners "Öffentlich" -- ohne diese Variable
 // landen watermarked Dateien im Root und sind für die Public-Policy später
@@ -70,6 +85,10 @@ export async function POST(request: NextRequest) {
   const alarmCode = (formData.get('alarm_code') as string) || null;
   const location = (formData.get('location') as string) || null;
   const tagsRaw = (formData.get('tags') as string) || '';
+  const articleBodyRaw = (formData.get('article_body') as string) || '';
+  const articleBody = articleBodyRaw.trim()
+    ? sanitizeHtml(articleBodyRaw, ARTICLE_SANITIZE_OPTIONS)
+    : null;
 
   if (!originalFile || !previewFile || !downloadFile || !eventDate) {
     return NextResponse.json({ error: 'Pflichtfelder fehlen.' }, { status: 400 });
@@ -112,6 +131,7 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify({
         id: imageId,
         title,
+        article_body: articleBody,
         original_name: originalFile.name,
         file_original: originalId,
         file_public_preview: previewId,
