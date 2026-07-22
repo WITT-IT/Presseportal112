@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
 const NAV_LINKS = [
   { href: '/bildarchiv', label: 'Bildarchiv' },
@@ -9,8 +10,18 @@ const NAV_LINKS = [
   { href: '/kontakt', label: 'Kontakt' },
 ];
 
-export default function Header() {
+export default function Header({ loggedIn }: { loggedIn: boolean }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const router = useRouter();
+
+  async function handleLogout() {
+    setLoggingOut(true);
+    await fetch('/api/auth/logout', { method: 'POST' });
+    setMenuOpen(false);
+    router.push('/');
+    router.refresh();
+  }
 
   return (
     <header className="border-b border-line-strong bg-paper">
@@ -46,12 +57,32 @@ export default function Header() {
           >
             <i className="ti ti-search text-[17px]" aria-hidden="true" />
           </button>
-          <Link
-            href="/login"
-            className="rounded-md bg-ink px-[18px] py-[10px] text-[13px] font-semibold text-white transition-colors hover:bg-black"
-          >
-            Anmelden
-          </Link>
+
+          {loggedIn ? (
+            <>
+              <Link
+                href="/intern"
+                className="text-[13.5px] font-medium text-ink-2 transition-colors hover:text-ink"
+              >
+                Mein Bereich
+              </Link>
+              <button
+                type="button"
+                onClick={handleLogout}
+                disabled={loggingOut}
+                className="rounded-md border border-line-strong px-[18px] py-[10px] text-[13px] font-semibold text-ink transition-colors hover:border-ink disabled:opacity-60"
+              >
+                {loggingOut ? '…' : 'Abmelden'}
+              </button>
+            </>
+          ) : (
+            <Link
+              href="/login"
+              className="rounded-md bg-ink px-[18px] py-[10px] text-[13px] font-semibold text-white transition-colors hover:bg-black"
+            >
+              Anmelden
+            </Link>
+          )}
         </nav>
 
         <button
@@ -75,17 +106,40 @@ export default function Header() {
               <Link
                 key={link.href}
                 href={link.href}
+                onClick={() => setMenuOpen(false)}
                 className="rounded-md px-2 py-3 text-[14px] font-medium text-ink-2 hover:bg-panel hover:text-ink"
               >
                 {link.label}
               </Link>
             ))}
-            <Link
-              href="/login"
-              className="mt-2 rounded-md bg-ink px-4 py-3 text-center text-[13.5px] font-semibold text-white"
-            >
-              Anmelden
-            </Link>
+
+            {loggedIn ? (
+              <>
+                <Link
+                  href="/intern"
+                  onClick={() => setMenuOpen(false)}
+                  className="rounded-md px-2 py-3 text-[14px] font-medium text-ink-2 hover:bg-panel hover:text-ink"
+                >
+                  Mein Bereich
+                </Link>
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  disabled={loggingOut}
+                  className="mt-2 rounded-md border border-line-strong px-4 py-3 text-center text-[13.5px] font-semibold text-ink disabled:opacity-60"
+                >
+                  {loggingOut ? '…' : 'Abmelden'}
+                </button>
+              </>
+            ) : (
+              <Link
+                href="/login"
+                onClick={() => setMenuOpen(false)}
+                className="mt-2 rounded-md bg-ink px-4 py-3 text-center text-[13.5px] font-semibold text-white"
+              >
+                Anmelden
+              </Link>
+            )}
           </nav>
         </div>
       )}
