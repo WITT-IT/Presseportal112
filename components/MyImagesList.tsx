@@ -21,6 +21,22 @@ export default function MyImagesList({ images }: { images: DirectusImage[] }) {
     router.refresh();
   }
 
+  async function handleDelete(id: string) {
+    const confirmed = window.confirm(
+      'Dieses Bild wirklich löschen? Das entfernt auch die Originaldatei und alle Varianten unwiderruflich vom Server.'
+    );
+    if (!confirmed) return;
+
+    setPendingId(id);
+    await fetch('/api/intern/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    });
+    setPendingId(null);
+    router.refresh();
+  }
+
   if (images.length === 0) {
     return (
       <p className="text-[13px] text-ink-2">
@@ -61,22 +77,34 @@ export default function MyImagesList({ images }: { images: DirectusImage[] }) {
             <div className="mb-2 truncate text-[12px] font-medium">
               {img.title || 'Ohne Titel'}
             </div>
-            <button
-              type="button"
-              onClick={() => togglePublic(img.id, img.is_public)}
-              disabled={pendingId === img.id}
-              className={`w-full rounded-md px-2 py-1.5 text-[11px] font-semibold transition-colors disabled:opacity-50 ${
-                img.is_public
-                  ? 'bg-panel text-ink-2 hover:bg-line'
-                  : 'bg-ink text-white hover:bg-black'
-              }`}
-            >
-              {pendingId === img.id
-                ? '…'
-                : img.is_public
-                ? 'Zurückziehen'
-                : 'Veröffentlichen'}
-            </button>
+
+            <div className="flex flex-col gap-1.5">
+              <button
+                type="button"
+                onClick={() => togglePublic(img.id, img.is_public)}
+                disabled={pendingId === img.id}
+                className={`w-full rounded-md px-2 py-1.5 text-[11px] font-semibold transition-colors disabled:opacity-50 ${
+                  img.is_public
+                    ? 'bg-panel text-ink-2 hover:bg-line'
+                    : 'bg-ink text-white hover:bg-black'
+                }`}
+              >
+                {pendingId === img.id
+                  ? '…'
+                  : img.is_public
+                  ? 'Zurückziehen'
+                  : 'Veröffentlichen'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleDelete(img.id)}
+                disabled={pendingId === img.id}
+                className="w-full rounded-md border border-line-strong px-2 py-1.5 text-[11px] font-semibold text-signal-deep transition-colors hover:border-signal hover:bg-signal/5 disabled:opacity-50"
+              >
+                Löschen
+              </button>
+            </div>
           </div>
         </div>
       ))}
