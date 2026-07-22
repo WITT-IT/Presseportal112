@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation';
 import UploadForm from '@/components/UploadForm';
 import MyImagesList from '@/components/MyImagesList';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
-import { getMyOrganizationImages } from '@/lib/queries';
+import { getMyOrganizationImages, getAllUsedTags } from '@/lib/queries';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,7 +22,10 @@ export default async function InternDashboard() {
   const user = await getCurrentUser(session.accessToken);
   if (!user) redirect('/login');
 
-  const images = await getMyOrganizationImages(session.accessToken);
+  const [images, existingTags] = await Promise.all([
+    getMyOrganizationImages(session.accessToken),
+    getAllUsedTags(),
+  ]);
 
   const watermarkText =
     user.organization?.branding_label || `Foto: ${user.organization?.name ?? ''}`;
@@ -47,7 +50,7 @@ export default async function InternDashboard() {
               <h2 className="mb-4 font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
                 Neues Foto hochladen
               </h2>
-              <UploadForm watermarkText={watermarkText} />
+              <UploadForm watermarkText={watermarkText} existingTags={existingTags} />
             </div>
 
             <div>
