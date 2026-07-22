@@ -101,7 +101,7 @@ export async function GET(request: NextRequest) {
 
   const buffer = await zip.generateAsync({ type: 'nodebuffer' });
 
-  return new NextResponse(buffer, {
+  return new NextResponse(new Uint8Array(buffer), {
     headers: {
       'Content-Type': 'application/zip',
       'Content-Disposition': 'attachment; filename="presseportal112-pressemappe.zip"',
