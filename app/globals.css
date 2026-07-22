@@ -38,3 +38,30 @@
     animation: none;
   }
 }
+
+.prose-article p {
+  margin-bottom: 0.9em;
+}
+
+.prose-article h2 {
+  font-family: var(--font-barlow), sans-serif;
+  font-weight: 700;
+  font-size: 21px;
+  margin: 1.3em 0 0.5em;
+}
+
+.prose-article ul {
+  list-style: disc;
+  padding-left: 1.25em;
+  margin-bottom: 0.9em;
+}
+
+.prose-article a {
+  color: #8e1420;
+  text-decoration: underline;
+}
+
+.prose-article:empty::before {
+  content: attr(data-placeholder);
+  color: #93969b;
+}
