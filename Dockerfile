@@ -3,18 +3,19 @@ FROM node:20-alpine AS base
 FROM base AS deps
 WORKDIR /app
 COPY package.json package-lock.json* ./
-RUN npm install
+RUN npm ci
 
 FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN mkdir -p public
 ENV NEXT_TELEMETRY_DISABLED=1
 # Wird beim Build als NEXT_PUBLIC_-Variable in den Client-Code eingebacken --
 # in Coolify als Build-Argument setzen, siehe README.
 ARG NEXT_PUBLIC_DIRECTUS_URL
 ENV NEXT_PUBLIC_DIRECTUS_URL=${NEXT_PUBLIC_DIRECTUS_URL}
+ARG NEXT_PUBLIC_SITE_URL
+ENV NEXT_PUBLIC_SITE_URL=${NEXT_PUBLIC_SITE_URL}
 RUN npm run build
 
 FROM base AS runner
