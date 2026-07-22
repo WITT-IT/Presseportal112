@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
 import { DIRECTUS_URL } from '@/lib/directus';
@@ -7,27 +8,21 @@ import { DIRECTUS_URL } from '@/lib/directus';
 // nicht abrufbar (die filtert dort exakt auf diesen Ordner).
 const PUBLIC_FOLDER_ID = process.env.DIRECTUS_PUBLIC_FOLDER_ID;
 
-async function parseJsonResponse(res: Response, context: string) {
-  const text = await res.text();
-  if (!text) {
-    throw new Error(`${context}: leere Antwort vom Server (Status ${res.status}).`);
-  }
-  try {
-    return JSON.parse(text);
-  } catch {
-    throw new Error(
-      `${context}: keine gültige JSON-Antwort (Status ${res.status}): ${text.slice(0, 300)}`
-    );
-  }
-}
-
+// Directus antwortet nach dem Anlegen einer Datei manchmal mit 204 statt 200,
+// wenn die eigene Rolle die gerade erstellte Datei laut Lese-Filter nicht
+// sofort zurücklesen kann (bekanntes Verhalten, siehe
+// github.com/directus/directus/issues/22649). Deshalb vergeben wir die ID
+// selbst im Voraus, statt sie aus der Antwort auszulesen -- dann ist es
+// egal, ob 200 mit Daten oder 204 ohne zurückkommt.
 async function uploadFileToDirectus(
   accessToken: string,
   blob: Blob,
   filename: string,
   folderId?: string
 ): Promise<string> {
+  const id = randomUUID();
   const form = new FormData();
+  form.append('id', id);
   if (folderId) form.append('folder', folderId);
   form.append('file', blob, filename);
 
@@ -41,8 +36,8 @@ async function uploadFileToDirectus(
     const body = await res.text();
     throw new Error(`Datei-Upload fehlgeschlagen (${filename}): ${body}`);
   }
-  const { data } = await parseJsonResponse(res, `Datei-Upload (${filename})`);
-  return data.id as string;
+
+  return id;
 }
 
 export async function POST(request: NextRequest) {
@@ -104,6 +99,10 @@ export async function POST(request: NextRequest) {
       .map((t) => t.trim())
       .filter(Boolean);
 
+    // Gleiches Prinzip wie oben: eigene ID vergeben, damit eine mögliche
+    // 204-Antwort auch hier nicht zum Problem wird.
+    const imageId = randomUUID();
+
     const itemRes = await fetch(`${DIRECTUS_URL}/items/images`, {
       method: 'POST',
       headers: {
@@ -111,6 +110,7 @@ export async function POST(request: NextRequest) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
+        id: imageId,
         title,
         original_name: originalFile.name,
         file_original: originalId,
@@ -130,8 +130,7 @@ export async function POST(request: NextRequest) {
       throw new Error(body);
     }
 
-    const { data } = await parseJsonResponse(itemRes, 'Bild-Anlage');
-    return NextResponse.json({ ok: true, id: data.id });
+    return NextResponse.json({ ok: true, id: imageId });
   } catch (error) {
     console.error('Upload fehlgeschlagen:', error);
     return NextResponse.json(
