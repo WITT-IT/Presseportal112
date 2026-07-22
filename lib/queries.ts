@@ -182,7 +182,8 @@ export async function getPublicImageById(id: string): Promise<DirectusImage | nu
       })
     );
     return result as unknown as DirectusImage;
-  } catch {
+  } catch (error) {
+    console.error(`getPublicImageById(${id}) fehlgeschlagen:`, error);
     return null;
   }
 }
