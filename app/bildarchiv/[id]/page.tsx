@@ -98,8 +98,7 @@ export default async function ImageArticlePage({ params }: Props) {
         <div className="mb-10 flex flex-wrap items-center gap-4">
           {image.file_download && (
             <a
-              href={directusAssetUrl(image.file_download)}
-              download
+              href={`/api/download?id=${image.id}`}
               className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-signal-deep hover:text-signal"
             >
               <i className="ti ti-download text-[14px]" aria-hidden="true" />
