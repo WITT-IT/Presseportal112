@@ -56,7 +56,7 @@ export default async function HomePage() {
         <div className="mx-auto max-w-[1180px]">
           <div className="mb-7 flex flex-wrap items-end justify-between gap-3">
             <h2 className="font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
-              Die vier Gewerke
+              Die Gewerke
             </h2>
             <Link
               href="/organisationen"
