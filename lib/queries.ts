@@ -213,6 +213,44 @@ export async function getPublicImagesByOrganization(
   ) as Promise<Post[]>;
 }
 
+// Einzelner Beitrag mit allen Feldern zum Bearbeiten -- läuft über den
+// User-Token, damit auch Entwürfe geladen werden können, und Directus prüft
+// automatisch über die Organisation-Policy, ob dieser Beitrag überhaupt zur
+// eigenen Organisation gehört.
+export async function getPostForEdit(accessToken: string, id: string): Promise<Post | null> {
+  const fields = [
+    'id',
+    'title',
+    'article_body',
+    'event_date',
+    'alarm_code',
+    'location',
+    'tags',
+    'is_public',
+    'organization.id',
+    'organization.name',
+    'organization.gewerk',
+    'images.id',
+    'images.file_public_preview',
+    'images.caption',
+    'images.sort',
+  ].join(',');
+
+  const res = await fetch(`${DIRECTUS_URL}/items/posts/${id}?fields=${fields}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    cache: 'no-store',
+  });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    console.error(`getPostForEdit(${id}) fehlgeschlagen (Status ${res.status}):`, body);
+    return null;
+  }
+
+  const { data } = await res.json();
+  return data;
+}
+
 // Alle bisher verwendeten Tags -- Grundlage für die Autocomplete-Vorschläge
 // beim Hochladen. Gewollt über alle Organisationen hinweg, damit sich die
 // Schlagworte portalweit angleichen statt auseinanderzulaufen.
