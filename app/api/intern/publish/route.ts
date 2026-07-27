@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
   // Fragt gleich die Felder mit ab, die wir für den Presse-Alarm brauchen --
   // spart einen zweiten Request.
   const res = await fetch(
-    `${DIRECTUS_URL}/items/images/${id}?fields=id,title,alarm_code,organization.name,organization.gewerk`,
+    `${DIRECTUS_URL}/items/posts/${id}?fields=id,title,alarm_code,organization.name,organization.gewerk`,
     {
       method: 'PATCH',
       headers: {
@@ -54,21 +54,21 @@ export async function POST(request: NextRequest) {
   // Mailversand niemals die eigentliche Veröffentlichung scheitern lässt.
   if (isPublic) {
     try {
-      const { data: updatedImage } = await res.json();
-      const gewerkId = updatedImage?.organization?.gewerk;
+      const { data: updatedPost } = await res.json();
+      const gewerkId = updatedPost?.organization?.gewerk;
 
       if (gewerkId) {
         const subs = await getConfirmedSubscriptionsForGewerk(gewerkId);
         const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
-        const articleUrl = `${siteUrl}/bildarchiv/${updatedImage.id}`;
+        const articleUrl = `${siteUrl}/bildarchiv/${updatedPost.id}`;
 
         await Promise.allSettled(
           subs.map((sub) =>
             sendNewImageAlert({
               to: sub.email,
               unsubscribeToken: sub.unsubscribe_token,
-              imageTitle: updatedImage.title || updatedImage.alarm_code || 'Neues Einsatzfoto',
-              organizationName: updatedImage.organization?.name || 'Presseportal112',
+              imageTitle: updatedPost.title || updatedPost.alarm_code || 'Neues Einsatzfoto',
+              organizationName: updatedPost.organization?.name || 'Presseportal112',
               articleUrl,
             })
           )
