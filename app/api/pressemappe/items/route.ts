@@ -16,9 +16,15 @@ export async function GET(request: NextRequest) {
 
   try {
     const items = await directus.request(
-      readItems('images', {
+      readItems('posts', {
         filter: { id: { _in: ids }, is_public: { _eq: true } },
-        fields: ['id', 'title', 'file_public_preview', 'alarm_code', { organization: ['name'] }],
+        fields: [
+          'id',
+          'title',
+          'alarm_code',
+          { organization: ['name'] },
+          { images: ['id', 'file_public_preview', 'sort'] },
+        ],
       })
     );
     return NextResponse.json({ items });
