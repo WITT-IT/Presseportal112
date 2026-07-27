@@ -8,6 +8,7 @@ import { CartProvider } from '@/components/CartProvider';
 import { DialogProvider } from '@/components/DialogProvider';
 import CookieNotice from '@/components/CookieNotice';
 import { SESSION_COOKIE } from '@/lib/auth';
+import { toJsonLd } from '@/lib/structuredData';
 import './globals.css';
 
 const barlow = Barlow_Condensed({
@@ -94,6 +95,19 @@ export default async function RootLayout({
       <body
         className={`${barlow.variable} ${inter.variable} ${jetbrains.variable} font-sans bg-paper text-ink antialiased`}
       >
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: toJsonLd({
+              '@context': 'https://schema.org',
+              '@type': 'Organization',
+              name: 'Presseportal112.de',
+              url: siteUrl.toString(),
+              description:
+                'Offizielles Bild- und Medienportal für Einsatzfotos von Feuerwehr, DRK, Polizei und THW.',
+            }),
+          }}
+        />
         <DialogProvider>
           <CartProvider>
             <DateLine />
