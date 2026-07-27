@@ -3,9 +3,11 @@ import Image from 'next/image';
 import Link from 'next/link';
 import type { Metadata } from 'next';
 import { directusAssetUrl } from '@/lib/directus';
-import { getPublicImageById } from '@/lib/queries';
+import { getPublicImageById, getPublicImagesByOrganization } from '@/lib/queries';
 import { GEWERK_COLORS } from '@/lib/types';
+import { toJsonLd } from '@/lib/structuredData';
 import ArticleCartToggle from '@/components/ArticleCartToggle';
+import GalleryCard from '@/components/GalleryCard';
 
 export const dynamic = 'force-dynamic';
 
@@ -50,8 +52,39 @@ export default async function ImageArticlePage({ params }: Props) {
     year: 'numeric',
   });
 
+  // "Weitere Meldungen" derselben Organisation -- eine mehr als gebraucht
+  // anfragen, damit nach dem Herausfiltern des aktuellen Artikels trotzdem
+  // genug übrig bleiben.
+  const relatedImages = org
+    ? (await getPublicImagesByOrganization(org.id, 5)).filter((i) => i.id !== image.id).slice(0, 4)
+    : [];
+
+  const articleUrl = `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/bildarchiv/${image.id}`;
+
+  const newsArticleJsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'NewsArticle',
+    mainEntityOfPage: { '@type': 'WebPage', '@id': articleUrl },
+    headline: image.title || `Einsatzfoto ${image.alarm_code ?? ''}`.trim(),
+    image: image.file_public_preview
+      ? [directusAssetUrl(image.file_public_preview, 'width=1200&quality=85')]
+      : undefined,
+    datePublished: image.published_at,
+    dateModified: image.published_at,
+    author: org?.name ? { '@type': 'Organization', name: org.name } : undefined,
+    publisher: {
+      '@type': 'Organization',
+      name: 'Presseportal112.de',
+    },
+  };
+
   return (
     <article className="px-8 py-12">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: toJsonLd(newsArticleJsonLd) }}
+      />
+
       <div className="mx-auto max-w-[760px]">
         <Link
           href="/bildarchiv"
@@ -78,7 +111,11 @@ export default async function ImageArticlePage({ params }: Props) {
         </h1>
 
         <div className="mb-8 flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-ink-2">
-          {org?.name && <span>{org.name}</span>}
+          {org?.name && (
+            <Link href={`/organisationen/${org.id}`} className="font-medium hover:text-ink">
+              {org.name}
+            </Link>
+          )}
           {image.location && <span>&middot; {image.location}</span>}
         </div>
 
@@ -106,6 +143,15 @@ export default async function ImageArticlePage({ params }: Props) {
             </a>
           )}
           <ArticleCartToggle imageId={image.id} />
+          {org?.id && (
+            <Link
+              href={`/kontakt?org=${org.id}`}
+              className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-line-strong px-3.5 py-2 text-[12px] font-semibold text-ink transition-colors hover:border-ink"
+            >
+              <i className="ti ti-mail text-[13px]" aria-hidden="true" />
+              Kontakt zu {org.name} aufnehmen
+            </Link>
+          )}
         </div>
 
         {image.article_body && (
@@ -118,7 +164,7 @@ export default async function ImageArticlePage({ params }: Props) {
         )}
 
         {image.tags && image.tags.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 border-t border-line pt-6">
+          <div className="mb-10 flex flex-wrap gap-1.5 border-t border-line pt-6">
             {image.tags.map((tag) => (
               <span
                 key={tag}
@@ -127,6 +173,19 @@ export default async function ImageArticlePage({ params }: Props) {
                 {tag}
               </span>
             ))}
+          </div>
+        )}
+
+        {relatedImages.length > 0 && (
+          <div className="border-t border-line pt-8">
+            <h2 className="mb-5 font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
+              Weitere Meldungen von {org?.name}
+            </h2>
+            <div className="grid grid-cols-2 gap-[16px] nav:grid-cols-4">
+              {relatedImages.map((img) => (
+                <GalleryCard key={img.id} img={img} />
+              ))}
+            </div>
           </div>
         )}
       </div>
