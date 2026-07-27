@@ -1,6 +1,5 @@
 import Link from 'next/link';
 import Hero from '@/components/Hero';
-import Ticker from '@/components/Ticker';
 import GewerkeGrid from '@/components/GewerkeGrid';
 import PhotoMosaic from '@/components/PhotoMosaic';
 import StatStrip from '@/components/StatStrip';
@@ -51,9 +50,7 @@ export default async function HomePage() {
         </div>
       )}
 
-      <Hero />
-
-      <Ticker images={latestImages} />
+      <Hero latestImages={latestImages} />
 
       <section className="px-8 py-16">
         <div className="mx-auto max-w-[1180px]">
