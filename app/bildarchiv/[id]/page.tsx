@@ -8,6 +8,7 @@ import { toJsonLd } from '@/lib/structuredData';
 import ArticleCartToggle from '@/components/ArticleCartToggle';
 import GalleryCard from '@/components/GalleryCard';
 import PostGallery from '@/components/PostGallery';
+import DarkMasthead from '@/components/DarkMasthead';
 
 export const dynamic = 'force-dynamic';
 
@@ -91,50 +92,62 @@ export default async function PostArticlePage({ params }: Props) {
   };
 
   return (
-    <article className="px-8 py-12">
+    <article>
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: toJsonLd(newsArticleJsonLd) }}
       />
 
-      <div className="mx-auto max-w-[760px]">
-        <Link
-          href="/bildarchiv"
-          className="mb-6 inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-ink-2 hover:text-ink"
-        >
-          <i className="ti ti-arrow-left text-[14px]" aria-hidden="true" />
-          Zurück zum Bildarchiv
-        </Link>
-
-        <div
-          className="mb-4 flex items-center gap-2.5 font-mono text-[11.5px] font-medium uppercase tracking-[0.04em]"
-          style={{ color }}
-        >
-          <span
-            className="h-1.5 w-1.5 rounded-[1.5px]"
-            style={{ backgroundColor: color }}
-            aria-hidden="true"
-          />
-          {post.alarm_code ?? 'Pressefoto'} &middot; {dateLabel}
-          {images.length > 1 && (
-            <span className="text-ink-3">&middot; {images.length} Fotos</span>
-          )}
-        </div>
-
-        <h1 className="mb-4 font-display text-[36px] font-bold leading-[1.05] tracking-[-0.01em] nav:text-[42px]">
-          {post.title || `Einsatz ${org?.name ?? ''}`}
-        </h1>
-
-        <div className="mb-8 flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-ink-2">
-          {org?.name && (
-            <Link href={`/organisationen/${org.id}`} className="font-medium hover:text-ink">
-              {org.name}
+      <DarkMasthead
+        backgroundImageUrl={
+          hero?.file_public_preview
+            ? directusAssetUrl(hero.file_public_preview, 'width=2000&quality=70')
+            : null
+        }
+      >
+        <div className="px-8 py-14">
+          <div className="mx-auto max-w-[760px]">
+            <Link
+              href="/bildarchiv"
+              className="mb-6 inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-white/60 hover:text-white"
+            >
+              <i className="ti ti-arrow-left text-[14px]" aria-hidden="true" />
+              Zurück zum Bildarchiv
             </Link>
-          )}
-          {post.location && <span>&middot; {post.location}</span>}
-        </div>
 
+            <div className="mb-4 flex items-center gap-2.5 font-mono text-[11.5px] font-medium uppercase tracking-[0.04em] text-amber">
+              <span
+                className="h-1.5 w-1.5 rounded-[1.5px]"
+                style={{ backgroundColor: color, boxShadow: `0 0 6px ${color}` }}
+                aria-hidden="true"
+              />
+              {post.alarm_code ?? 'Pressefoto'} &middot; {dateLabel}
+              {images.length > 1 && (
+                <span className="text-white/40">&middot; {images.length} Fotos</span>
+              )}
+            </div>
+
+            <h1 className="mb-4 font-display text-[clamp(30px,5vw,48px)] font-bold leading-[1.02] tracking-[-0.01em] text-white">
+              {post.title || `Einsatz ${org?.name ?? ''}`}
+            </h1>
+
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-white/55">
+              {org?.name && (
+                <Link href={`/organisationen/${org.id}`} className="font-medium text-white/80 hover:text-white">
+                  {org.name}
+                </Link>
+              )}
+              {post.location && <span>&middot; {post.location}</span>}
+            </div>
+          </div>
+        </div>
+      </DarkMasthead>
+
+      <div className="px-8 py-12">
+      <div className="mx-auto max-w-[760px]">
+        <div className="mt-2">
         <PostGallery images={images} />
+        </div>
 
         <div className="mb-10 flex flex-wrap items-center gap-4">
           {hero?.file_download && (
@@ -194,6 +207,7 @@ export default async function PostArticlePage({ params }: Props) {
             </div>
           </div>
         )}
+      </div>
       </div>
     </article>
   );
