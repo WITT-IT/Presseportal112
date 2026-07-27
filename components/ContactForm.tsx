@@ -3,10 +3,16 @@
 import { useState, type FormEvent } from 'react';
 import type { Organization } from '@/lib/types';
 
-export default function ContactForm({ organizations }: { organizations: Organization[] }) {
+export default function ContactForm({
+  organizations,
+  defaultOrganizationId,
+}: {
+  organizations: Organization[];
+  defaultOrganizationId?: string;
+}) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [recipient, setRecipient] = useState('');
+  const [recipient, setRecipient] = useState(defaultOrganizationId ?? '');
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
   const [status, setStatus] = useState<'idle' | 'sending' | 'done' | 'error'>('idle');
