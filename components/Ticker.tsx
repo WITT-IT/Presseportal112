@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import type { DirectusImage } from '@/lib/types';
 import { GEWERK_COLORS } from '@/lib/types';
 
@@ -27,9 +28,10 @@ export default function Ticker({ images }: { images: DirectusImage[] }) {
               : 'feuerwehr';
           const color = GEWERK_COLORS[gewerkId] ?? GEWERK_COLORS.feuerwehr;
           return (
-            <div
+            <Link
               key={`${img.id}-${i}`}
-              className="flex items-center gap-[11px] whitespace-nowrap border-r border-line px-7 py-3.5 text-[12px]"
+              href={`/bildarchiv/${img.id}`}
+              className="flex items-center gap-[11px] whitespace-nowrap border-r border-line px-7 py-3.5 text-[12px] transition-colors hover:bg-panel"
             >
               <span
                 className="h-1.5 w-1.5 flex-none rounded-[1.5px]"
@@ -47,7 +49,7 @@ export default function Ticker({ images }: { images: DirectusImage[] }) {
                   ? img.organization?.name
                   : '')}
               </span>
-            </div>
+            </Link>
           );
         })}
       </div>
