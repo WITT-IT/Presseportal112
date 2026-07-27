@@ -5,6 +5,7 @@ import DateLine from '@/components/DateLine';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import { CartProvider } from '@/components/CartProvider';
+import CookieNotice from '@/components/CookieNotice';
 import { SESSION_COOKIE } from '@/lib/auth';
 import './globals.css';
 
@@ -97,6 +98,7 @@ export default async function RootLayout({
           <Header loggedIn={loggedIn} />
           {children}
           <Footer />
+          <CookieNotice />
         </CartProvider>
       </body>
     </html>
