@@ -4,6 +4,8 @@ import { useState, type ChangeEvent, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { createWatermarkedVariants } from '@/lib/watermark';
 import RichTextEditor from '@/components/RichTextEditor';
+import AlarmCodeInput from '@/components/AlarmCodeInput';
+import type { Alarmcode } from '@/lib/types';
 
 const MAX_FILE_SIZE = 80 * 1024 * 1024; // 80 MB pro Datei
 const MAX_IMAGES = 12;
@@ -17,9 +19,11 @@ type SelectedImage = {
 export default function UploadForm({
   watermarkText,
   existingTags,
+  alarmcodes,
 }: {
   watermarkText: string;
   existingTags: string[];
+  alarmcodes: Alarmcode[];
 }) {
   const router = useRouter();
   const [images, setImages] = useState<SelectedImage[]>([]);
@@ -240,13 +244,7 @@ export default function UploadForm({
           <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">
             Alarmcode
           </label>
-          <input
-            type="text"
-            value={alarmCode}
-            onChange={(e) => setAlarmCode(e.target.value)}
-            placeholder="z. B. B1"
-            className="w-full rounded-md border border-line-strong px-3 py-2 text-[14px] outline-none focus:border-ink"
-          />
+          <AlarmCodeInput value={alarmCode} onChange={setAlarmCode} alarmcodes={alarmcodes} />
         </div>
       </div>
 
