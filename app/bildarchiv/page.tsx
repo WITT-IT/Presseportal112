@@ -103,8 +103,8 @@ export default async function BildarchivPage({
         {images.length > 0 && (
           <>
             <div className="grid grid-cols-2 gap-[16px] nav:grid-cols-4">
-              {images.map((img) => (
-                <GalleryCard key={img.id} img={img} />
+              {images.map((post) => (
+                <GalleryCard key={post.id} post={post} />
               ))}
             </div>
 
