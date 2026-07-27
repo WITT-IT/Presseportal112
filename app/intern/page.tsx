@@ -22,7 +22,7 @@ export default async function InternDashboard() {
   const user = await getCurrentUser(session.accessToken);
   if (!user) redirect('/login');
 
-  const [images, existingTags] = await Promise.all([
+  const [posts, existingTags] = await Promise.all([
     getMyOrganizationImages(session.accessToken),
     getAllUsedTags(),
   ]);
@@ -57,7 +57,7 @@ export default async function InternDashboard() {
               <h2 className="mb-4 font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
                 Meine Bilder
               </h2>
-              <MyImagesList images={images} />
+              <MyImagesList posts={posts} />
             </div>
           </>
         ) : (
