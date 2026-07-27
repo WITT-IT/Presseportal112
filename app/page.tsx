@@ -4,6 +4,7 @@ import GewerkeGrid from '@/components/GewerkeGrid';
 import PhotoMosaic from '@/components/PhotoMosaic';
 import StatStrip from '@/components/StatStrip';
 import {
+  getFeaturedHeroPost,
   getGewerke,
   getLatestPublicImages,
   getPublicImageCountsByGewerk,
@@ -39,6 +40,16 @@ export default async function HomePage() {
     directusError = true;
   }
 
+  // Eigener, separat abgesicherter Aufruf: schlägt das Laden des manuell
+  // festgelegten Titelbilds fehl, soll die Startseite trotzdem laden --
+  // einfach mit dem "neuester Beitrag"-Fallback in Hero.tsx.
+  let featuredPost: Awaited<ReturnType<typeof getFeaturedHeroPost>> = null;
+  try {
+    featuredPost = await getFeaturedHeroPost();
+  } catch (error) {
+    console.error('Titelbild konnte nicht geladen werden:', error);
+  }
+
   return (
     <>
       {directusError && (
@@ -50,13 +61,13 @@ export default async function HomePage() {
         </div>
       )}
 
-      <Hero latestImages={latestImages} />
+      <Hero latestImages={latestImages} featuredPost={featuredPost} />
 
       <section className="px-8 py-16">
         <div className="mx-auto max-w-[1180px]">
           <div className="mb-7 flex flex-wrap items-end justify-between gap-3">
             <h2 className="font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
-              Die Gewerke
+              Die vier Gewerke
             </h2>
             <Link
               href="/organisationen"
