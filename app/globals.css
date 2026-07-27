@@ -28,6 +28,10 @@
   animation: ticker-scroll 46s linear infinite;
 }
 
+.animate-ticker:hover {
+  animation-play-state: paused;
+}
+
 .animate-live-pulse {
   animation: live-pulse 2.2s ease-out infinite;
 }
