@@ -1,6 +1,6 @@
 import { readItem, readItems, readSingleton } from '@directus/sdk';
 import { directus, DIRECTUS_URL } from './directus';
-import type { Gewerk, Organization, Post } from './types';
+import type { Alarmcode, Gewerk, Organization, Post } from './types';
 import { normalizeTags } from './types';
 
 // Felder, die für die öffentliche Anzeige eines Beitrags gebraucht werden.
@@ -374,4 +374,17 @@ export async function getFeaturedHeroPost(): Promise<Post | null> {
     console.error('getFeaturedHeroPost fehlgeschlagen:', error);
     return null;
   }
+}
+
+// Alle 193 Alarmcodes -- kleine, feste Datenmenge, wird komplett geladen
+// und dann im Browser live gegen die Eingabe abgeglichen (kein Grund für
+// eine Anfrage pro Tastendruck).
+export async function getAlarmcodes(): Promise<Alarmcode[]> {
+  return directus.request(
+    readItems('alarmcodes', {
+      sort: ['sort'],
+      fields: ['id', 'gewerk', 'kategorie', 'code', 'name', 'sort'],
+      limit: -1,
+    })
+  ) as Promise<Alarmcode[]>;
 }
