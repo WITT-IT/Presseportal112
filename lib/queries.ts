@@ -1,4 +1,4 @@
-import { readItem, readItems } from '@directus/sdk';
+import { readItem, readItems, readSingleton } from '@directus/sdk';
 import { directus, DIRECTUS_URL } from './directus';
 import type { Gewerk, Organization, Post } from './types';
 import { normalizeTags } from './types';
@@ -338,4 +338,40 @@ export async function searchPublicImages({
   const pageItems = scored.slice(start, start + pageSize).map((entry) => entry.post);
 
   return { images: pageItems, hasNextPage: start + pageSize < total, total };
+}
+
+// Vom Admin manuell festgelegtes Titelbild für die Startseite -- läuft über
+// ein Directus-"Singleton" (genau ein Einstellungs-Datensatz, keine Liste).
+// Gibt null zurück, wenn nichts gesetzt ist oder der gewählte Beitrag aus
+// irgendeinem Grund nicht (mehr) öffentlich ist -- dann greift auf der
+// Startseite automatisch der bisherige "neuester Beitrag"-Fallback.
+export async function getFeaturedHeroPost(): Promise<Post | null> {
+  try {
+    const result = await directus.request(
+      readSingleton('site_settings', {
+        fields: [
+          {
+            hero_post: [
+              'id',
+              'title',
+              'article_body',
+              'event_date',
+              'alarm_code',
+              'location',
+              'tags',
+              'is_public',
+              'published_at',
+              { organization: ['id', 'name', 'gewerk'] },
+              { images: ['id', 'file_public_preview', 'file_download', 'caption', 'sort'] },
+            ],
+          },
+        ],
+      })
+    );
+    const post = (result as { hero_post: Post | null })?.hero_post;
+    return post && post.is_public ? post : null;
+  } catch (error) {
+    console.error('getFeaturedHeroPost fehlgeschlagen:', error);
+    return null;
+  }
 }
