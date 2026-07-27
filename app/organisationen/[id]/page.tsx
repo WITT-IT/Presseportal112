@@ -28,10 +28,16 @@ export default async function OrganizationProfilePage({ params }: Props) {
   const org = await getOrganizationById(id);
   if (!org) notFound();
 
-  const [images, gewerke] = await Promise.all([
-    getPublicImagesByOrganization(id),
-    getGewerke(),
-  ]);
+  let images: Awaited<ReturnType<typeof getPublicImagesByOrganization>> = [];
+  let gewerke: Awaited<ReturnType<typeof getGewerke>> = [];
+  try {
+    [images, gewerke] = await Promise.all([
+      getPublicImagesByOrganization(id),
+      getGewerke(),
+    ]);
+  } catch (error) {
+    console.error(`Organisationsseite ${id}: Fotos konnten nicht geladen werden:`, error);
+  }
   const gewerk = gewerke.find((g) => g.id === org.gewerk);
 
   return (
