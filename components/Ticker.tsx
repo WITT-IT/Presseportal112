@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import type { DirectusImage } from '@/lib/types';
+import type { Post } from '@/lib/types';
 import { GEWERK_COLORS } from '@/lib/types';
 
 function formatTime(iso: string | null) {
@@ -10,7 +10,7 @@ function formatTime(iso: string | null) {
   });
 }
 
-export default function Ticker({ images }: { images: DirectusImage[] }) {
+export default function Ticker({ images }: { images: Post[] }) {
   if (images.length === 0) return null;
 
   // Für den nahtlosen Scroll-Effekt wird die Liste einmal dupliziert.
@@ -21,16 +21,16 @@ export default function Ticker({ images }: { images: DirectusImage[] }) {
       <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-[70px] bg-gradient-to-r from-white to-transparent" />
       <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-[70px] bg-gradient-to-l from-white to-transparent" />
       <div className="flex w-max animate-ticker">
-        {items.map((img, i) => {
+        {items.map((post, i) => {
           const gewerkId =
-            typeof img.organization === 'object' && img.organization
-              ? img.organization.gewerk
+            typeof post.organization === 'object' && post.organization
+              ? post.organization.gewerk
               : 'feuerwehr';
           const color = GEWERK_COLORS[gewerkId] ?? GEWERK_COLORS.feuerwehr;
           return (
             <Link
-              key={`${img.id}-${i}`}
-              href={`/bildarchiv/${img.id}`}
+              key={`${post.id}-${i}`}
+              href={`/bildarchiv/${post.id}`}
               className="flex items-center gap-[11px] whitespace-nowrap border-r border-line px-7 py-3.5 text-[12px] transition-colors hover:bg-panel"
             >
               <span
@@ -39,14 +39,14 @@ export default function Ticker({ images }: { images: DirectusImage[] }) {
                 aria-hidden="true"
               />
               <span className="font-mono text-ink-3">
-                {formatTime(img.published_at ?? img.event_date)}
+                {formatTime(post.published_at ?? post.event_date)}
               </span>
               <span className="font-mono font-medium text-ink">
-                {img.alarm_code ?? '—'}
+                {post.alarm_code ?? '—'}
               </span>
               <span className="text-ink-2">
-                {img.location ?? (typeof img.organization === 'object'
-                  ? img.organization?.name
+                {post.location ?? (typeof post.organization === 'object'
+                  ? post.organization?.name
                   : '')}
               </span>
             </Link>
