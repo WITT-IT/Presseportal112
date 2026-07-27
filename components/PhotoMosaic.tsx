@@ -2,7 +2,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { directusAssetUrl } from '@/lib/directus';
 import type { Post } from '@/lib/types';
-import { GEWERK_COLORS, GEWERK_ICONS, primaryImage } from '@/lib/types';
+import { GEWERK_COLORS, GEWERK_ICONS, normalizeTags, primaryImage } from '@/lib/types';
 
 function formatDate(iso: string | null) {
   if (!iso) return '';
@@ -72,9 +72,9 @@ function Card({ post, feature }: { post: Post; feature?: boolean }) {
         >
           {org?.name ?? 'Organisation'}
         </div>
-        {feature && post.tags && post.tags.length > 0 && (
+        {feature && normalizeTags(post.tags).length > 0 && (
           <div className="mt-[9px] flex flex-wrap gap-[5px]">
-            {post.tags.slice(0, 4).map((tag) => (
+            {normalizeTags(post.tags).slice(0, 4).map((tag) => (
               <span
                 key={tag}
                 className="rounded-[4px] bg-panel px-2 py-[3px] text-[10px] text-ink-2"
