@@ -5,6 +5,7 @@ import DateLine from '@/components/DateLine';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import { CartProvider } from '@/components/CartProvider';
+import { DialogProvider } from '@/components/DialogProvider';
 import CookieNotice from '@/components/CookieNotice';
 import { SESSION_COOKIE } from '@/lib/auth';
 import './globals.css';
@@ -93,13 +94,15 @@ export default async function RootLayout({
       <body
         className={`${barlow.variable} ${inter.variable} ${jetbrains.variable} font-sans bg-paper text-ink antialiased`}
       >
-        <CartProvider>
-          <DateLine />
-          <Header loggedIn={loggedIn} />
-          {children}
-          <Footer />
-          <CookieNotice />
-        </CartProvider>
+        <DialogProvider>
+          <CartProvider>
+            <DateLine />
+            <Header loggedIn={loggedIn} />
+            {children}
+            <Footer />
+            <CookieNotice />
+          </CartProvider>
+        </DialogProvider>
       </body>
     </html>
   );
