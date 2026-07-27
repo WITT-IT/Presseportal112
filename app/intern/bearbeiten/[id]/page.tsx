@@ -1,6 +1,6 @@
 import { redirect, notFound } from 'next/navigation';
 import { cookies } from 'next/headers';
-import { SESSION_COOKIE } from '@/lib/auth';
+import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
 import { getPostForEdit, getAllUsedTags } from '@/lib/queries';
 import EditPostForm from '@/components/EditPostForm';
 
@@ -24,12 +24,16 @@ export default async function EditPostPage({
     redirect('/login');
   }
 
-  const [post, existingTags] = await Promise.all([
+  const [post, existingTags, user] = await Promise.all([
     getPostForEdit(session.accessToken, id),
     getAllUsedTags(),
+    getCurrentUser(session.accessToken),
   ]);
 
   if (!post) notFound();
+
+  const watermarkText =
+    user?.organization?.branding_label || `Foto: ${user?.organization?.name ?? ''}`;
 
   return (
     <section className="px-8 py-14">
@@ -40,7 +44,7 @@ export default async function EditPostPage({
         <p className="mb-8 text-[13.5px] leading-[1.6] text-ink-2">
           {post.title || post.alarm_code || 'Ohne Titel'}
         </p>
-        <EditPostForm post={post} existingTags={existingTags} />
+        <EditPostForm post={post} existingTags={existingTags} watermarkText={watermarkText} />
       </div>
     </section>
   );
