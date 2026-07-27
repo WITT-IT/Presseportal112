@@ -25,38 +25,50 @@ export async function POST(request: NextRequest) {
     'Content-Type': 'application/json',
   };
 
-  // Erst das Bild selbst lesen, um an die drei verknüpften Datei-IDs zu
-  // kommen -- Directus prüft dabei über die Organisation-Policy automatisch,
-  // ob dieser User das Bild überhaupt sehen (und damit löschen) darf.
-  const itemRes = await fetch(
-    `${DIRECTUS_URL}/items/images/${id}?fields=file_original,file_public_preview,file_download`,
+  // Erst den Beitrag mit allen zugehörigen Fotos lesen, um an die Datei-IDs
+  // zu kommen -- Directus prüft dabei über die Organisation-Policy
+  // automatisch, ob dieser User den Beitrag überhaupt sehen (und damit
+  // löschen) darf.
+  const postRes = await fetch(
+    `${DIRECTUS_URL}/items/posts/${id}?fields=id,images.id,images.file_original,images.file_public_preview,images.file_download`,
     { headers }
   );
 
-  if (!itemRes.ok) {
+  if (!postRes.ok) {
     return NextResponse.json(
-      { error: 'Bild nicht gefunden oder keine Berechtigung.' },
-      { status: itemRes.status === 403 ? 403 : 404 }
+      { error: 'Beitrag nicht gefunden oder keine Berechtigung.' },
+      { status: postRes.status === 403 ? 403 : 404 }
     );
   }
 
-  const { data } = await itemRes.json();
-  const fileIds = [data.file_original, data.file_public_preview, data.file_download].filter(
-    Boolean
-  ) as string[];
+  const { data } = await postRes.json();
+  const imageRows: {
+    id: string;
+    file_original: string | null;
+    file_public_preview: string | null;
+    file_download: string | null;
+  }[] = data.images ?? [];
 
-  // Erst den Bild-Datensatz löschen (entfernt auch die Sichtbarkeit sofort) ...
-  const deleteItemRes = await fetch(`${DIRECTUS_URL}/items/images/${id}`, {
+  const fileIds = imageRows
+    .flatMap((img) => [img.file_original, img.file_public_preview, img.file_download])
+    .filter(Boolean) as string[];
+
+  // Reihenfolge ist wichtig: erst die Foto-Datensätze (sie verweisen auf den
+  // Beitrag), dann der Beitrag selbst, dann die Dateien.
+  for (const img of imageRows) {
+    await fetch(`${DIRECTUS_URL}/items/images/${img.id}`, { method: 'DELETE', headers });
+  }
+
+  const deletePostRes = await fetch(`${DIRECTUS_URL}/items/posts/${id}`, {
     method: 'DELETE',
     headers,
   });
 
-  if (!deleteItemRes.ok) {
+  if (!deletePostRes.ok) {
     return NextResponse.json({ error: 'Löschen fehlgeschlagen.' }, { status: 500 });
   }
 
-  // ... dann die drei Dateien selbst, damit sie wirklich vom Server
-  // verschwinden. Einzeln statt als ein Fehlschlag-alles-Batch, damit ein
+  // Dateien zum Schluss, einzeln statt als Alles-oder-nichts-Batch, damit ein
   // Problem bei einer Datei die anderen nicht verhindert.
   await Promise.allSettled(
     fileIds.map((fileId) =>
