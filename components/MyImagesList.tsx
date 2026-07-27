@@ -5,9 +5,11 @@ import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { directusAssetUrl } from '@/lib/directus';
 import type { DirectusImage } from '@/lib/types';
+import { useDialog } from './DialogProvider';
 
 export default function MyImagesList({ images }: { images: DirectusImage[] }) {
   const router = useRouter();
+  const { confirm } = useDialog();
   const [pendingId, setPendingId] = useState<string | null>(null);
 
   async function togglePublic(id: string, current: boolean) {
@@ -22,9 +24,14 @@ export default function MyImagesList({ images }: { images: DirectusImage[] }) {
   }
 
   async function handleDelete(id: string) {
-    const confirmed = window.confirm(
-      'Dieses Bild wirklich löschen? Das entfernt auch die Originaldatei und alle Varianten unwiderruflich vom Server.'
-    );
+    const confirmed = await confirm({
+      title: 'Bild wirklich löschen?',
+      message:
+        'Das entfernt auch die Originaldatei und alle Varianten unwiderruflich vom Server.',
+      confirmLabel: 'Löschen',
+      cancelLabel: 'Abbrechen',
+      danger: true,
+    });
     if (!confirmed) return;
 
     setPendingId(id);
