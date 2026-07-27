@@ -45,23 +45,32 @@ export default async function OrganizationProfilePage({ params }: Props) {
           Alle Organisationen
         </Link>
 
-        <div className="mb-10 flex items-center gap-4 border-b border-line pb-8">
-          <span
-            className="flex h-14 w-14 flex-none items-center justify-center rounded-[10px]"
-            style={{ backgroundColor: `${gewerk?.color ?? '#585D64'}14` }}
-          >
-            <i
-              className={`ti ${GEWERK_ICONS[org.gewerk] ?? 'ti-shield'} text-[26px]`}
-              style={{ color: gewerk?.color }}
-              aria-hidden="true"
-            />
-          </span>
-          <div>
-            <h1 className="font-display text-[32px] font-bold leading-[1.05]">
-              {org.name}
-            </h1>
-            <p className="text-[13px] text-ink-2">{gewerk?.name ?? org.gewerk}</p>
+        <div className="mb-10 flex flex-wrap items-center justify-between gap-4 border-b border-line pb-8">
+          <div className="flex items-center gap-4">
+            <span
+              className="flex h-14 w-14 flex-none items-center justify-center rounded-[10px]"
+              style={{ backgroundColor: `${gewerk?.color ?? '#585D64'}14` }}
+            >
+              <i
+                className={`ti ${GEWERK_ICONS[org.gewerk] ?? 'ti-shield'} text-[26px]`}
+                style={{ color: gewerk?.color }}
+                aria-hidden="true"
+              />
+            </span>
+            <div>
+              <h1 className="font-display text-[32px] font-bold leading-[1.05]">
+                {org.name}
+              </h1>
+              <p className="text-[13px] text-ink-2">{gewerk?.name ?? org.gewerk}</p>
+            </div>
           </div>
+          <Link
+            href={`/kontakt?org=${org.id}`}
+            className="inline-flex items-center gap-1.5 rounded-md border border-line-strong px-3.5 py-2 text-[12px] font-semibold text-ink transition-colors hover:border-ink"
+          >
+            <i className="ti ti-mail text-[13px]" aria-hidden="true" />
+            Kontakt aufnehmen
+          </Link>
         </div>
 
         <h2 className="mb-5 font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
