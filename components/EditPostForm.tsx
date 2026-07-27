@@ -5,8 +5,9 @@ import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { directusAssetUrl } from '@/lib/directus';
 import { createWatermarkedVariants } from '@/lib/watermark';
-import { normalizeTags, type Post } from '@/lib/types';
+import { normalizeTags, type Alarmcode, type Post } from '@/lib/types';
 import RichTextEditor from './RichTextEditor';
+import AlarmCodeInput from './AlarmCodeInput';
 
 const MAX_FILE_SIZE = 80 * 1024 * 1024;
 const MAX_IMAGES = 12;
@@ -22,10 +23,12 @@ export default function EditPostForm({
   post,
   existingTags,
   watermarkText,
+  alarmcodes,
 }: {
   post: Post;
   existingTags: string[];
   watermarkText: string;
+  alarmcodes: Alarmcode[];
 }) {
   const router = useRouter();
   const [title, setTitle] = useState(post.title ?? '');
@@ -287,12 +290,7 @@ export default function EditPostForm({
           <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">
             Alarmcode
           </label>
-          <input
-            type="text"
-            value={alarmCode}
-            onChange={(e) => setAlarmCode(e.target.value)}
-            className="w-full rounded-md border border-line-strong px-3 py-2 text-[14px] outline-none focus:border-ink"
-          />
+          <AlarmCodeInput value={alarmCode} onChange={setAlarmCode} alarmcodes={alarmcodes} />
         </div>
       </div>
 
