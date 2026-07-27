@@ -1,6 +1,7 @@
 import { readItem, readItems } from '@directus/sdk';
 import { directus, DIRECTUS_URL } from './directus';
 import type { Gewerk, Organization, Post } from './types';
+import { normalizeTags } from './types';
 
 // Felder, die für die öffentliche Anzeige eines Beitrags gebraucht werden.
 // Bewusst ohne event_kind und uploaded_by -- die sind in der Public-Policy
@@ -216,18 +217,23 @@ export async function getPublicImagesByOrganization(
 // beim Hochladen. Gewollt über alle Organisationen hinweg, damit sich die
 // Schlagworte portalweit angleichen statt auseinanderzulaufen.
 export async function getAllUsedTags(): Promise<string[]> {
-  const result = await directus.request(
-    readItems('posts', {
-      filter: { is_public: { _eq: true } },
-      fields: ['tags'],
-      limit: -1,
-    })
-  );
-  const all = new Set<string>();
-  for (const row of result as { tags: string[] | null }[]) {
-    (row.tags || []).forEach((t) => all.add(t));
+  try {
+    const result = await directus.request(
+      readItems('posts', {
+        filter: { is_public: { _eq: true } },
+        fields: ['tags'],
+        limit: -1,
+      })
+    );
+    const all = new Set<string>();
+    for (const row of result as { tags: string[] | null }[]) {
+      normalizeTags(row.tags).forEach((t) => all.add(t));
+    }
+    return Array.from(all).sort((a, b) => a.localeCompare(b, 'de'));
+  } catch (error) {
+    console.error('getAllUsedTags fehlgeschlagen:', error);
+    return [];
   }
-  return Array.from(all).sort((a, b) => a.localeCompare(b, 'de'));
 }
 
 // Suche übers Bildarchiv. Holt bewusst eine größere Menge und filtert
@@ -262,7 +268,7 @@ export async function searchPublicImages({
   const q = query.trim().toLowerCase();
   const scored = candidates
     .map((post) => {
-      const tagsText = (post.tags || []).join(' ').toLowerCase();
+      const tagsText = normalizeTags(post.tags).join(' ').toLowerCase();
       const title = (post.title || '').toLowerCase();
       const location = (post.location || '').toLowerCase();
       const alarmCode = (post.alarm_code || '').toLowerCase();
