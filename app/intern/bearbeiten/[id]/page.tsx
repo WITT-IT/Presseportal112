@@ -1,7 +1,7 @@
 import { redirect, notFound } from 'next/navigation';
 import { cookies } from 'next/headers';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
-import { getPostForEdit, getAllUsedTags } from '@/lib/queries';
+import { getPostForEdit, getAllUsedTags, getAlarmcodes } from '@/lib/queries';
 import EditPostForm from '@/components/EditPostForm';
 
 export const dynamic = 'force-dynamic';
@@ -24,10 +24,11 @@ export default async function EditPostPage({
     redirect('/login');
   }
 
-  const [post, existingTags, user] = await Promise.all([
+  const [post, existingTags, user, alarmcodes] = await Promise.all([
     getPostForEdit(session.accessToken, id),
     getAllUsedTags(),
     getCurrentUser(session.accessToken),
+    getAlarmcodes(),
   ]);
 
   if (!post) notFound();
@@ -44,7 +45,12 @@ export default async function EditPostPage({
         <p className="mb-8 text-[13.5px] leading-[1.6] text-ink-2">
           {post.title || post.alarm_code || 'Ohne Titel'}
         </p>
-        <EditPostForm post={post} existingTags={existingTags} watermarkText={watermarkText} />
+        <EditPostForm
+          post={post}
+          existingTags={existingTags}
+          watermarkText={watermarkText}
+          alarmcodes={alarmcodes}
+        />
       </div>
     </section>
   );
