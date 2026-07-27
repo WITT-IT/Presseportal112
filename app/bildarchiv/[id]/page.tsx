@@ -3,7 +3,7 @@ import Link from 'next/link';
 import type { Metadata } from 'next';
 import { directusAssetUrl } from '@/lib/directus';
 import { getPublicImageById, getPublicImagesByOrganization } from '@/lib/queries';
-import { GEWERK_COLORS, primaryImage } from '@/lib/types';
+import { GEWERK_COLORS, normalizeTags, primaryImage } from '@/lib/types';
 import { toJsonLd } from '@/lib/structuredData';
 import ArticleCartToggle from '@/components/ArticleCartToggle';
 import GalleryCard from '@/components/GalleryCard';
@@ -169,9 +169,9 @@ export default async function PostArticlePage({ params }: Props) {
           />
         )}
 
-        {post.tags && post.tags.length > 0 && (
+        {normalizeTags(post.tags).length > 0 && (
           <div className="mb-10 flex flex-wrap gap-1.5 border-t border-line pt-6">
-            {post.tags.map((tag) => (
+            {normalizeTags(post.tags).map((tag) => (
               <span
                 key={tag}
                 className="rounded-[4px] bg-panel px-2.5 py-1 text-[11px] text-ink-2"
