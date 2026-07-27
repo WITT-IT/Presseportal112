@@ -34,21 +34,41 @@ export type Organization = {
   branding_label?: string | null;
 };
 
-export type DirectusImage = {
+// Ein Foto innerhalb eines Beitrags. Enthält bewusst eine eigene
+// Bildunterschrift pro Foto -- damit lässt sich jedes Bild einzeln erklären,
+// statt nur eine Beschreibung für den ganzen Beitrag zu haben.
+export type PostImage = {
+  id: string;
+  post: Post | string | null;
+  file_public_preview: string | null; // Directus-Datei-UUID
+  file_download: string | null;
+  caption: string | null;
+  sort: number;
+};
+
+// Ein Beitrag bündelt Titel, Text und Metadaten -- und dazu ein oder
+// mehrere Fotos.
+export type Post = {
   id: string;
   organization: Organization | string | null;
   title: string | null;
   article_body: string | null;
-  file_public_preview: string | null; // Directus-Datei-UUID
-  file_download: string | null;
   event_date: string;
-  event_kind: string | null;
+  event_kind?: string | null;
   alarm_code: string | null;
   location: string | null;
   tags: string[] | null;
   is_public: boolean;
   published_at: string | null;
+  images?: PostImage[];
 };
+
+// Hilfsfunktion: das erste Foto eines Beitrags (nach sort), z. B. für
+// Übersichtskarten und Vorschaubilder.
+export function primaryImage(post: Post): PostImage | null {
+  if (!post.images || post.images.length === 0) return null;
+  return [...post.images].sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0))[0];
+}
 
 // Zuordnung Gewerk -> Tailwind-Farbklasse, spiegelt gewerke.color aus Directus.
 // Falls du eine Farbe in Directus änderst, hier synchron halten (oder später
