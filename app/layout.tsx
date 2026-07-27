@@ -92,6 +92,12 @@ export default async function RootLayout({
 
   return (
     <html lang="de">
+      <head>
+        <link
+          rel="stylesheet"
+          href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.47.0/tabler-icons.min.css"
+        />
+      </head>
       <body
         className={`${barlow.variable} ${inter.variable} ${jetbrains.variable} font-sans bg-paper text-ink antialiased`}
       >
