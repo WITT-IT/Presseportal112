@@ -5,10 +5,18 @@ import DarkMasthead from './DarkMasthead';
 import SearchBox from './SearchBox';
 import Ticker from './Ticker';
 
-export default function Hero({ latestImages }: { latestImages: Post[] }) {
-  const backdropImage = latestImages
-    .map((p) => primaryImage(p))
-    .find((img) => img?.file_public_preview)?.file_public_preview;
+export default function Hero({
+  latestImages,
+  featuredPost,
+}: {
+  latestImages: Post[];
+  featuredPost: Post | null;
+}) {
+  // Manuell vom Admin festgelegtes Bild hat Vorrang -- ohne Festlegung
+  // fällt's automatisch auf den zuletzt veröffentlichten Beitrag zurück,
+  // damit die Startseite nie ganz ohne Hintergrundbild dasteht.
+  const heroSourcePost = featuredPost ?? latestImages[0] ?? null;
+  const backdropImage = heroSourcePost ? primaryImage(heroSourcePost)?.file_public_preview : undefined;
 
   return (
     <DarkMasthead
