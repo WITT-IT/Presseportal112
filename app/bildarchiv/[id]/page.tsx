@@ -1,13 +1,13 @@
 import { notFound } from 'next/navigation';
-import Image from 'next/image';
 import Link from 'next/link';
 import type { Metadata } from 'next';
 import { directusAssetUrl } from '@/lib/directus';
 import { getPublicImageById, getPublicImagesByOrganization } from '@/lib/queries';
-import { GEWERK_COLORS } from '@/lib/types';
+import { GEWERK_COLORS, primaryImage } from '@/lib/types';
 import { toJsonLd } from '@/lib/structuredData';
 import ArticleCartToggle from '@/components/ArticleCartToggle';
 import GalleryCard from '@/components/GalleryCard';
+import PostGallery from '@/components/PostGallery';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,14 +15,15 @@ type Props = { params: Promise<{ id: string }> };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params;
-  const image = await getPublicImageById(id);
-  if (!image) return {};
+  const post = await getPublicImageById(id);
+  if (!post) return {};
 
-  const org = typeof image.organization === 'object' ? image.organization : null;
-  const title = image.title || `Einsatzfoto ${image.alarm_code ?? ''}`.trim();
+  const org = typeof post.organization === 'object' ? post.organization : null;
+  const hero = primaryImage(post);
+  const title = post.title || `Einsatzfoto ${post.alarm_code ?? ''}`.trim();
   const description = org?.name
-    ? `Freigegebenes Einsatzfoto von ${org.name}${image.location ? ` — ${image.location}` : ''}.`
-    : 'Freigegebenes Einsatzfoto von Presseportal112.';
+    ? `Freigegebene Einsatzfotos von ${org.name}${post.location ? ` — ${post.location}` : ''}.`
+    : 'Freigegebene Einsatzfotos von Presseportal112.';
 
   return {
     title,
@@ -30,52 +31,54 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     openGraph: {
       title,
       description,
-      images: image.file_public_preview
-        ? [directusAssetUrl(image.file_public_preview, 'width=1200&quality=80')]
+      images: hero?.file_public_preview
+        ? [directusAssetUrl(hero.file_public_preview, 'width=1200&quality=80')]
         : undefined,
     },
   };
 }
 
-export default async function ImageArticlePage({ params }: Props) {
+export default async function PostArticlePage({ params }: Props) {
   const { id } = await params;
-  const image = await getPublicImageById(id);
-  if (!image) notFound();
+  const post = await getPublicImageById(id);
+  if (!post) notFound();
 
-  const org = typeof image.organization === 'object' ? image.organization : null;
+  const org = typeof post.organization === 'object' ? post.organization : null;
   const gewerkId = org?.gewerk ?? 'feuerwehr';
   const color = GEWERK_COLORS[gewerkId] ?? GEWERK_COLORS.feuerwehr;
+  const images = post.images ?? [];
+  const hero = primaryImage(post);
 
-  const dateLabel = new Date(image.event_date).toLocaleDateString('de-DE', {
+  const dateLabel = new Date(post.event_date).toLocaleDateString('de-DE', {
     day: '2-digit',
     month: 'long',
     year: 'numeric',
   });
 
-  // "Weitere Meldungen" derselben Organisation -- eine mehr als gebraucht
-  // anfragen, damit nach dem Herausfiltern des aktuellen Artikels trotzdem
-  // genug übrig bleiben.
-  const relatedImages = org
-    ? (await getPublicImagesByOrganization(org.id, 5)).filter((i) => i.id !== image.id).slice(0, 4)
+  // Eine mehr anfragen als gebraucht, damit nach dem Herausfiltern des
+  // aktuellen Beitrags trotzdem genug übrig bleiben.
+  const relatedPosts = org
+    ? (await getPublicImagesByOrganization(org.id, 5)).filter((p) => p.id !== post.id).slice(0, 4)
     : [];
 
-  const articleUrl = `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/bildarchiv/${image.id}`;
+  const articleUrl = `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/bildarchiv/${post.id}`;
 
   const newsArticleJsonLd = {
     '@context': 'https://schema.org',
     '@type': 'NewsArticle',
     mainEntityOfPage: { '@type': 'WebPage', '@id': articleUrl },
-    headline: image.title || `Einsatzfoto ${image.alarm_code ?? ''}`.trim(),
-    image: image.file_public_preview
-      ? [directusAssetUrl(image.file_public_preview, 'width=1200&quality=85')]
-      : undefined,
-    datePublished: image.published_at,
-    dateModified: image.published_at,
+    headline: post.title || `Einsatzfoto ${post.alarm_code ?? ''}`.trim(),
+    image: images
+      .map((img) =>
+        img.file_public_preview
+          ? directusAssetUrl(img.file_public_preview, 'width=1200&quality=85')
+          : null
+      )
+      .filter(Boolean),
+    datePublished: post.published_at,
+    dateModified: post.published_at,
     author: org?.name ? { '@type': 'Organization', name: org.name } : undefined,
-    publisher: {
-      '@type': 'Organization',
-      name: 'Presseportal112.de',
-    },
+    publisher: { '@type': 'Organization', name: 'Presseportal112.de' },
   };
 
   return (
@@ -103,11 +106,14 @@ export default async function ImageArticlePage({ params }: Props) {
             style={{ backgroundColor: color }}
             aria-hidden="true"
           />
-          {image.alarm_code ?? 'Pressefoto'} &middot; {dateLabel}
+          {post.alarm_code ?? 'Pressefoto'} &middot; {dateLabel}
+          {images.length > 1 && (
+            <span className="text-ink-3">&middot; {images.length} Fotos</span>
+          )}
         </div>
 
         <h1 className="mb-4 font-display text-[36px] font-bold leading-[1.05] tracking-[-0.01em] nav:text-[42px]">
-          {image.title || `Einsatz ${org?.name ?? ''}`}
+          {post.title || `Einsatz ${org?.name ?? ''}`}
         </h1>
 
         <div className="mb-8 flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-ink-2">
@@ -116,33 +122,24 @@ export default async function ImageArticlePage({ params }: Props) {
               {org.name}
             </Link>
           )}
-          {image.location && <span>&middot; {image.location}</span>}
+          {post.location && <span>&middot; {post.location}</span>}
         </div>
 
-        {image.file_public_preview && (
-          <div className="relative mb-3 aspect-[16/10] overflow-hidden rounded-[10px] border border-line bg-panel">
-            <Image
-              src={directusAssetUrl(image.file_public_preview, 'width=1400&quality=85')}
-              alt={image.title ?? 'Einsatzfoto'}
-              fill
-              className="object-cover"
-              sizes="(min-width: 901px) 760px, 100vw"
-              priority
-            />
-          </div>
-        )}
+        <PostGallery images={images} />
 
         <div className="mb-10 flex flex-wrap items-center gap-4">
-          {image.file_download && (
+          {hero?.file_download && (
             <a
-              href={`/api/download?id=${image.id}`}
+              href={`/api/download?id=${post.id}`}
               className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-signal-deep hover:text-signal"
             >
               <i className="ti ti-download text-[14px]" aria-hidden="true" />
-              Originalgröße herunterladen (für Presseverwendung)
+              {images.length > 1
+                ? `Alle ${images.length} Fotos herunterladen (ZIP)`
+                : 'Originalgröße herunterladen (für Presseverwendung)'}
             </a>
           )}
-          <ArticleCartToggle imageId={image.id} />
+          <ArticleCartToggle imageId={post.id} />
           {org?.id && (
             <Link
               href={`/kontakt?org=${org.id}`}
@@ -154,18 +151,18 @@ export default async function ImageArticlePage({ params }: Props) {
           )}
         </div>
 
-        {image.article_body && (
+        {post.article_body && (
           <div
             className="prose-article mb-10 text-[15.5px] text-ink"
             // Inhalt wurde serverseitig beim Hochladen bereits auf eine
             // kleine, sichere Tag-Liste beschränkt (siehe upload/route.ts).
-            dangerouslySetInnerHTML={{ __html: image.article_body }}
+            dangerouslySetInnerHTML={{ __html: post.article_body }}
           />
         )}
 
-        {image.tags && image.tags.length > 0 && (
+        {post.tags && post.tags.length > 0 && (
           <div className="mb-10 flex flex-wrap gap-1.5 border-t border-line pt-6">
-            {image.tags.map((tag) => (
+            {post.tags.map((tag) => (
               <span
                 key={tag}
                 className="rounded-[4px] bg-panel px-2.5 py-1 text-[11px] text-ink-2"
@@ -176,14 +173,14 @@ export default async function ImageArticlePage({ params }: Props) {
           </div>
         )}
 
-        {relatedImages.length > 0 && (
+        {relatedPosts.length > 0 && (
           <div className="border-t border-line pt-8">
             <h2 className="mb-5 font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
               Weitere Meldungen von {org?.name}
             </h2>
             <div className="grid grid-cols-2 gap-[16px] nav:grid-cols-4">
-              {relatedImages.map((img) => (
-                <GalleryCard key={img.id} img={img} />
+              {relatedPosts.map((p) => (
+                <GalleryCard key={p.id} post={p} />
               ))}
             </div>
           </div>
