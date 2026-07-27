@@ -43,6 +43,28 @@
   }
 }
 
+/* Warnmarkierung (DIN 14502) als echtes Absperrband-Element -- bewusst nur
+   an den ganz wenigen dramatischen "Leitstelle"-Momenten eingesetzt, nicht
+   flächendeckend. */
+.hazard-stripe-amber {
+  background: repeating-linear-gradient(-45deg, #08090b 0 16px, #e8a93d 16px 32px);
+}
+
+.hazard-stripe-signal {
+  background: repeating-linear-gradient(-45deg, #08090b 0 16px, #c81e2c 16px 32px);
+}
+
+/* Weicher Lichtschein hinter der großen Headline in den dunklen Bereichen --
+   verleiht Tiefe, ohne dass es nach Neon-Effekt aussieht. */
+.void-glow::before {
+  content: '';
+  position: absolute;
+  inset: -20% -10% auto -10%;
+  height: 70%;
+  background: radial-gradient(ellipse at top, rgba(232, 169, 61, 0.16), transparent 70%);
+  pointer-events: none;
+}
+
 .prose-article p {
   margin-bottom: 0.9em;
 }
