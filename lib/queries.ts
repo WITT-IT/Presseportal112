@@ -1,6 +1,24 @@
 import { readItem, readItems } from '@directus/sdk';
 import { directus, DIRECTUS_URL } from './directus';
-import type { DirectusImage, Gewerk, Organization } from './types';
+import type { Gewerk, Organization, Post } from './types';
+
+// Felder, die für die öffentliche Anzeige eines Beitrags gebraucht werden.
+// Bewusst ohne event_kind und uploaded_by -- die sind in der Public-Policy
+// gesperrt, und ein einziges nicht freigegebenes Feld lässt Directus die
+// komplette Anfrage mit 403 ablehnen.
+const PUBLIC_POST_FIELDS = [
+  'id',
+  'title',
+  'article_body',
+  'event_date',
+  'alarm_code',
+  'location',
+  'tags',
+  'is_public',
+  'published_at',
+  { organization: ['id', 'name', 'gewerk'] },
+  { images: ['id', 'file_public_preview', 'file_download', 'caption', 'sort'] },
+] as const;
 
 // Vier Gewerke inkl. Sortierung, wie in der Taxonomie angelegt.
 export async function getGewerke(): Promise<Gewerk[]> {
@@ -12,86 +30,61 @@ export async function getGewerke(): Promise<Gewerk[]> {
   ) as Promise<Gewerk[]>;
 }
 
-// Anzahl veröffentlichter Fotos pro Gewerk, für die Zähler auf den Gewerke-Karten.
-// Bewusst über readItems + Array-Länge gelöst statt über die aggregate()-Funktion
-// des SDK: aggregate() hat bekannte Bugs im Zusammenspiel mit gefilterten
-// Relationen (siehe directus/directus#23395 und #25803). readItems mit
-// filter + limit:-1 liefert dagegen zuverlässig exakte Treffer, und wir
-// fragen bewusst nur das id-Feld ab, damit die Anfrage trotzdem leicht bleibt.
+// Anzahl veröffentlichter Beiträge pro Gewerk, für die Zähler auf den
+// Gewerke-Karten. Bewusst über readItems + Array-Länge gelöst statt über
+// aggregate() -- das hat bekannte Bugs im Zusammenspiel mit gefilterten
+// Relationen (directus/directus#23395, #25803).
 export async function getPublicImageCountsByGewerk(
   gewerkIds: string[]
 ): Promise<Record<string, number>> {
-  const results = await Promise.all(
-    gewerkIds.map((gewerkId) =>
-      directus.request(
-        readItems('images', {
-          filter: {
-            is_public: { _eq: true },
-            organization: { gewerk: { _eq: gewerkId } },
-          },
+  const entries = await Promise.all(
+    gewerkIds.map(async (id) => {
+      const rows = await directus.request(
+        readItems('posts', {
+          filter: { is_public: { _eq: true }, organization: { gewerk: { _eq: id } } },
           fields: ['id'],
           limit: -1,
         })
-      )
-    )
+      );
+      return [id, rows.length] as const;
+    })
   );
-  const counts: Record<string, number> = {};
-  gewerkIds.forEach((id, i) => {
-    counts[id] = results[i]?.length ?? 0;
-  });
-  return counts;
+  return Object.fromEntries(entries);
 }
 
-// Gesamtzahl veröffentlichter Fotos, für den Statistik-Balken.
 export async function getTotalPublicImageCount(): Promise<number> {
-  const result = await directus.request(
-    readItems('images', {
+  const rows = await directus.request(
+    readItems('posts', {
       filter: { is_public: { _eq: true } },
       fields: ['id'],
       limit: -1,
     })
   );
-  return result.length;
+  return rows.length;
 }
 
-// Gesamtzahl angeschlossener Organisationen.
 export async function getTotalOrganizationCount(): Promise<number> {
-  const result = await directus.request(
+  const rows = await directus.request(
     readItems('organizations', { fields: ['id'], limit: -1 })
   );
-  return result.length;
+  return rows.length;
 }
 
-// Zuletzt freigegebene, öffentliche Fotos -- Grundlage für Mosaik und Ticker
-// auf der Startseite. Holt zusätzlich den Organisationsnamen mit (Relation).
-export async function getLatestPublicImages(limit = 8): Promise<DirectusImage[]> {
+// Neueste veröffentlichte Beiträge -- für Ticker und Startseiten-Mosaik.
+export async function getLatestPublicImages(limit = 8): Promise<Post[]> {
   return directus.request(
-    readItems('images', {
+    readItems('posts', {
       filter: { is_public: { _eq: true } },
       sort: ['-published_at'],
       limit,
-      fields: [
-        'id',
-        'title',
-        'file_public_preview',
-        'file_download',
-        'event_date',
-        'event_kind',
-        'alarm_code',
-        'location',
-        'tags',
-        'is_public',
-        'published_at',
-        { organization: ['id', 'name', 'gewerk'] },
-      ],
+      fields: PUBLIC_POST_FIELDS as unknown as string[],
     })
-  ) as Promise<DirectusImage[]>;
+  ) as Promise<Post[]>;
 }
 
-// Für das Bildarchiv: gefilterte, paginierte Liste öffentlicher Fotos.
-// limit+1-Trick: wir fragen ein Bild mehr ab, als wir zeigen -- taucht es
-// auf, wissen wir, dass es eine weitere Seite gibt, ohne eine separate
-// Zähl-Abfrage zu brauchen.
+// Seitenweise Beiträge fürs Bildarchiv, optional nach Gewerk gefiltert.
+// Fragt bewusst ein Element mehr an als angezeigt wird, um zu erkennen, ob
+// es eine weitere Seite gibt -- spart eine zweite Zählabfrage.
 export async function getPublicImagesPage({
   gewerkId,
   page = 1,
@@ -100,47 +93,51 @@ export async function getPublicImagesPage({
   gewerkId?: string;
   page?: number;
   pageSize?: number;
-}): Promise<{ images: DirectusImage[]; hasNextPage: boolean }> {
+}): Promise<{ images: Post[]; hasNextPage: boolean }> {
   const filter: Record<string, unknown> = { is_public: { _eq: true } };
   if (gewerkId) {
     filter.organization = { gewerk: { _eq: gewerkId } };
   }
 
-  const result = await directus.request(
-    readItems('images', {
+  const rows = (await directus.request(
+    readItems('posts', {
       filter,
       sort: ['-published_at'],
       limit: pageSize + 1,
       offset: (page - 1) * pageSize,
-      fields: [
-        'id',
-        'title',
-        'file_public_preview',
-        'event_date',
-        'alarm_code',
-        'location',
-        'tags',
-        'is_public',
-        'published_at',
-        { organization: ['id', 'name', 'gewerk'] },
-      ],
+      fields: PUBLIC_POST_FIELDS as unknown as string[],
     })
-  ) as DirectusImage[];
+  )) as Post[];
 
   return {
-    images: result.slice(0, pageSize),
-    hasNextPage: result.length > pageSize,
+    images: rows.slice(0, pageSize),
+    hasNextPage: rows.length > pageSize,
   };
 }
 
-// Alle Bilder der eigenen Organisation -- öffentliche UND private Entwürfe.
-// Braucht deshalb den echten Access Token des eingeloggten Users statt des
-// anonymen Public-Clients, der private Bilder gar nicht sehen darf.
-export async function getMyOrganizationImages(
-  accessToken: string
-): Promise<DirectusImage[]> {
+// Beiträge der eigenen Organisation für den internen Bereich. Nutzt den
+// User-Token statt des anonymen Clients, damit auch Entwürfe sichtbar sind.
+export async function getMyOrganizationImages(accessToken: string): Promise<Post[]> {
+  const fields = [
+    'id',
+    'title',
+    'event_date',
+    'alarm_code',
+    'location',
+    'tags',
+    'is_public',
+    'published_at',
+    'organization.id',
+    'organization.name',
+    'organization.gewerk',
+    'images.id',
+    'images.file_public_preview',
+    'images.caption',
+    'images.sort',
+  ].join(',');
+
   const res = await fetch(
-    `${DIRECTUS_URL}/items/images?sort=-event_date&fields=id,title,file_public_preview,event_date,alarm_code,location,tags,is_public,published_at,organization.id,organization.name,organization.gewerk`,
+    `${DIRECTUS_URL}/items/posts?sort=-event_date&fields=${fields}`,
     {
       headers: { Authorization: `Bearer ${accessToken}` },
       cache: 'no-store',
@@ -155,33 +152,17 @@ export async function getMyOrganizationImages(
   return data;
 }
 
-// Einzelnes Bild für die öffentliche Artikelseite. Nutzt bewusst den
-// anonymen Public-Client (nicht den User-Token) -- so wird automatisch nur
-// ausgeliefert, was laut Public-Policy wirklich öffentlich ist, unabhängig
-// davon, wer die Seite gerade betrachtet. Existiert das Bild nicht oder ist
-// es (noch) nicht öffentlich, meldet Directus 403/404 -- beides fangen wir
-// gleich ab und behandeln es als "nicht gefunden".
-export async function getPublicImageById(id: string): Promise<DirectusImage | null> {
+// Einzelner Beitrag für die öffentliche Artikelseite. Nutzt bewusst den
+// anonymen Public-Client -- so wird automatisch nur ausgeliefert, was laut
+// Public-Policy wirklich öffentlich ist.
+export async function getPublicImageById(id: string): Promise<Post | null> {
   try {
     const result = await directus.request(
-      readItem('images', id, {
-        fields: [
-          'id',
-          'title',
-          'article_body',
-          'file_public_preview',
-          'file_download',
-          'event_date',
-          'alarm_code',
-          'location',
-          'tags',
-          'is_public',
-          'published_at',
-          { organization: ['id', 'name', 'gewerk'] },
-        ],
+      readItem('posts', id, {
+        fields: PUBLIC_POST_FIELDS as unknown as string[],
       })
     );
-    return result as unknown as DirectusImage;
+    return result as unknown as Post;
   } catch (error) {
     console.error(`getPublicImageById(${id}) fehlgeschlagen:`, error);
     return null;
@@ -213,43 +194,30 @@ export async function getOrganizationById(id: string): Promise<Organization | nu
   }
 }
 
-// Öffentliche Fotos einer bestimmten Organisation, für deren Profilseite.
+// Öffentliche Beiträge einer bestimmten Organisation, für deren Profilseite.
 export async function getPublicImagesByOrganization(
   organizationId: string,
   limit = 24
-): Promise<DirectusImage[]> {
+): Promise<Post[]> {
   return directus.request(
-    readItems('images', {
+    readItems('posts', {
       filter: {
         is_public: { _eq: true },
         organization: { _eq: organizationId },
       },
       sort: ['-published_at'],
       limit,
-      fields: [
-        'id',
-        'title',
-        'file_public_preview',
-        'event_date',
-        'alarm_code',
-        'location',
-        'tags',
-        'is_public',
-        'published_at',
-        { organization: ['id', 'name', 'gewerk'] },
-      ],
+      fields: PUBLIC_POST_FIELDS as unknown as string[],
     })
-  ) as Promise<DirectusImage[]>;
+  ) as Promise<Post[]>;
 }
 
-// Alle bisher verwendeten Tags über öffentliche Bilder hinweg -- Grundlage
-// für die Autocomplete-Vorschläge beim Hochladen. Bewusst über den
-// anonymen Public-Client, weil Organisation-Nutzer damit auch die Tags
-// anderer Organisationen als Vorschlag sehen (das ist gewollt: genau das
-// sorgt für Standardisierung statt Wildwuchs).
+// Alle bisher verwendeten Tags -- Grundlage für die Autocomplete-Vorschläge
+// beim Hochladen. Gewollt über alle Organisationen hinweg, damit sich die
+// Schlagworte portalweit angleichen statt auseinanderzulaufen.
 export async function getAllUsedTags(): Promise<string[]> {
   const result = await directus.request(
-    readItems('images', {
+    readItems('posts', {
       filter: { is_public: { _eq: true } },
       fields: ['tags'],
       limit: -1,
@@ -262,11 +230,10 @@ export async function getAllUsedTags(): Promise<string[]> {
   return Array.from(all).sort((a, b) => a.localeCompare(b, 'de'));
 }
 
-// Echte Suche übers Bildarchiv. Holt bewusst eine größere Menge öffentlicher
-// Bilder und filtert/sortiert direkt in unserem eigenen Code, statt sich auf
-// Directus' Filterverhalten bei JSON-Feldern (tags) zu verlassen -- bei der
-// aktuellen Größenordnung (paar hundert Bilder) kostet das praktisch nichts,
-// garantiert aber korrektes Verhalten.
+// Suche übers Bildarchiv. Holt bewusst eine größere Menge und filtert
+// in unserem eigenen Code, statt sich auf Directus' Filterverhalten bei
+// JSON-Feldern (tags) zu verlassen -- bei der aktuellen Größenordnung
+// kostet das praktisch nichts, garantiert aber korrektes Verhalten.
 export async function searchPublicImages({
   query,
   gewerkId,
@@ -277,61 +244,54 @@ export async function searchPublicImages({
   gewerkId?: string;
   page?: number;
   pageSize?: number;
-}): Promise<{ images: DirectusImage[]; hasNextPage: boolean; total: number }> {
+}): Promise<{ images: Post[]; hasNextPage: boolean; total: number }> {
   const filter: Record<string, unknown> = { is_public: { _eq: true } };
   if (gewerkId) {
     filter.organization = { gewerk: { _eq: gewerkId } };
   }
 
   const candidates = (await directus.request(
-    readItems('images', {
+    readItems('posts', {
       filter,
       sort: ['-published_at'],
       limit: 500, // Obergrenze für die Textsuche -- reicht für die absehbare Größe
-      fields: [
-        'id',
-        'title',
-        'article_body',
-        'file_public_preview',
-        'event_date',
-        'alarm_code',
-        'location',
-        'tags',
-        'is_public',
-        'published_at',
-        { organization: ['id', 'name', 'gewerk'] },
-      ],
+      fields: PUBLIC_POST_FIELDS as unknown as string[],
     })
-  )) as DirectusImage[];
+  )) as Post[];
 
   const q = query.trim().toLowerCase();
   const scored = candidates
-    .map((img) => {
-      const tagsText = (img.tags || []).join(' ').toLowerCase();
-      const title = (img.title || '').toLowerCase();
-      const location = (img.location || '').toLowerCase();
-      const alarmCode = (img.alarm_code || '').toLowerCase();
-      const articleText = (img.article_body || '').replace(/<[^>]+>/g, ' ').toLowerCase();
+    .map((post) => {
+      const tagsText = (post.tags || []).join(' ').toLowerCase();
+      const title = (post.title || '').toLowerCase();
+      const location = (post.location || '').toLowerCase();
+      const alarmCode = (post.alarm_code || '').toLowerCase();
+      const articleText = (post.article_body || '').replace(/<[^>]+>/g, ' ').toLowerCase();
+      const captions = (post.images || [])
+        .map((img) => img.caption || '')
+        .join(' ')
+        .toLowerCase();
 
       let score = 0;
       if (tagsText.includes(q)) score += 4;
       if (title.includes(q)) score += 3;
       if (alarmCode.includes(q)) score += 3;
       if (location.includes(q)) score += 2;
+      if (captions.includes(q)) score += 2;
       if (articleText.includes(q)) score += 1;
 
-      return { img, score };
+      return { post, score };
     })
     .filter((entry) => entry.score > 0)
-    .sort((a, b) => b.score - a.score || (b.img.published_at || '').localeCompare(a.img.published_at || ''));
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        (b.post.published_at || '').localeCompare(a.post.published_at || '')
+    );
 
   const total = scored.length;
   const start = (page - 1) * pageSize;
-  const pageItems = scored.slice(start, start + pageSize).map((entry) => entry.img);
+  const pageItems = scored.slice(start, start + pageSize).map((entry) => entry.post);
 
-  return {
-    images: pageItems,
-    hasNextPage: start + pageSize < total,
-    total,
-  };
+  return { images: pageItems, hasNextPage: start + pageSize < total, total };
 }
