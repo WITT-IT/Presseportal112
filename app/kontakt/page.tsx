@@ -9,7 +9,12 @@ export const metadata: Metadata = {
   description: 'Kontaktiere Presseportal112 oder eine angeschlossene Organisation direkt.',
 };
 
-export default async function KontaktPage() {
+export default async function KontaktPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ org?: string }>;
+}) {
+  const { org } = await searchParams;
   const organizations = await getAllOrganizations();
 
   return (
@@ -21,7 +26,7 @@ export default async function KontaktPage() {
           eine bestimmte Organisation — deine Nachricht geht direkt an die
           zuständige Stelle, du musst die Adresse nicht selbst kennen.
         </p>
-        <ContactForm organizations={organizations} />
+        <ContactForm organizations={organizations} defaultOrganizationId={org} />
       </div>
     </section>
   );
