@@ -4,11 +4,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
 import { DIRECTUS_URL } from '@/lib/directus';
 
-// Der Artikeltext landet später ungefiltert als HTML auf einer öffentlichen
-// Seite (dangerouslySetInnerHTML) -- deshalb hier serverseitig auf eine
-// bewusst kleine Liste erlaubter Tags einschränken. Das schützt vor
-// gespeichertem Cross-Site-Scripting, auch wenn jemand direkt die API statt
-// unseres eigenen Editors anspricht.
+// UUID des Datei-Bibliothek-Ordners "Öffentlich" -- ohne diese Variable
+// landen watermarked Dateien im Root und sind für die Public-Policy später
+// nicht abrufbar (die filtert dort exakt auf diesen Ordner).
+const PUBLIC_FOLDER_ID = process.env.DIRECTUS_PUBLIC_FOLDER_ID;
+
+// Der Artikeltext landet später als HTML auf einer öffentlichen Seite --
+// deshalb hier serverseitig auf eine bewusst kleine Liste erlaubter Tags
+// einschränken. Schützt vor gespeichertem Cross-Site-Scripting, auch wenn
+// jemand direkt die API statt unseres Editors anspricht.
 const ARTICLE_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
   allowedTags: ['p', 'br', 'b', 'strong', 'i', 'em', 'h2', 'ul', 'ol', 'li', 'a'],
   allowedAttributes: { a: ['href', 'target', 'rel'] },
@@ -18,17 +22,11 @@ const ARTICLE_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
   },
 };
 
-// UUID des Datei-Bibliothek-Ordners "Öffentlich" -- ohne diese Variable
-// landen watermarked Dateien im Root und sind für die Public-Policy später
-// nicht abrufbar (die filtert dort exakt auf diesen Ordner).
-const PUBLIC_FOLDER_ID = process.env.DIRECTUS_PUBLIC_FOLDER_ID;
-
 // Directus antwortet nach dem Anlegen einer Datei manchmal mit 204 statt 200,
 // wenn die eigene Rolle die gerade erstellte Datei laut Lese-Filter nicht
 // sofort zurücklesen kann (bekanntes Verhalten, siehe
 // github.com/directus/directus/issues/22649). Deshalb vergeben wir die ID
-// selbst im Voraus, statt sie aus der Antwort auszulesen -- dann ist es
-// egal, ob 200 mit Daten oder 204 ohne zurückkommt.
+// selbst im Voraus, statt sie aus der Antwort auszulesen.
 async function uploadFileToDirectus(
   accessToken: string,
   blob: Blob,
@@ -77,9 +75,6 @@ export async function POST(request: NextRequest) {
   }
 
   const formData = await request.formData();
-  const originalFile = formData.get('original') as File | null;
-  const previewFile = formData.get('preview') as File | null;
-  const downloadFile = formData.get('download') as File | null;
   const title = (formData.get('title') as string) || null;
   const eventDate = formData.get('event_date') as string | null;
   const alarmCode = (formData.get('alarm_code') as string) || null;
@@ -90,52 +85,35 @@ export async function POST(request: NextRequest) {
     ? sanitizeHtml(articleBodyRaw, ARTICLE_SANITIZE_OPTIONS)
     : null;
 
-  if (!originalFile || !previewFile || !downloadFile || !eventDate) {
+  // Fotos kommen als indizierte Felder: original_0/preview_0/download_0,
+  // original_1/... -- so bleibt die Zuordnung der drei Varianten pro Foto
+  // eindeutig, auch wenn mehrere Bilder gleichzeitig hochgeladen werden.
+  const imageCount = Number(formData.get('image_count') || 0);
+
+  if (!eventDate || imageCount < 1) {
     return NextResponse.json({ error: 'Pflichtfelder fehlen.' }, { status: 400 });
   }
 
   try {
-    const originalId = await uploadFileToDirectus(
-      session.accessToken,
-      originalFile,
-      originalFile.name
-    );
-    const previewId = await uploadFileToDirectus(
-      session.accessToken,
-      previewFile,
-      `preview-${originalFile.name}.jpg`,
-      PUBLIC_FOLDER_ID
-    );
-    const downloadId = await uploadFileToDirectus(
-      session.accessToken,
-      downloadFile,
-      `download-${originalFile.name}.jpg`,
-      PUBLIC_FOLDER_ID
-    );
-
     const tags = tagsRaw
       .split(',')
       .map((t) => t.trim())
       .filter(Boolean);
 
-    // Gleiches Prinzip wie oben: eigene ID vergeben, damit eine mögliche
-    // 204-Antwort auch hier nicht zum Problem wird.
-    const imageId = randomUUID();
+    // Erst den Beitrag anlegen -- ohne ihn hätten die Fotos keine Zuordnung.
+    // Eigene ID vergeben, damit eine mögliche 204-Antwort nicht stört.
+    const postId = randomUUID();
 
-    const itemRes = await fetch(`${DIRECTUS_URL}/items/images`, {
+    const postRes = await fetch(`${DIRECTUS_URL}/items/posts`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${session.accessToken}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        id: imageId,
+        id: postId,
         title,
         article_body: articleBody,
-        original_name: originalFile.name,
-        file_original: originalId,
-        file_public_preview: previewId,
-        file_download: downloadId,
         event_date: eventDate,
         alarm_code: alarmCode,
         location,
@@ -145,12 +123,63 @@ export async function POST(request: NextRequest) {
       }),
     });
 
-    if (!itemRes.ok) {
-      const body = await itemRes.text();
-      throw new Error(body);
+    if (!postRes.ok) {
+      const body = await postRes.text();
+      throw new Error(`Beitrag anlegen fehlgeschlagen: ${body}`);
     }
 
-    return NextResponse.json({ ok: true, id: imageId });
+    // Dann die Fotos, nacheinander statt parallel -- zuverlässiger, und die
+    // Reihenfolge bleibt exakt so, wie der Nutzer sie ausgewählt hat.
+    for (let i = 0; i < imageCount; i++) {
+      const originalFile = formData.get(`original_${i}`) as File | null;
+      const previewFile = formData.get(`preview_${i}`) as File | null;
+      const downloadFile = formData.get(`download_${i}`) as File | null;
+      const caption = (formData.get(`caption_${i}`) as string) || null;
+
+      if (!originalFile || !previewFile || !downloadFile) continue;
+
+      const originalId = await uploadFileToDirectus(
+        session.accessToken,
+        originalFile,
+        originalFile.name
+      );
+      const previewId = await uploadFileToDirectus(
+        session.accessToken,
+        previewFile,
+        `preview-${originalFile.name}.jpg`,
+        PUBLIC_FOLDER_ID
+      );
+      const downloadId = await uploadFileToDirectus(
+        session.accessToken,
+        downloadFile,
+        `download-${originalFile.name}.jpg`,
+        PUBLIC_FOLDER_ID
+      );
+
+      const imageRes = await fetch(`${DIRECTUS_URL}/items/images`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          id: randomUUID(),
+          post: postId,
+          file_original: originalId,
+          file_public_preview: previewId,
+          file_download: downloadId,
+          caption,
+          sort: i,
+        }),
+      });
+
+      if (!imageRes.ok) {
+        const body = await imageRes.text();
+        throw new Error(`Foto ${i + 1} anlegen fehlgeschlagen: ${body}`);
+      }
+    }
+
+    return NextResponse.json({ ok: true, id: postId });
   } catch (error) {
     console.error('Upload fehlgeschlagen:', error);
     return NextResponse.json(
