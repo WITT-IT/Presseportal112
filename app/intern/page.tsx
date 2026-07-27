@@ -2,8 +2,9 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import UploadForm from '@/components/UploadForm';
 import MyImagesList from '@/components/MyImagesList';
+import PostCalendar from '@/components/PostCalendar';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
-import { getMyOrganizationImages, getAllUsedTags } from '@/lib/queries';
+import { getMyOrganizationImages, getAllUsedTags, getAlarmcodes } from '@/lib/queries';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,9 +23,10 @@ export default async function InternDashboard() {
   const user = await getCurrentUser(session.accessToken);
   if (!user) redirect('/login');
 
-  const [posts, existingTags] = await Promise.all([
+  const [posts, existingTags, alarmcodes] = await Promise.all([
     getMyOrganizationImages(session.accessToken),
     getAllUsedTags(),
+    getAlarmcodes(),
   ]);
 
   const watermarkText =
@@ -50,7 +52,18 @@ export default async function InternDashboard() {
               <h2 className="mb-4 font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
                 Neues Foto hochladen
               </h2>
-              <UploadForm watermarkText={watermarkText} existingTags={existingTags} />
+              <UploadForm
+                watermarkText={watermarkText}
+                existingTags={existingTags}
+                alarmcodes={alarmcodes}
+              />
+            </div>
+
+            <div className="mb-10">
+              <h2 className="mb-4 font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
+                Kalender
+              </h2>
+              <PostCalendar posts={posts} />
             </div>
 
             <div>
