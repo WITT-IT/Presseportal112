@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useEffect } from 'react';
+import { useDialog } from './DialogProvider';
 
 const TOOLS: {
   label: string;
@@ -24,6 +25,7 @@ export default function RichTextEditor({
   onChange: (html: string) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const { prompt } = useDialog();
 
   // Inhalt nur beim ersten Rendern setzen -- sonst springt der Cursor beim
   // Tippen ständig an den Anfang, weil React versucht, den DOM-Inhalt bei
@@ -35,15 +37,37 @@ export default function RichTextEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function exec(command: string, cmdValue?: string) {
+  async function exec(command: string, cmdValue?: string) {
     ref.current?.focus();
+
     if (command === 'createLink') {
-      const url = window.prompt('Link-Ziel (URL):');
+      // Auswahl sichern, bevor der Dialog den Fokus übernimmt -- sonst geht
+      // die markierte Textstelle beim Fokuswechsel zum eigenen Dialog
+      // verloren (bei einem echten Browser-Prompt passiert das nicht, bei
+      // einem selbstgebauten React-Dialog schon, wenn man's nicht abfängt).
+      const selection = window.getSelection();
+      const range =
+        selection && selection.rangeCount > 0 ? selection.getRangeAt(0).cloneRange() : null;
+
+      const url = await prompt({
+        title: 'Link einfügen',
+        message: 'Wohin soll der markierte Text verlinken?',
+        placeholder: 'https://…',
+      });
+
       if (!url) return;
-      document.execCommand(command, false, url);
+
+      // Fokus und Auswahl wiederherstellen, dann erst den Link setzen.
+      ref.current?.focus();
+      if (range && selection) {
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
+      document.execCommand('createLink', false, url);
     } else {
       document.execCommand(command, false, cmdValue);
     }
+
     onChange(ref.current?.innerHTML ?? '');
   }
 
