@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import Image from 'next/image';
 import { directusAssetUrl } from '@/lib/directus';
 import { primaryImage, type Post } from '@/lib/types';
@@ -112,6 +113,13 @@ export default function MyImagesList({ posts }: { posts: Post[] }) {
                     ? 'Zurückziehen'
                     : 'Veröffentlichen'}
                 </button>
+
+                <Link
+                  href={`/intern/bearbeiten/${post.id}`}
+                  className="block w-full rounded-md border border-line-strong px-2 py-1.5 text-center text-[11px] font-semibold text-ink transition-colors hover:border-ink"
+                >
+                  Bearbeiten
+                </Link>
 
                 <button
                   type="button"
