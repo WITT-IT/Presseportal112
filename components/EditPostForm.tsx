@@ -1,18 +1,31 @@
 'use client';
 
-import { useState, type FormEvent } from 'react';
+import { useState, type ChangeEvent, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { directusAssetUrl } from '@/lib/directus';
+import { createWatermarkedVariants } from '@/lib/watermark';
 import { normalizeTags, type Post } from '@/lib/types';
 import RichTextEditor from './RichTextEditor';
+
+const MAX_FILE_SIZE = 80 * 1024 * 1024;
+const MAX_IMAGES = 12;
+
+// Eine vereinheitlichte Liste für bestehende UND neu hinzugefügte Fotos --
+// beide lassen sich dadurch gemeinsam sortieren, statt zwei getrennte
+// Listen im Kopf abgleichen zu müssen.
+type ImageEntry =
+  | { kind: 'existing'; id: string; previewUrl: string; caption: string }
+  | { kind: 'new'; key: string; file: File; previewUrl: string; caption: string };
 
 export default function EditPostForm({
   post,
   existingTags,
+  watermarkText,
 }: {
   post: Post;
   existingTags: string[];
+  watermarkText: string;
 }) {
   const router = useRouter();
   const [title, setTitle] = useState(post.title ?? '');
@@ -21,44 +34,138 @@ export default function EditPostForm({
   const [location, setLocation] = useState(post.location ?? '');
   const [tags, setTags] = useState(normalizeTags(post.tags).join(', '));
   const [articleBody, setArticleBody] = useState(post.article_body ?? '');
-  const [captions, setCaptions] = useState<Record<string, string>>(
-    Object.fromEntries((post.images ?? []).map((img) => [img.id, img.caption ?? '']))
-  );
+
+  const initialEntries: ImageEntry[] = [...(post.images ?? [])]
+    .sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0))
+    .map((img) => ({
+      kind: 'existing',
+      id: img.id,
+      previewUrl: img.file_public_preview
+        ? directusAssetUrl(img.file_public_preview, 'width=200&quality=70')
+        : '',
+      caption: img.caption ?? '',
+    }));
+  const [entries, setEntries] = useState<ImageEntry[]>(initialEntries);
+  const [deletedIds, setDeletedIds] = useState<string[]>([]);
+
   const [status, setStatus] = useState<'idle' | 'saving' | 'error'>('idle');
+  const [progress, setProgress] = useState('');
   const [error, setError] = useState<string | null>(null);
 
-  const images = [...(post.images ?? [])].sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0));
+  function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0) return;
+
+    const tooBig = files.find((f) => f.size > MAX_FILE_SIZE);
+    if (tooBig) {
+      setError(`"${tooBig.name}" ist größer als 80 MB.`);
+      return;
+    }
+
+    const newEntries: ImageEntry[] = files.map((file) => ({
+      kind: 'new',
+      key: `${file.name}-${file.lastModified}-${Math.random()}`,
+      file,
+      previewUrl: URL.createObjectURL(file),
+      caption: '',
+    }));
+
+    const combined = [...entries, ...newEntries].slice(0, MAX_IMAGES);
+    setError(
+      entries.length + files.length > MAX_IMAGES
+        ? `Maximal ${MAX_IMAGES} Fotos pro Beitrag.`
+        : null
+    );
+    setEntries(combined);
+    e.target.value = '';
+  }
+
+  function removeEntry(index: number) {
+    setEntries((prev) => {
+      const entry = prev[index];
+      if (entry.kind === 'existing') {
+        setDeletedIds((ids) => [...ids, entry.id]);
+      } else {
+        URL.revokeObjectURL(entry.previewUrl);
+      }
+      return prev.filter((_, i) => i !== index);
+    });
+  }
+
+  function moveEntry(index: number, direction: -1 | 1) {
+    setEntries((prev) => {
+      const target = index + direction;
+      if (target < 0 || target >= prev.length) return prev;
+      const next = [...prev];
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  }
+
+  function updateCaption(index: number, caption: string) {
+    setEntries((prev) => prev.map((e, i) => (i === index ? { ...e, caption } : e)));
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    if (entries.length === 0) {
+      setError('Ein Beitrag braucht mindestens ein Foto.');
+      return;
+    }
+
     setStatus('saving');
     setError(null);
 
-    const res = await fetch('/api/intern/update', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        id: post.id,
-        title,
-        event_date: eventDate,
-        alarm_code: alarmCode,
-        location,
-        tags: tags
-          .split(',')
-          .map((t) => t.trim())
-          .filter(Boolean),
-        article_body: articleBody,
-        captions,
-      }),
-    });
+    try {
+      const formData = new FormData();
+      formData.append('id', post.id);
+      formData.append('title', title);
+      formData.append('event_date', eventDate);
+      formData.append('alarm_code', alarmCode);
+      formData.append('location', location);
+      formData.append('article_body', articleBody);
+      formData.append('tags', tags);
+      formData.append('delete_image_ids', JSON.stringify(deletedIds));
 
-    if (res.ok) {
+      const existingOrder: { id: string; caption: string; sort: number }[] = [];
+      let newCount = 0;
+
+      for (let i = 0; i < entries.length; i++) {
+        const entry = entries[i];
+        if (entry.kind === 'existing') {
+          existingOrder.push({ id: entry.id, caption: entry.caption, sort: i });
+        } else {
+          setProgress(`Wasserzeichen für neues Foto wird erstellt … (${newCount + 1})`);
+          const { preview, download } = await createWatermarkedVariants(
+            entry.file,
+            watermarkText
+          );
+          formData.append(`new_original_${newCount}`, entry.file);
+          formData.append(`new_preview_${newCount}`, preview);
+          formData.append(`new_download_${newCount}`, download);
+          formData.append(`new_caption_${newCount}`, entry.caption);
+          formData.append(`new_sort_${newCount}`, String(i));
+          newCount++;
+        }
+      }
+
+      formData.append('existing_image_order', JSON.stringify(existingOrder));
+      formData.append('new_image_count', String(newCount));
+
+      setProgress('Wird gespeichert …');
+      const res = await fetch('/api/intern/update', { method: 'POST', body: formData });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? 'Speichern fehlgeschlagen.');
+      }
+
       router.push('/intern');
       router.refresh();
-    } else {
-      const body = await res.json().catch(() => ({}));
-      setError(body.error ?? 'Speichern fehlgeschlagen.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Speichern fehlgeschlagen.');
       setStatus('error');
+      setProgress('');
     }
   }
 
@@ -73,6 +180,95 @@ export default function EditPostForm({
           sich sofort auf die veröffentlichte Seite aus.
         </div>
       )}
+
+      <div>
+        <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">
+          Fotos ({entries.length}/{MAX_IMAGES})
+        </label>
+
+        {entries.length > 0 && (
+          <div className="mb-2.5 flex flex-col gap-2">
+            {entries.map((entry, i) => (
+              <div
+                key={entry.kind === 'existing' ? entry.id : entry.key}
+                className="flex gap-3 rounded-md border border-line bg-panel p-2.5"
+              >
+                <div className="relative h-16 w-16 flex-none overflow-hidden rounded bg-white">
+                  {entry.previewUrl && (
+                    <Image
+                      src={entry.previewUrl}
+                      alt=""
+                      fill
+                      unoptimized={entry.kind === 'new'}
+                      className="object-cover"
+                    />
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="mb-1.5 flex items-center gap-2">
+                    <span className="font-mono text-[10px] text-ink-3">
+                      {i === 0 ? 'TITELBILD' : `BILD ${i + 1}`}
+                    </span>
+                    {entry.kind === 'new' && (
+                      <span className="rounded-[3px] bg-ink px-1.5 py-0.5 text-[9px] font-semibold text-white">
+                        NEU
+                      </span>
+                    )}
+                  </div>
+                  <input
+                    type="text"
+                    value={entry.caption}
+                    onChange={(e) => updateCaption(i, e.target.value)}
+                    placeholder="Bildunterschrift (optional)"
+                    className="w-full rounded border border-line-strong px-2 py-1 text-[12px] outline-none focus:border-ink"
+                  />
+                </div>
+                <div className="flex flex-none flex-col gap-1">
+                  <button
+                    type="button"
+                    onClick={() => moveEntry(i, -1)}
+                    disabled={i === 0}
+                    aria-label="Nach oben"
+                    className="rounded border border-line-strong px-1.5 text-[11px] text-ink-2 disabled:opacity-30"
+                  >
+                    ↑
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => moveEntry(i, 1)}
+                    disabled={i === entries.length - 1}
+                    aria-label="Nach unten"
+                    className="rounded border border-line-strong px-1.5 text-[11px] text-ink-2 disabled:opacity-30"
+                  >
+                    ↓
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => removeEntry(i)}
+                    aria-label="Entfernen"
+                    className="rounded border border-line-strong px-1.5 text-[11px] text-signal-deep"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <input
+          type="file"
+          accept="image/jpeg,image/png,image/webp,image/gif"
+          multiple
+          onChange={handleFileChange}
+          className="w-full text-[13px]"
+        />
+        <p className="mt-1 text-[11px] text-ink-3">
+          Weitere Fotos hinzufügen, bestehende entfernen oder mit ↑↓ neu
+          anordnen. Entfernte Originaldateien werden beim Speichern
+          unwiderruflich gelöscht.
+        </p>
+      </div>
 
       <div className="grid grid-cols-2 gap-4">
         <div>
@@ -145,43 +341,8 @@ export default function EditPostForm({
         </datalist>
       </div>
 
-      {images.length > 0 && (
-        <div>
-          <label className="mb-2 block text-[12.5px] font-medium text-ink-2">
-            Bildunterschriften
-          </label>
-          <div className="flex flex-col gap-2">
-            {images.map((img, i) => (
-              <div
-                key={img.id}
-                className="flex items-center gap-3 rounded-md border border-line bg-panel p-2.5"
-              >
-                <div className="relative h-14 w-14 flex-none overflow-hidden rounded bg-white">
-                  {img.file_public_preview && (
-                    <Image
-                      src={directusAssetUrl(img.file_public_preview, 'width=100&quality=70')}
-                      alt=""
-                      fill
-                      className="object-cover"
-                    />
-                  )}
-                </div>
-                <input
-                  type="text"
-                  value={captions[img.id] ?? ''}
-                  onChange={(e) =>
-                    setCaptions((prev) => ({ ...prev, [img.id]: e.target.value }))
-                  }
-                  placeholder={i === 0 ? 'Bildunterschrift zum Titelbild' : 'Bildunterschrift'}
-                  className="w-full rounded border border-line-strong px-2.5 py-1.5 text-[12.5px] outline-none focus:border-ink"
-                />
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       {error && <p className="text-[12.5px] text-signal-deep">{error}</p>}
+      {progress && <p className="text-[12.5px] text-ink-2">{progress}</p>}
 
       <div className="mt-2 flex items-center gap-3">
         <button
