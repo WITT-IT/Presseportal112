@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import SearchBox from './SearchBox';
 
 export default function Hero() {
   return (
@@ -23,6 +24,16 @@ export default function Hero() {
           BOS-Organisationen an einem Ort — geprüft, nach Alarmcode sortiert
           und sofort einsatzbereit für die Berichterstattung.
         </p>
+
+        <div className="max-w-[480px]">
+          <div className="mb-2.5 flex items-center gap-2">
+            <i className="ti ti-search text-[13px] text-ink-3" aria-hidden="true" />
+            <span className="font-mono text-[11px] font-medium uppercase tracking-[0.1em] text-ink-3">
+              Schlagwortsuche
+            </span>
+          </div>
+          <SearchBox />
+        </div>
 
         <div className="flex flex-wrap items-center gap-3.5">
           <Link
