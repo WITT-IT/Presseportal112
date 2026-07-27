@@ -12,7 +12,13 @@ export const metadata: Metadata = {
 };
 
 export default async function OrganisationenPage() {
-  const [organizations, gewerke] = await Promise.all([getAllOrganizations(), getGewerke()]);
+  let organizations: Awaited<ReturnType<typeof getAllOrganizations>> = [];
+  let gewerke: Awaited<ReturnType<typeof getGewerke>> = [];
+  try {
+    [organizations, gewerke] = await Promise.all([getAllOrganizations(), getGewerke()]);
+  } catch (error) {
+    console.error('Organisationsverzeichnis: Laden fehlgeschlagen:', error);
+  }
   const gewerkById = Object.fromEntries(gewerke.map((g) => [g.id, g]));
 
   return (
