@@ -388,3 +388,61 @@ export async function getAlarmcodes(): Promise<Alarmcode[]> {
     })
   ) as Promise<Alarmcode[]>;
 }
+
+// Eigene Ordner der Organisation samt Beitragsanzahl -- für die Übersicht.
+export async function getMyFolders(
+  accessToken: string
+): Promise<{ id: string; name: string; postCount: number }[]> {
+  const res = await fetch(`${DIRECTUS_URL}/items/folders?fields=id,name,posts.id&sort=name`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    cache: 'no-store',
+  });
+  if (!res.ok) {
+    console.error(`getMyFolders fehlgeschlagen (Status ${res.status}):`, await res.text().catch(() => ''));
+    return [];
+  }
+  const { data } = await res.json();
+  return (data as { id: string; name: string; posts?: unknown[] }[]).map((f) => ({
+    id: f.id,
+    name: f.name,
+    postCount: (f.posts || []).length,
+  }));
+}
+
+// Ein einzelner Ordner mit allen zugeordneten Beiträgen (inkl. Fotos), für
+// die Ordner-Detailseite.
+export async function getFolderWithPosts(
+  accessToken: string,
+  folderId: string
+): Promise<{ id: string; name: string; posts: Post[] } | null> {
+  const fields = [
+    'id',
+    'name',
+    'posts.posts_id.id',
+    'posts.posts_id.title',
+    'posts.posts_id.alarm_code',
+    'posts.posts_id.event_date',
+    'posts.posts_id.is_public',
+    'posts.posts_id.published_at',
+    'posts.posts_id.images.id',
+    'posts.posts_id.images.file_public_preview',
+    'posts.posts_id.images.sort',
+  ].join(',');
+
+  const res = await fetch(`${DIRECTUS_URL}/items/folders/${folderId}?fields=${fields}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    cache: 'no-store',
+  });
+  if (!res.ok) {
+    console.error(
+      `getFolderWithPosts(${folderId}) fehlgeschlagen (Status ${res.status}):`,
+      await res.text().catch(() => '')
+    );
+    return null;
+  }
+  const { data } = await res.json();
+  const posts = ((data.posts || []) as { posts_id: Post | null }[])
+    .map((row) => row.posts_id)
+    .filter((p): p is Post => !!p);
+  return { id: data.id, name: data.name, posts };
+}
