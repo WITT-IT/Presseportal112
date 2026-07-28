@@ -1,10 +1,16 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
+import Link from 'next/link';
 import UploadForm from '@/components/UploadForm';
 import MyImagesList from '@/components/MyImagesList';
 import PostCalendar from '@/components/PostCalendar';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
-import { getMyOrganizationImages, getAllUsedTags, getAlarmcodes } from '@/lib/queries';
+import {
+  getMyOrganizationImages,
+  getAllUsedTags,
+  getAlarmcodes,
+  getMyFolders,
+} from '@/lib/queries';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,10 +29,11 @@ export default async function InternDashboard() {
   const user = await getCurrentUser(session.accessToken);
   if (!user) redirect('/login');
 
-  const [posts, existingTags, alarmcodes] = await Promise.all([
+  const [posts, existingTags, alarmcodes, folders] = await Promise.all([
     getMyOrganizationImages(session.accessToken),
     getAllUsedTags(),
     getAlarmcodes(),
+    getMyFolders(session.accessToken),
   ]);
 
   const watermarkText =
@@ -66,12 +73,19 @@ export default async function InternDashboard() {
               <PostCalendar posts={posts} />
             </div>
 
-            <div>
-              <h2 className="mb-4 font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <h2 className="font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
                 Meine Bilder
               </h2>
-              <MyImagesList posts={posts} />
+              <Link
+                href="/intern/ordner"
+                className="flex items-center gap-1 text-[12.5px] font-semibold text-signal-deep"
+              >
+                <i className="ti ti-folder text-[14px]" aria-hidden="true" />
+                Eigene Ordner
+              </Link>
             </div>
+            <MyImagesList posts={posts} folders={folders} />
           </>
         ) : (
           <div className="rounded-[10px] border border-dashed border-line-strong p-10 text-center text-[13px] text-ink-2">
