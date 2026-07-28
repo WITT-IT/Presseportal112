@@ -7,8 +7,15 @@ import Image from 'next/image';
 import { directusAssetUrl } from '@/lib/directus';
 import { primaryImage, type Post } from '@/lib/types';
 import { useDialog } from './DialogProvider';
+import AddToFolderControl from './AddToFolderControl';
 
-export default function MyImagesList({ posts }: { posts: Post[] }) {
+export default function MyImagesList({
+  posts,
+  folders,
+}: {
+  posts: Post[];
+  folders: { id: string; name: string }[];
+}) {
   const router = useRouter();
   const { confirm } = useDialog();
   const [pendingId, setPendingId] = useState<string | null>(null);
@@ -120,6 +127,8 @@ export default function MyImagesList({ posts }: { posts: Post[] }) {
                 >
                   Bearbeiten
                 </Link>
+
+                <AddToFolderControl postId={post.id} folders={folders} />
 
                 <button
                   type="button"
