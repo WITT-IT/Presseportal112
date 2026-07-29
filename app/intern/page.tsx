@@ -1,120 +1,125 @@
-import { cookies } from 'next/headers';
-import { redirect } from 'next/navigation';
-import Link from 'next/link';
-import UploadForm from '@/components/UploadForm';
-import MyImagesList from '@/components/MyImagesList';
-import PostCalendar from '@/components/PostCalendar';
-import { getCurrentUser, isAdministrator, SESSION_COOKIE } from '@/lib/auth';
-import {
-  getMyOrganizationImages,
-  getAllUsedTags,
-  getAlarmcodes,
-  getMyFolders,
-} from '@/lib/queries';
+import { DIRECTUS_URL } from './directus';
 
-export const dynamic = 'force-dynamic';
+export const SESSION_COOKIE = 'pp_session';
 
-export default async function InternDashboard() {
-  const cookieStore = await cookies();
-  const raw = cookieStore.get(SESSION_COOKIE)?.value;
-  if (!raw) redirect('/login');
+export type Session = {
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: number; // Unix-Zeit in Millisekunden
+};
 
-  let session: { accessToken: string };
-  try {
-    session = JSON.parse(raw);
-  } catch {
-    redirect('/login');
+export async function loginWithDirectus(
+  email: string,
+  password: string
+): Promise<Session> {
+  const res = await fetch(`${DIRECTUS_URL}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+    cache: 'no-store',
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    const message =
+      body?.errors?.[0]?.message || `Directus antwortete mit Status ${res.status}`;
+    const error = new Error(message) as Error & { status?: number };
+    error.status = res.status;
+    throw error;
   }
 
-  const user = await getCurrentUser(session.accessToken);
-  if (!user) redirect('/login');
+  const { data } = await res.json();
+  return {
+    accessToken: data.access_token,
+    refreshToken: data.refresh_token,
+    expiresAt: Date.now() + data.expires,
+  };
+}
 
-  const [posts, existingTags, alarmcodes, folders, admin] = await Promise.all([
-    getMyOrganizationImages(session.accessToken),
-    getAllUsedTags(),
-    getAlarmcodes(),
-    getMyFolders(session.accessToken),
-    isAdministrator(user.id),
-  ]);
+export async function refreshDirectusSession(
+  refreshToken: string
+): Promise<Session | null> {
+  const res = await fetch(`${DIRECTUS_URL}/auth/refresh`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refresh_token: refreshToken, mode: 'json' }),
+    cache: 'no-store',
+  });
 
-  const watermarkText =
-    user.organization?.branding_label || `Foto: ${user.organization?.name ?? ''}`;
+  if (!res.ok) return null;
 
-  return (
-    <section className="px-8 py-14">
-      <div className="mx-auto max-w-[1180px]">
-        <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h1 className="mb-2 font-display text-[32px] font-bold">
-              Willkommen, {user.first_name || user.email}
-            </h1>
-            <p className="text-[14px] text-ink-2">
-              {user.organization?.name
-                ? `Angemeldet für ${user.organization.name}`
-                : 'Deinem Konto ist noch keine Organisation zugeordnet -- bitte an die Redaktion wenden.'}
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {admin && (
-              <Link
-                href="/intern/admin/konten"
-                className="flex items-center gap-1.5 rounded-md border border-signal/50 px-3 py-2 text-[12.5px] font-semibold text-signal-deep transition-colors hover:border-signal"
-              >
-                <i className="ti ti-shield text-[14px]" aria-hidden="true" />
-                Konten verwalten
-              </Link>
-            )}
-            <Link
-              href="/intern/konto"
-              className="flex items-center gap-1.5 rounded-md border border-line-strong px-3 py-2 text-[12.5px] font-semibold text-ink-2 transition-colors hover:border-ink hover:text-ink"
-            >
-              <i className="ti ti-user text-[14px]" aria-hidden="true" />
-              Konto &amp; Datenschutz
-            </Link>
-          </div>
-        </div>
+  const { data } = await res.json();
+  return {
+    accessToken: data.access_token,
+    refreshToken: data.refresh_token,
+    expiresAt: Date.now() + data.expires,
+  };
+}
 
-        {user.organization?.id ? (
-          <>
-            <div className="mb-10">
-              <h2 className="mb-4 font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
-                Neues Foto hochladen
-              </h2>
-              <UploadForm
-                watermarkText={watermarkText}
-                existingTags={existingTags}
-                alarmcodes={alarmcodes}
-              />
-            </div>
+export async function logoutDirectus(refreshToken: string) {
+  await fetch(`${DIRECTUS_URL}/auth/logout`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refresh_token: refreshToken, mode: 'json' }),
+    cache: 'no-store',
+  }).catch(() => {
+    // Beim Logout bewusst keinen Fehler nach außen geben -- das lokale
+    // Cookie wird in jedem Fall gelöscht, auch wenn Directus mal nicht
+    // erreichbar ist.
+  });
+}
 
-            <div className="mb-10">
-              <h2 className="mb-4 font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
-                Kalender
-              </h2>
-              <PostCalendar posts={posts} />
-            </div>
-
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-              <h2 className="font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
-                Meine Bilder
-              </h2>
-              <Link
-                href="/intern/ordner"
-                className="flex items-center gap-1 text-[12.5px] font-semibold text-signal-deep"
-              >
-                <i className="ti ti-folder text-[14px]" aria-hidden="true" />
-                Eigene Ordner
-              </Link>
-            </div>
-            <MyImagesList posts={posts} folders={folders} />
-          </>
-        ) : (
-          <div className="rounded-[10px] border border-dashed border-line-strong p-10 text-center text-[13px] text-ink-2">
-            Ohne zugeordnete Organisation kann noch nichts hochgeladen
-            werden.
-          </div>
-        )}
-      </div>
-    </section>
+// Holt das eigene Profil inkl. Organisation -- für die Begrüßung im
+// internen Bereich und um zu prüfen, ob der Account wirklich freigeschaltet ist.
+export async function getCurrentUser(accessToken: string) {
+  const res = await fetch(
+    `${DIRECTUS_URL}/users/me?fields=id,email,first_name,last_name,status,organization.id,organization.name,organization.gewerk,organization.branding_label`,
+    {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: 'no-store',
+    }
   );
+  if (!res.ok) return null;
+  const { data } = await res.json();
+  return data;
+}
+
+// Prüft unabhängig vom eigenen Nutzer-Token über den Service-Token, ob ein
+// bestimmter Benutzer die echte Directus-Systemrolle "Administrator" hat.
+export async function isAdministrator(userId: string): Promise<boolean> {
+  const serviceToken = process.env.DIRECTUS_SERVICE_TOKEN;
+  if (!serviceToken) {
+    console.error('isAdministrator: DIRECTUS_SERVICE_TOKEN fehlt.');
+    return false;
+  }
+  try {
+    const res = await fetch(`${DIRECTUS_URL}/users/${userId}?fields=role.name`, {
+      headers: { Authorization: `Bearer ${serviceToken}` },
+      cache: 'no-store',
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      console.error(
+        `isAdministrator: Directus antwortete mit Status ${res.status} für Nutzer ${userId}:`,
+        body
+      );
+      return false;
+    }
+    const { data } = await res.json();
+    console.log(`isAdministrator: Nutzer ${userId} hat Rolle`, JSON.stringify(data?.role));
+    return data?.role?.name === 'Administrator';
+  } catch (error) {
+    console.error('isAdministrator: Anfrage fehlgeschlagen:', error);
+    return false;
+  }
+}
+
+export function cookieOptions(secure: boolean) {
+  return {
+    httpOnly: true,
+    secure,
+    sameSite: 'lax' as const,
+    path: '/',
+    maxAge: 60 * 10, // 10 Minuten -- gleitendes Fenster, siehe middleware.ts
+  };
 }
