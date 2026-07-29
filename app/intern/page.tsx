@@ -4,7 +4,7 @@ import Link from 'next/link';
 import UploadForm from '@/components/UploadForm';
 import MyImagesList from '@/components/MyImagesList';
 import PostCalendar from '@/components/PostCalendar';
-import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
+import { getCurrentUser, isAdministrator, SESSION_COOKIE } from '@/lib/auth';
 import {
   getMyOrganizationImages,
   getAllUsedTags,
@@ -29,11 +29,12 @@ export default async function InternDashboard() {
   const user = await getCurrentUser(session.accessToken);
   if (!user) redirect('/login');
 
-  const [posts, existingTags, alarmcodes, folders] = await Promise.all([
+  const [posts, existingTags, alarmcodes, folders, admin] = await Promise.all([
     getMyOrganizationImages(session.accessToken),
     getAllUsedTags(),
     getAlarmcodes(),
     getMyFolders(session.accessToken),
+    isAdministrator(user.id),
   ]);
 
   const watermarkText =
@@ -53,13 +54,24 @@ export default async function InternDashboard() {
                 : 'Deinem Konto ist noch keine Organisation zugeordnet -- bitte an die Redaktion wenden.'}
             </p>
           </div>
-          <Link
-            href="/intern/konto"
-            className="flex items-center gap-1.5 rounded-md border border-line-strong px-3 py-2 text-[12.5px] font-semibold text-ink-2 transition-colors hover:border-ink hover:text-ink"
-          >
-            <i className="ti ti-user text-[14px]" aria-hidden="true" />
-            Konto &amp; Datenschutz
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            {admin && (
+              <Link
+                href="/intern/admin/konten"
+                className="flex items-center gap-1.5 rounded-md border border-signal/50 px-3 py-2 text-[12.5px] font-semibold text-signal-deep transition-colors hover:border-signal"
+              >
+                <i className="ti ti-shield text-[14px]" aria-hidden="true" />
+                Konten verwalten
+              </Link>
+            )}
+            <Link
+              href="/intern/konto"
+              className="flex items-center gap-1.5 rounded-md border border-line-strong px-3 py-2 text-[12.5px] font-semibold text-ink-2 transition-colors hover:border-ink hover:text-ink"
+            >
+              <i className="ti ti-user text-[14px]" aria-hidden="true" />
+              Konto &amp; Datenschutz
+            </Link>
+          </div>
         </div>
 
         {user.organization?.id ? (
