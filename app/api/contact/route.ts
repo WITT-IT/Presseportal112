@@ -23,12 +23,65 @@ async function getOrganizationContact(
   return data;
 }
 
+// Prüft das Turnstile-Token serverseitig gegen Cloudflare. Fehlt der Secret
+// Key (z. B. lokale Entwicklung ohne Cloudflare-Zugang), wird die Prüfung
+// bewusst übersprungen statt das Formular komplett zu blockieren.
+async function verifyTurnstile(token: string, remoteIp: string | null): Promise<boolean> {
+  const secret = process.env.TURNSTILE_SECRET_KEY;
+  if (!secret) {
+    console.warn('TURNSTILE_SECRET_KEY fehlt -- Sicherheitsprüfung wird übersprungen.');
+    return true;
+  }
+  try {
+    const params = new URLSearchParams();
+    params.set('secret', secret);
+    params.set('response', token);
+    if (remoteIp) params.set('remoteip', remoteIp);
+
+    const res = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params,
+    });
+    const data = await res.json();
+    return data.success === true;
+  } catch (error) {
+    console.error('Turnstile-Prüfung fehlgeschlagen:', error);
+    return false;
+  }
+}
+
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null);
-  const { name, email, recipient_organization, subject, message } = body || {};
+  const { name, email, recipient_organization, subject, message, turnstileToken, website } =
+    body || {};
+
+  // Honeypot-Feld gefüllt -- das kann kein echter Mensch sein (Feld ist
+  // unsichtbar). Bewusst "erfolgreich" antworten, ohne irgendwas zu tun --
+  // das Formular wirkt für den Bot funktionierend, wird aber ignoriert.
+  if (website) {
+    return NextResponse.json({ ok: true });
+  }
 
   if (!name || !email || !subject || !message) {
     return NextResponse.json({ error: 'Bitte alle Pflichtfelder ausfüllen.' }, { status: 400 });
+  }
+
+  if (process.env.TURNSTILE_SECRET_KEY) {
+    if (!turnstileToken) {
+      return NextResponse.json(
+        { error: 'Bitte die Sicherheitsprüfung abschließen.' },
+        { status: 400 }
+      );
+    }
+    const remoteIp = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || null;
+    const verified = await verifyTurnstile(turnstileToken, remoteIp);
+    if (!verified) {
+      return NextResponse.json(
+        { error: 'Sicherheitsprüfung fehlgeschlagen. Bitte erneut versuchen.' },
+        { status: 400 }
+      );
+    }
   }
 
   // Immer zuerst in Directus ablegen -- verlässliches Archiv, unabhängig
