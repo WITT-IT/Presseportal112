@@ -71,6 +71,9 @@ export async function logoutDirectus(refreshToken: string) {
 
 // Holt das eigene Profil inkl. Organisation -- für die Begrüßung im
 // internen Bereich und um zu prüfen, ob der Account wirklich freigeschaltet ist.
+// UNVERÄNDERT gegenüber vorher -- bewusst nicht um "role" erweitert, um das
+// bestehende Feld-Berechtigungsverhalten (und damit den Login) nicht
+// anzufassen. Die Admin-Prüfung läuft separat über isAdministrator().
 export async function getCurrentUser(accessToken: string) {
   const res = await fetch(
     `${DIRECTUS_URL}/users/me?fields=id,email,first_name,last_name,status,organization.id,organization.name,organization.gewerk,organization.branding_label`,
@@ -82,6 +85,31 @@ export async function getCurrentUser(accessToken: string) {
   if (!res.ok) return null;
   const { data } = await res.json();
   return data;
+}
+
+// Prüft unabhängig vom eigenen Nutzer-Token über den Service-Token, ob ein
+// bestimmter Benutzer die echte Directus-Systemrolle "Administrator" hat.
+// Bewusst als eigene Funktion mit eigenem Request, statt die Rolle über
+// getCurrentUser() mitzuladen -- so bleibt das normale Login-Feld-Set
+// unangetastet, egal welche Feldrechte auf directus_users sonst gelten.
+export async function isAdministrator(userId: string): Promise<boolean> {
+  const serviceToken = process.env.DIRECTUS_SERVICE_TOKEN;
+  if (!serviceToken) {
+    console.error('DIRECTUS_SERVICE_TOKEN fehlt -- Admin-Prüfung nicht möglich.');
+    return false;
+  }
+  try {
+    const res = await fetch(`${DIRECTUS_URL}/users/${userId}?fields=role.name`, {
+      headers: { Authorization: `Bearer ${serviceToken}` },
+      cache: 'no-store',
+    });
+    if (!res.ok) return false;
+    const { data } = await res.json();
+    return data?.role?.name === 'Administrator';
+  } catch (error) {
+    console.error('isAdministrator-Prüfung fehlgeschlagen:', error);
+    return false;
+  }
 }
 
 export function cookieOptions(secure: boolean) {
