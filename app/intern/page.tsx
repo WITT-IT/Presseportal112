@@ -42,15 +42,24 @@ export default async function InternDashboard() {
   return (
     <section className="px-8 py-14">
       <div className="mx-auto max-w-[1180px]">
-        <div className="mb-8">
-          <h1 className="mb-2 font-display text-[32px] font-bold">
-            Willkommen, {user.first_name || user.email}
-          </h1>
-          <p className="text-[14px] text-ink-2">
-            {user.organization?.name
-              ? `Angemeldet für ${user.organization.name}`
-              : 'Deinem Konto ist noch keine Organisation zugeordnet -- bitte an die Redaktion wenden.'}
-          </p>
+        <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 className="mb-2 font-display text-[32px] font-bold">
+              Willkommen, {user.first_name || user.email}
+            </h1>
+            <p className="text-[14px] text-ink-2">
+              {user.organization?.name
+                ? `Angemeldet für ${user.organization.name}`
+                : 'Deinem Konto ist noch keine Organisation zugeordnet -- bitte an die Redaktion wenden.'}
+            </p>
+          </div>
+          <Link
+            href="/intern/konto"
+            className="flex items-center gap-1.5 rounded-md border border-line-strong px-3 py-2 text-[12.5px] font-semibold text-ink-2 transition-colors hover:border-ink hover:text-ink"
+          >
+            <i className="ti ti-user text-[14px]" aria-hidden="true" />
+            Konto &amp; Datenschutz
+          </Link>
         </div>
 
         {user.organization?.id ? (
