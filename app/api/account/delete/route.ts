@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
+import { getCurrentUser, isAdministrator, SESSION_COOKIE } from '@/lib/auth';
 import { DIRECTUS_URL } from '@/lib/directus';
 
 const CONFIRM_PHRASE = 'KONTO LÖSCHEN';
@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Sitzung ungültig.' }, { status: 401 });
   }
 
-  const { confirmPhrase } = await request.json().catch(() => ({}));
+  const { confirmPhrase, targetUserId } = await request.json().catch(() => ({}));
   if (confirmPhrase !== CONFIRM_PHRASE) {
     return NextResponse.json(
       { error: 'Bitte die Bestätigungsphrase exakt eingeben.' },
@@ -35,11 +35,24 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Identität kommt ausschließlich aus der eigenen Session, nie aus dem
-  // Request-Body -- so kann sich niemand ein fremdes Konto löschen lassen.
-  const user = await getCurrentUser(session.accessToken);
-  if (!user) {
+  // Identität des Aufrufers kommt ausschließlich aus der eigenen Session.
+  const caller = await getCurrentUser(session.accessToken);
+  if (!caller) {
     return NextResponse.json({ error: 'Sitzung ungültig.' }, { status: 401 });
+  }
+
+  // Kein targetUserId oder identisch mit dem Aufrufer -> normale
+  // Selbstlöschung, wie bisher. Abweichendes targetUserId ist NUR erlaubt,
+  // wenn der Aufrufer laut Directus-Rolle wirklich Administrator ist --
+  // geprüft über einen eigenen, service-token-basierten Request, nicht
+  // über eine hartcodierte E-Mail-Adresse.
+  let effectiveTargetId = caller.id as string;
+  if (targetUserId && targetUserId !== caller.id) {
+    const callerIsAdmin = await isAdministrator(caller.id);
+    if (!callerIsAdmin) {
+      return NextResponse.json({ error: 'Keine Berechtigung.' }, { status: 403 });
+    }
+    effectiveTargetId = targetUserId;
   }
 
   const serviceToken = process.env.DIRECTUS_SERVICE_TOKEN;
@@ -56,7 +69,7 @@ export async function POST(request: NextRequest) {
   };
 
   try {
-    // Alle eigenen Beiträge holen -- öffentliche und private.
+    // Alle Beiträge des Zielkontos holen -- öffentliche und private.
     const fields = [
       'id',
       'is_public',
@@ -66,7 +79,7 @@ export async function POST(request: NextRequest) {
       'images.file_download',
     ].join(',');
     const postsRes = await fetch(
-      `${DIRECTUS_URL}/items/posts?filter[uploaded_by][_eq]=${user.id}&fields=${fields}&limit=-1`,
+      `${DIRECTUS_URL}/items/posts?filter[uploaded_by][_eq]=${effectiveTargetId}&fields=${fields}&limit=-1`,
       { headers: adminHeaders }
     );
     if (!postsRes.ok) {
@@ -79,9 +92,6 @@ export async function POST(request: NextRequest) {
 
     // Private Beiträge komplett entfernen -- erst die Dateien in der
     // Directus-Bibliothek, dann die Foto-Datensätze, dann den Beitrag selbst.
-    // Diese Reihenfolge ist bewusst so gewählt, damit keine Fremdschlüssel-
-    // Verweise übrig bleiben, egal wie die Directus-Relationen intern
-    // konfiguriert sind.
     for (const post of privatePosts) {
       for (const img of post.images || []) {
         const fileIds = [img.file_original, img.file_public_preview, img.file_download].filter(
@@ -128,8 +138,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Öffentliche Beiträge bleiben erhalten -- nur die persönliche
-    // Kontozuordnung wird entfernt, damit das Konto danach gefahrlos
-    // gelöscht werden kann.
+    // Kontozuordnung wird entfernt.
     if (publicPosts.length) {
       await fetch(`${DIRECTUS_URL}/items/posts`, {
         method: 'PATCH',
@@ -141,8 +150,8 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Zuletzt das Benutzerkonto selbst löschen.
-    const deleteUserRes = await fetch(`${DIRECTUS_URL}/users/${user.id}`, {
+    // Zuletzt das Zielkonto selbst löschen.
+    const deleteUserRes = await fetch(`${DIRECTUS_URL}/users/${effectiveTargetId}`, {
       method: 'DELETE',
       headers: adminHeaders,
     });
@@ -157,7 +166,11 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Nur bei echter Selbstlöschung die eigene Session beenden -- löscht ein
+  // Admin ein fremdes Konto, bleibt die eigene Admin-Sitzung bestehen.
   const response = NextResponse.json({ ok: true });
-  response.cookies.delete(SESSION_COOKIE);
+  if (effectiveTargetId === caller.id) {
+    response.cookies.delete(SESSION_COOKIE);
+  }
   return response;
 }
