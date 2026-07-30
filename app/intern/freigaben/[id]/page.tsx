@@ -57,6 +57,7 @@ export default async function MediaShareDetailPage({
         </div>
 
         <MediaShareLinkBox
+          shareId={share.id}
           token={share.token}
           shareName={share.name}
           recipientName={share.recipientName}
