@@ -33,6 +33,7 @@ export default function UploadForm({
   const [location, setLocation] = useState('');
   const [tags, setTags] = useState('');
   const [articleBody, setArticleBody] = useState('');
+  const [contentConfirmed, setContentConfirmed] = useState(false);
   const [status, setStatus] = useState<'idle' | 'working' | 'done' | 'error'>('idle');
   const [progress, setProgress] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -90,6 +91,10 @@ export default function UploadForm({
       setError('Bitte mindestens ein Foto auswählen.');
       return;
     }
+    if (!contentConfirmed) {
+      setError('Bitte die Bestätigung zum Bildinhalt ankreuzen.');
+      return;
+    }
 
     setStatus('working');
     setError(null);
@@ -103,6 +108,7 @@ export default function UploadForm({
       formData.append('tags', tags);
       formData.append('article_body', articleBody);
       formData.append('image_count', String(images.length));
+      formData.append('content_confirmed', 'true');
 
       // Wasserzeichen für jedes Foto einzeln im Browser erzeugen -- das
       // dauert je nach Bildgröße spürbar, deshalb Fortschritt anzeigen.
@@ -134,6 +140,7 @@ export default function UploadForm({
       setLocation('');
       setTags('');
       setArticleBody('');
+      setContentConfirmed(false);
       setStatus('done');
       setProgress('');
       router.refresh();
@@ -302,6 +309,20 @@ export default function UploadForm({
           </p>
         )}
       </div>
+
+      <label className="flex items-start gap-2.5 rounded-md border border-line-strong bg-panel p-3.5 text-[12px] leading-[1.55] text-ink-2">
+        <input
+          type="checkbox"
+          checked={contentConfirmed}
+          onChange={(e) => setContentConfirmed(e.target.checked)}
+          className="mt-0.5"
+        />
+        <span>
+          Ich bestätige, dass ich zur Veröffentlichung dieser Fotos berechtigt
+          bin, dass sie einen dienstlichen Einsatz zeigen und keine privaten,
+          anstößigen oder unangemessenen Inhalte enthalten.
+        </span>
+      </label>
 
       {error && <p className="text-[12.5px] text-signal-deep">{error}</p>}
       {status === 'done' && (
