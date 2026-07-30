@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { DIRECTUS_URL } from '@/lib/directus';
+import { sendRegistrationReceivedEmail, sendNewRegistrationAdminNotification } from '@/lib/email';
 
 // Bewusst der reguläre /users-Endpunkt, nicht /users/register -- letzterer
 // unterstützt laut Directus nur first_name/last_name als Zusatzfelder, wir
@@ -47,6 +48,35 @@ export async function POST(request: NextRequest) {
           : 'Registrierung gerade nicht möglich. Bitte später erneut versuchen.',
       },
       { status: isDuplicate ? 409 : 502 }
+    );
+  }
+
+  // Beide Mails bewusst best-effort -- ein Mailserver-Ausfall (oder noch
+  // gar nicht konfiguriertes SMTP) soll die Registrierung selbst nicht
+  // verhindern, die ist zu diesem Zeitpunkt schon sicher in Directus
+  // gespeichert.
+  try {
+    await sendRegistrationReceivedEmail({ to: email, name: first_name });
+  } catch (error) {
+    console.error('Registrierungsbestätigung an Nutzer fehlgeschlagen:', error);
+  }
+
+  const adminNotifyAddress = process.env.CONTACT_FALLBACK_EMAIL;
+  if (adminNotifyAddress) {
+    try {
+      await sendNewRegistrationAdminNotification({
+        to: adminNotifyAddress,
+        registrantName: `${first_name} ${last_name}`,
+        registrantEmail: email,
+        requestedOrganizationName: requested_organization_name || null,
+        requestedGewerk: requested_gewerk,
+      });
+    } catch (error) {
+      console.error('Admin-Benachrichtigung über neue Registrierung fehlgeschlagen:', error);
+    }
+  } else {
+    console.warn(
+      'CONTACT_FALLBACK_EMAIL fehlt -- keine Admin-Benachrichtigung über neue Registrierung verschickt.'
     );
   }
 
