@@ -34,12 +34,14 @@ export default function AdminRegistrationsList({
       setError('Bitte zuerst eine Organisation auswählen.');
       return;
     }
+    const organizationName = organizations.find((org) => org.id === organizationId)?.name;
+
     setError(null);
     setBusyId(id);
     const res = await fetch(`/api/admin/registrations/${id}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ organizationId }),
+      body: JSON.stringify({ organizationId, organizationName }),
     });
     setBusyId(null);
     if (res.ok) {
