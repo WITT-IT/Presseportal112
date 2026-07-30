@@ -31,6 +31,7 @@ export async function GET(request: NextRequest) {
     'alarm_code',
     'published_at',
     'uploaded_by',
+    'content_confirmed_at',
     'organization.name',
     'images.id',
     'images.file_public_preview',
