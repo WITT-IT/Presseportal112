@@ -8,13 +8,16 @@ import { directusAssetUrl } from '@/lib/directus';
 import { primaryImage, type Post } from '@/lib/types';
 import { useDialog } from './DialogProvider';
 import AddToFolderControl from './AddToFolderControl';
+import AddToMediaShareControl from './AddToMediaShareControl';
 
 export default function MyImagesList({
   posts,
   folders,
+  mediaShares,
 }: {
   posts: Post[];
   folders: { id: string; name: string }[];
+  mediaShares: { id: string; name: string }[];
 }) {
   const router = useRouter();
   const { confirm } = useDialog();
@@ -129,6 +132,7 @@ export default function MyImagesList({
                 </Link>
 
                 <AddToFolderControl postId={post.id} folders={folders} />
+                <AddToMediaShareControl postId={post.id} mediaShares={mediaShares} />
 
                 <button
                   type="button"
