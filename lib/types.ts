@@ -95,6 +95,47 @@ export function normalizeTags(value: unknown): string[] {
   return [];
 }
 
+export type Folder = {
+  id: string;
+  name: string;
+};
+
+// Kurzfassung einer Medienfreigabe -- für die Übersichtsliste unter
+// /intern/freigaben, ohne die vollen Beitragsdaten mitzuladen.
+export type MediaShareSummary = {
+  id: string;
+  name: string;
+  recipientName: string | null;
+  active: boolean;
+  expiresAt: string;
+  postCount: number;
+};
+
+// Vollständige Freigabe inkl. zugeordneter Beiträge -- für die interne
+// Detailseite (Beiträge verwalten, Link anzeigen, umbenennen).
+export type MediaShareDetail = {
+  id: string;
+  name: string;
+  recipientName: string | null;
+  recipientEmail: string | null;
+  token: string;
+  active: boolean;
+  expiresAt: string;
+  autoDeleteOnExpiry: boolean;
+  posts: Post[];
+};
+
+// Öffentliche Sicht auf eine Freigabe -- absichtlich schlanker als
+// MediaShareDetail (kein token/autoDeleteOnExpiry etc. an die Öffentlichkeit).
+export type PublicMediaShare = {
+  id: string;
+  name: string;
+  recipientName: string | null;
+  organizationName: string | null;
+  expiresAt: string;
+  posts: Post[];
+};
+
 // Zuordnung Gewerk -> Tailwind-Farbklasse, spiegelt gewerke.color aus Directus.
 // Falls du eine Farbe in Directus änderst, hier synchron halten (oder später
 // dynamisch aus der API übernehmen statt hart zu codieren).
