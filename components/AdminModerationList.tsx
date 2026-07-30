@@ -1,86 +1,118 @@
-import { cookies } from 'next/headers';
-import { redirect } from 'next/navigation';
-import Link from 'next/link';
-import { getCurrentUser, isAdministrator, SESSION_COOKIE } from '@/lib/auth';
-import { DIRECTUS_URL } from '@/lib/directus';
-import { getAllOrganizations } from '@/lib/queries';
-import AdminRegistrationsList from '@/components/AdminRegistrationsList';
+'use client';
 
-export const dynamic = 'force-dynamic';
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import Image from 'next/image';
+import { useDialog } from './DialogProvider';
+import { directusAssetUrl } from '@/lib/directus';
 
-async function getPendingRegistrations() {
-  const serviceToken = process.env.DIRECTUS_SERVICE_TOKEN;
-  if (!serviceToken) return [];
-  const fields = [
-    'id',
-    'email',
-    'first_name',
-    'last_name',
-    'requested_organization_name',
-    'requested_gewerk',
-  ].join(',');
-  try {
-    const res = await fetch(`${DIRECTUS_URL}/users?filter[status][_eq]=draft&fields=${fields}`, {
-      headers: { Authorization: `Bearer ${serviceToken}` },
-      cache: 'no-store',
+type ModerationPost = {
+  id: string;
+  title: string | null;
+  alarm_code: string | null;
+  published_at: string | null;
+  uploaded_by: string | null;
+  organization: { name: string } | null;
+  images: { id: string; file_public_preview: string | null }[];
+};
+
+export default function AdminModerationList({ posts }: { posts: ModerationPost[] }) {
+  const router = useRouter();
+  const { confirm } = useDialog();
+  const [filter, setFilter] = useState<'all' | 'orphaned'>('all');
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const filtered = filter === 'orphaned' ? posts.filter((p) => !p.uploaded_by) : posts;
+
+  async function handleDelete(id: string) {
+    const confirmed = await confirm({
+      title: 'Beitrag dauerhaft löschen?',
+      message:
+        'Der Beitrag verschwindet sofort aus dem öffentlichen Archiv und kann nicht wiederhergestellt werden.',
+      confirmLabel: 'Löschen',
+      cancelLabel: 'Abbrechen',
+      danger: true,
     });
-    if (!res.ok) {
-      console.error(
-        `getPendingRegistrations fehlgeschlagen (Status ${res.status}):`,
-        await res.text().catch(() => '')
-      );
-      return [];
-    }
-    const { data } = await res.json();
-    return data;
-  } catch (error) {
-    console.error('getPendingRegistrations fehlgeschlagen:', error);
-    return [];
+    if (!confirmed) return;
+
+    setBusyId(id);
+    await fetch(`/api/admin/moderation/${id}`, { method: 'DELETE' });
+    setBusyId(null);
+    router.refresh();
   }
-}
-
-export default async function AdminRegistrationsPage() {
-  const cookieStore = await cookies();
-  const raw = cookieStore.get(SESSION_COOKIE)?.value;
-  if (!raw) redirect('/login');
-
-  let session: { accessToken: string };
-  try {
-    session = JSON.parse(raw);
-  } catch {
-    redirect('/login');
-  }
-
-  const user = await getCurrentUser(session.accessToken);
-  if (!user) redirect('/login');
-  const admin = await isAdministrator(user.id);
-  if (!admin) redirect('/intern');
-
-  const [registrations, organizations] = await Promise.all([
-    getPendingRegistrations(),
-    getAllOrganizations(),
-  ]);
 
   return (
-    <section className="px-8 py-14">
-      <div className="mx-auto max-w-[720px]">
-        <Link
-          href="/intern/admin"
-          className="mb-6 inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-ink-2 hover:text-ink"
+    <div>
+      <div className="mb-5 flex gap-2">
+        <button
+          type="button"
+          onClick={() => setFilter('all')}
+          className={`rounded-md px-3 py-1.5 text-[12px] font-semibold ${
+            filter === 'all' ? 'bg-ink text-white' : 'border border-line-strong text-ink-2'
+          }`}
         >
-          <i className="ti ti-arrow-left text-[14px]" aria-hidden="true" />
-          Admin-Übersicht
-        </Link>
-
-        <h1 className="mb-2 font-display text-[32px] font-bold">Registrierungen</h1>
-        <p className="mb-8 text-[13.5px] text-ink-2">
-          Neue Organisations-Konten warten hier auf Freigabe. Existiert die
-          gewünschte Organisation noch nicht, zuerst in Directus unter{' '}
-          <span className="font-mono">organizations</span> anlegen.
-        </p>
-
-        <AdminRegistrationsList registrations={registrations} organizations={organizations} />
+          Alle ({posts.length})
+        </button>
+        <button
+          type="button"
+          onClick={() => setFilter('orphaned')}
+          className={`rounded-md px-3 py-1.5 text-[12px] font-semibold ${
+            filter === 'orphaned'
+              ? 'bg-signal-deep text-white'
+              : 'border border-line-strong text-ink-2'
+          }`}
+        >
+          Verwaist ({posts.filter((p) => !p.uploaded_by).length})
+        </button>
       </div>
-    </section>
+
+      {filtered.length === 0 ? (
+        <p className="text-[13px] text-ink-2">Keine Beiträge in dieser Ansicht.</p>
+      ) : (
+        <div className="grid grid-cols-2 gap-4 nav:grid-cols-4">
+          {filtered.map((post) => {
+            const hero = post.images?.[0];
+            return (
+              <div
+                key={post.id}
+                className="overflow-hidden rounded-[10px] border border-line bg-white"
+              >
+                <div className="relative h-[110px] bg-panel">
+                  {hero?.file_public_preview && (
+                    <Image
+                      src={directusAssetUrl(hero.file_public_preview, 'width=300&quality=70')}
+                      alt=""
+                      fill
+                      className="object-cover"
+                    />
+                  )}
+                  {!post.uploaded_by && (
+                    <span className="absolute left-2 top-2 rounded-[4px] bg-signal-deep px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                      verwaist
+                    </span>
+                  )}
+                </div>
+                <div className="p-2.5">
+                  <div className="mb-1 truncate text-[11px] text-ink-3">
+                    {post.organization?.name ?? 'Unbekannte Organisation'}
+                  </div>
+                  <div className="mb-2 truncate text-[12px] font-medium">
+                    {post.title || post.alarm_code || 'Ohne Titel'}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(post.id)}
+                    disabled={busyId === post.id}
+                    className="w-full rounded-md border border-line-strong px-2 py-1.5 text-[11px] font-semibold text-signal-deep transition-colors hover:border-signal disabled:opacity-50"
+                  >
+                    {busyId === post.id ? '…' : 'Dauerhaft löschen'}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
