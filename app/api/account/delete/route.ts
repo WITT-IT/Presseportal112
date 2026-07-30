@@ -35,17 +35,11 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Identität des Aufrufers kommt ausschließlich aus der eigenen Session.
   const caller = await getCurrentUser(session.accessToken);
   if (!caller) {
     return NextResponse.json({ error: 'Sitzung ungültig.' }, { status: 401 });
   }
 
-  // Kein targetUserId oder identisch mit dem Aufrufer -> normale
-  // Selbstlöschung, wie bisher. Abweichendes targetUserId ist NUR erlaubt,
-  // wenn der Aufrufer laut Directus-Rolle wirklich Administrator ist --
-  // geprüft über einen eigenen, service-token-basierten Request, nicht
-  // über eine hartcodierte E-Mail-Adresse.
   let effectiveTargetId = caller.id as string;
   if (targetUserId && targetUserId !== caller.id) {
     const callerIsAdmin = await isAdministrator(caller.id);
@@ -69,7 +63,6 @@ export async function POST(request: NextRequest) {
   };
 
   try {
-    // Alle Beiträge des Zielkontos holen -- öffentliche und private.
     const fields = [
       'id',
       'is_public',
@@ -90,8 +83,6 @@ export async function POST(request: NextRequest) {
     const privatePosts = posts.filter((p) => !p.is_public);
     const publicPosts = posts.filter((p) => p.is_public);
 
-    // Private Beiträge komplett entfernen -- erst die Dateien in der
-    // Directus-Bibliothek, dann die Foto-Datensätze, dann den Beitrag selbst.
     for (const post of privatePosts) {
       for (const img of post.images || []) {
         const fileIds = [img.file_original, img.file_public_preview, img.file_download].filter(
@@ -113,21 +104,24 @@ export async function POST(request: NextRequest) {
         }).catch(() => {});
       }
 
-      // Zugehörige Ordner-Zuordnungen mit aufräumen -- kosmetisch, schadet
-      // aber nichts falls es mal fehlschlägt.
-      await fetch(`${DIRECTUS_URL}/items/folders_posts?filter[posts_id][_eq]=${post.id}&fields=id`, {
-        headers: adminHeaders,
-      })
-        .then((res) => (res.ok ? res.json() : { data: [] }))
-        .then(async ({ data }: { data: { id: string }[] }) => {
-          for (const row of data) {
-            await fetch(`${DIRECTUS_URL}/items/folders_posts/${row.id}`, {
-              method: 'DELETE',
-              headers: adminHeaders,
-            }).catch(() => {});
-          }
+      // Zugehörige Ordner- UND Freigabe-Zuordnungen mit aufräumen -- beide
+      // Junction-Tabellen, kosmetisch, schadet aber nichts falls es mal
+      // fehlschlägt.
+      for (const junction of ['folders_posts', 'media_shares_posts']) {
+        await fetch(`${DIRECTUS_URL}/items/${junction}?filter[posts_id][_eq]=${post.id}&fields=id`, {
+          headers: adminHeaders,
         })
-        .catch(() => {});
+          .then((res) => (res.ok ? res.json() : { data: [] }))
+          .then(async ({ data }: { data: { id: string }[] }) => {
+            for (const row of data) {
+              await fetch(`${DIRECTUS_URL}/items/${junction}/${row.id}`, {
+                method: 'DELETE',
+                headers: adminHeaders,
+              }).catch(() => {});
+            }
+          })
+          .catch(() => {});
+      }
     }
     if (privatePosts.length) {
       await fetch(`${DIRECTUS_URL}/items/posts`, {
@@ -137,8 +131,6 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Öffentliche Beiträge bleiben erhalten -- nur die persönliche
-    // Kontozuordnung wird entfernt.
     if (publicPosts.length) {
       await fetch(`${DIRECTUS_URL}/items/posts`, {
         method: 'PATCH',
@@ -150,7 +142,6 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Zuletzt das Zielkonto selbst löschen.
     const deleteUserRes = await fetch(`${DIRECTUS_URL}/users/${effectiveTargetId}`, {
       method: 'DELETE',
       headers: adminHeaders,
@@ -166,8 +157,6 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Nur bei echter Selbstlöschung die eigene Session beenden -- löscht ein
-  // Admin ein fremdes Konto, bleibt die eigene Admin-Sitzung bestehen.
   const response = NextResponse.json({ ok: true });
   if (effectiveTargetId === caller.id) {
     response.cookies.delete(SESSION_COOKIE);
