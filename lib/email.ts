@@ -323,6 +323,59 @@ export async function sendRegistrationApprovedEmail({
   });
 }
 
+// Geht an eine Person, die "Passwort vergessen" ausgelöst hat -- enthält
+// den signierten Reset-Link. Ebenfalls im schönen HTML-Layout.
+export async function sendPasswordResetEmail({
+  to,
+  name,
+  token,
+}: {
+  to: string;
+  name: string;
+  token: string;
+}) {
+  const transport = getTransporter();
+  const from = process.env.SMTP_FROM || process.env.SMTP_USER!;
+  const url = siteUrl();
+  const safeName = escHtml(name || '');
+  const resetUrl = `${url}/passwort-zuruecksetzen?token=${encodeURIComponent(token)}`;
+
+  const bodyHtml = `
+    <p style="margin:0 0 16px;">Hallo${safeName ? ` ${safeName}` : ''},</p>
+    <p style="margin:0 0 16px;">
+      für dein Konto bei <strong>Presseportal112</strong> wurde ein neues
+      Passwort angefordert. Falls du das warst, klicke auf den Button unten,
+      um ein neues Passwort zu vergeben.
+    </p>
+    <p style="margin:0;">
+      Der Link ist aus Sicherheitsgründen nur <strong>30 Minuten</strong>
+      gültig. Falls du das nicht angefordert hast, kannst du diese E-Mail
+      einfach ignorieren &mdash; dein Passwort bleibt unverändert.
+    </p>
+  `;
+
+  await transport.sendMail({
+    from,
+    to,
+    subject: 'Presseportal112 -- Passwort zurücksetzen',
+    text: [
+      `Hallo ${name}`.trim() + ',',
+      '',
+      'für dein Konto bei Presseportal112 wurde ein neues Passwort angefordert.',
+      '',
+      `Link zum Zurücksetzen (30 Minuten gültig): ${resetUrl}`,
+      '',
+      'Falls du das nicht angefordert hast, ignoriere diese E-Mail einfach.',
+    ].join('\n'),
+    html: renderEmailLayout({
+      heading: 'Passwort zurücksetzen',
+      bodyHtml,
+      ctaLabel: 'Neues Passwort vergeben',
+      ctaUrl: resetUrl,
+    }),
+  });
+}
+
 // Geht an die Portalverwaltung, sobald sich jemand neu registriert hat --
 // damit eine Freigabe nicht erst auffällt, wenn zufällig jemand in Directus
 // nachschaut.
