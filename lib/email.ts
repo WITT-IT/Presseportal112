@@ -140,6 +140,32 @@ export async function sendContactEmail({
 }) {
   const transport = getTransporter();
   const from = process.env.SMTP_FROM || process.env.SMTP_USER!;
+  const safeSenderName = escHtml(senderName);
+  const safeReplyTo = escHtml(replyTo);
+  const safeSubject = escHtml(subject);
+  const safeMessage = escHtml(message).replace(/\n/g, '<br>');
+  const safeOrgName = organizationName ? escHtml(organizationName) : null;
+
+  const bodyHtml = `
+    <p style="margin:0 0 20px;">
+      Eine neue Presseanfrage ist über das Kontaktformular eingegangen${
+        safeOrgName ? ` für <strong>${safeOrgName}</strong>` : ''
+      }.
+    </p>
+    <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 18px; width:100%; border-collapse:collapse;">
+      <tr>
+        <td style="padding:3px 0; font-size:11px; color:#93969B; width:70px; vertical-align:top;">Von</td>
+        <td style="padding:3px 0; font-size:14px; color:#14161A;">${safeSenderName} &lt;${safeReplyTo}&gt;</td>
+      </tr>
+      <tr>
+        <td style="padding:3px 0; font-size:11px; color:#93969B; vertical-align:top;">Betreff</td>
+        <td style="padding:3px 0; font-size:14px; color:#14161A;">${safeSubject}</td>
+      </tr>
+    </table>
+    <div style="margin:0; padding:16px; background-color:#ECEDEB; border-radius:8px; font-size:14px; line-height:1.6; color:#14161A;">
+      ${safeMessage}
+    </div>
+  `;
 
   await transport.sendMail({
     from,
@@ -155,6 +181,12 @@ export async function sendContactEmail({
       '',
       message,
     ].join('\n'),
+    html: renderEmailLayout({
+      heading: 'Neue Presseanfrage',
+      bodyHtml,
+      ctaLabel: 'Direkt antworten',
+      ctaUrl: `mailto:${replyTo}`,
+    }),
   });
 }
 
