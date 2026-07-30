@@ -3,12 +3,13 @@ import { redirect, notFound } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import { SESSION_COOKIE } from '@/lib/auth';
-import { getMediaShareWithPosts } from '@/lib/queries';
+import { getMediaShareWithPosts, getMyOrganizationImages } from '@/lib/queries';
 import { directusAssetUrl } from '@/lib/directus';
 import { primaryImage } from '@/lib/types';
 import MediaShareActions from '@/components/MediaShareActions';
 import MediaShareLinkBox from '@/components/MediaShareLinkBox';
 import RemoveFromMediaShareButton from '@/components/RemoveFromMediaShareButton';
+import MediaSharePostPicker from '@/components/MediaSharePostPicker';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,8 +31,14 @@ export default async function MediaShareDetailPage({
     redirect('/login');
   }
 
-  const share = await getMediaShareWithPosts(session.accessToken, id);
+  const [share, allOwnPosts] = await Promise.all([
+    getMediaShareWithPosts(session.accessToken, id),
+    getMyOrganizationImages(session.accessToken),
+  ]);
   if (!share) notFound();
+
+  const includedIds = new Set(share.posts.map((p) => p.id));
+  const availablePosts = allOwnPosts.filter((p) => !includedIds.has(p.id));
 
   return (
     <section className="px-8 py-14">
@@ -57,13 +64,15 @@ export default async function MediaShareDetailPage({
           expiresAt={share.expiresAt}
         />
 
+        <h2 className="mb-4 font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
+          Enthaltene Beiträge ({share.posts.length})
+        </h2>
         {share.posts.length === 0 ? (
-          <p className="text-[13px] text-ink-2">
-            Noch keine Beiträge in dieser Freigabe. Bei „Meine Bilder" lässt
-            sich jeder Beitrag über das Dropdown zuordnen.
+          <p className="mb-10 text-[13px] text-ink-2">
+            Noch keine Beiträge in dieser Freigabe — wähl unten welche aus.
           </p>
         ) : (
-          <div className="grid grid-cols-2 gap-4 nav:grid-cols-4">
+          <div className="mb-10 grid grid-cols-2 gap-4 nav:grid-cols-4">
             {share.posts.map((post) => {
               const hero = primaryImage(post);
               return (
@@ -92,6 +101,11 @@ export default async function MediaShareDetailPage({
             })}
           </div>
         )}
+
+        <h2 className="mb-4 font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
+          Weitere Beiträge hinzufügen
+        </h2>
+        <MediaSharePostPicker shareId={share.id} availablePosts={availablePosts} />
       </div>
     </section>
   );
