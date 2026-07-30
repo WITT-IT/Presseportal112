@@ -59,11 +59,11 @@ export default async function InternDashboard() {
           <div className="flex flex-wrap gap-2">
             {admin && (
               <Link
-                href="/intern/admin/konten"
+                href="/intern/admin"
                 className="flex items-center gap-1.5 rounded-md border border-signal/50 px-3 py-2 text-[12.5px] font-semibold text-signal-deep transition-colors hover:border-signal"
               >
                 <i className="ti ti-shield text-[14px]" aria-hidden="true" />
-                Konten verwalten
+                Administration
               </Link>
             )}
             <Link
