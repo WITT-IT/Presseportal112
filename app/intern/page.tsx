@@ -10,6 +10,7 @@ import {
   getAllUsedTags,
   getAlarmcodes,
   getMyFolders,
+  getMyMediaShares,
 } from '@/lib/queries';
 
 export const dynamic = 'force-dynamic';
@@ -29,11 +30,12 @@ export default async function InternDashboard() {
   const user = await getCurrentUser(session.accessToken);
   if (!user) redirect('/login');
 
-  const [posts, existingTags, alarmcodes, folders, admin] = await Promise.all([
+  const [posts, existingTags, alarmcodes, folders, mediaShares, admin] = await Promise.all([
     getMyOrganizationImages(session.accessToken),
     getAllUsedTags(),
     getAlarmcodes(),
     getMyFolders(session.accessToken),
+    getMyMediaShares(session.accessToken),
     isAdministrator(user.id),
   ]);
 
@@ -98,15 +100,24 @@ export default async function InternDashboard() {
               <h2 className="font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
                 Meine Bilder
               </h2>
-              <Link
-                href="/intern/ordner"
-                className="flex items-center gap-1 text-[12.5px] font-semibold text-signal-deep"
-              >
-                <i className="ti ti-folder text-[14px]" aria-hidden="true" />
-                Eigene Ordner
-              </Link>
+              <div className="flex gap-4">
+                <Link
+                  href="/intern/ordner"
+                  className="flex items-center gap-1 text-[12.5px] font-semibold text-signal-deep"
+                >
+                  <i className="ti ti-folder text-[14px]" aria-hidden="true" />
+                  Eigene Ordner
+                </Link>
+                <Link
+                  href="/intern/freigaben"
+                  className="flex items-center gap-1 text-[12.5px] font-semibold text-signal-deep"
+                >
+                  <i className="ti ti-share text-[14px]" aria-hidden="true" />
+                  Medienfreigaben
+                </Link>
+              </div>
             </div>
-            <MyImagesList posts={posts} folders={folders} />
+            <MyImagesList posts={posts} folders={folders} mediaShares={mediaShares} />
           </>
         ) : (
           <div className="rounded-[10px] border border-dashed border-line-strong p-10 text-center text-[13px] text-ink-2">
