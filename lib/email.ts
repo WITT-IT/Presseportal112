@@ -270,7 +270,7 @@ export async function sendRegistrationReceivedEmail({
 }
 
 // Geht an die registrierende Person, sobald ein Admin die Registrierung
-// freigegeben hat.
+// freigegeben hat. Ebenfalls im schönen HTML-Layout, mit Klartext-Fallback.
 export async function sendRegistrationApprovedEmail({
   to,
   name,
@@ -282,7 +282,21 @@ export async function sendRegistrationApprovedEmail({
 }) {
   const transport = getTransporter();
   const from = process.env.SMTP_FROM || process.env.SMTP_USER!;
-  const siteUrlValue = siteUrl();
+  const url = siteUrl();
+  const safeName = escHtml(name || '');
+  const safeOrg = escHtml(organizationName);
+
+  const bodyHtml = `
+    <p style="margin:0 0 16px;">Hallo${safeName ? ` ${safeName}` : ''},</p>
+    <p style="margin:0 0 16px;">
+      gute Nachrichten: dein Konto für <strong>${safeOrg}</strong> wurde
+      soeben freigeschaltet.
+    </p>
+    <p style="margin:0;">
+      Du kannst dich ab sofort einloggen und eure Pressefotos direkt
+      hochladen und verwalten.
+    </p>
+  `;
 
   await transport.sendMail({
     from,
@@ -293,10 +307,19 @@ export async function sendRegistrationApprovedEmail({
       '',
       `dein Konto für ${organizationName} wurde freigeschaltet. Du kannst dich ab sofort einloggen und Beiträge hochladen:`,
       '',
-      `${siteUrlValue}/login`,
+      `${url}/login`,
       '',
       'Wir freuen uns auf die Zusammenarbeit.',
+      '',
+      `Datenschutzerklärung: ${url}/datenschutz`,
+      `Impressum: ${url}/impressum`,
     ].join('\n'),
+    html: renderEmailLayout({
+      heading: 'Dein Konto wurde freigeschaltet',
+      bodyHtml,
+      ctaLabel: 'Jetzt einloggen',
+      ctaUrl: `${url}/login`,
+    }),
   });
 }
 
