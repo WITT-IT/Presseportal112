@@ -408,6 +408,66 @@ export async function sendPasswordResetEmail({
   });
 }
 
+// Geht direkt an den hinterlegten Medienvertreter, ausgelöst über den
+// "Direkt senden"-Button auf der Freigabe-Seite -- Alternative zum
+// mailto:-Link, läuft komplett über unser eigenes Brevo-Setup.
+export async function sendMediaShareEmail({
+  to,
+  recipientName,
+  shareName,
+  organizationName,
+  expiresAt,
+  shareUrl,
+}: {
+  to: string;
+  recipientName: string | null;
+  shareName: string;
+  organizationName: string | null;
+  expiresAt: string;
+  shareUrl: string;
+}) {
+  const transport = getTransporter();
+  const from = process.env.SMTP_FROM || process.env.SMTP_USER!;
+  const safeRecipientName = recipientName ? escHtml(recipientName) : '';
+  const safeShareName = escHtml(shareName);
+  const safeOrgName = organizationName ? escHtml(organizationName) : 'Presseportal112';
+  const expiryLabel = new Date(expiresAt).toLocaleDateString('de-DE');
+
+  const bodyHtml = `
+    <p style="margin:0 0 16px;">Guten Tag${safeRecipientName ? ` ${safeRecipientName}` : ''},</p>
+    <p style="margin:0 0 16px;">
+      anbei erhalten Sie den Link zu den Bildern von <strong>${safeOrgName}</strong>,
+      die Sie angefragt haben: <strong>${safeShareName}</strong>.
+    </p>
+    <p style="margin:0;">
+      Der Link ist bis zum <strong>${expiryLabel}</strong> gültig.
+    </p>
+  `;
+
+  await transport.sendMail({
+    from,
+    to,
+    subject: `Presseportal112 -- Bildfreigabe: ${shareName}`,
+    text: [
+      `Guten Tag${recipientName ? ` ${recipientName}` : ''},`,
+      '',
+      `anbei erhalten Sie den Link zu den Bildern von ${
+        organizationName ?? 'Presseportal112'
+      }, die Sie angefragt haben: ${shareName}.`,
+      '',
+      shareUrl,
+      '',
+      `Der Link ist bis zum ${expiryLabel} gültig.`,
+    ].join('\n'),
+    html: renderEmailLayout({
+      heading: 'Ihre Bildfreigabe',
+      bodyHtml,
+      ctaLabel: 'Zu den Bildern',
+      ctaUrl: shareUrl,
+    }),
+  });
+}
+
 // Geht an die Portalverwaltung, sobald sich jemand neu registriert hat --
 // damit eine Freigabe nicht erst auffällt, wenn zufällig jemand in Directus
 // nachschaut.
