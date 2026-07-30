@@ -16,6 +16,7 @@ async function getAllPublicPostsForModeration() {
     'alarm_code',
     'published_at',
     'uploaded_by',
+    'content_confirmed_at',
     'organization.name',
     'images.id',
     'images.file_public_preview',
