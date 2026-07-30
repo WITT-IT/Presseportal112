@@ -85,6 +85,21 @@ export async function POST(request: NextRequest) {
     ? sanitizeHtml(articleBodyRaw, ARTICLE_SANITIZE_OPTIONS)
     : null;
 
+  // Inhalts-Bestätigung: Pflicht, unabhängig vom Frontend nochmal geprüft --
+  // der Haken im Formular blockt zwar schon clientseitig, aber wer die API
+  // direkt anspricht, soll das nicht umgehen können.
+  const contentConfirmed = formData.get('content_confirmed') === 'true';
+  if (!contentConfirmed) {
+    return NextResponse.json(
+      { error: 'Bitte die Bestätigung zum Bildinhalt ankreuzen.' },
+      { status: 400 }
+    );
+  }
+  // Zeitstempel bewusst serverseitig gesetzt, nie vom Client übernommen --
+  // sonst könnte sich jemand einen beliebigen Bestätigungszeitpunkt selbst
+  // ausdenken.
+  const contentConfirmedAt = new Date().toISOString();
+
   // Fotos kommen als indizierte Felder: original_0/preview_0/download_0,
   // original_1/... -- so bleibt die Zuordnung der drei Varianten pro Foto
   // eindeutig, auch wenn mehrere Bilder gleichzeitig hochgeladen werden.
@@ -120,6 +135,8 @@ export async function POST(request: NextRequest) {
         tags,
         uploaded_by: user.id,
         is_public: false,
+        content_confirmed: true,
+        content_confirmed_at: contentConfirmedAt,
       }),
     });
 
