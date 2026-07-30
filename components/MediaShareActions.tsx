@@ -45,6 +45,22 @@ export default function MediaShareActions({
     router.refresh();
   }
 
+  async function handleRegenerateToken() {
+    const confirmed = await confirm({
+      title: 'Link wirklich erneuern?',
+      message:
+        'Der bisherige Link funktioniert danach sofort nicht mehr — nützlich, falls er versehentlich an die falsche Person gegangen ist. Alle zugeordneten Beiträge bleiben erhalten.',
+      confirmLabel: 'Link erneuern',
+      cancelLabel: 'Abbrechen',
+      danger: true,
+    });
+    if (!confirmed) return;
+    setBusy(true);
+    await fetch(`/api/intern/media-shares/${shareId}/regenerate`, { method: 'POST' });
+    setBusy(false);
+    router.refresh();
+  }
+
   async function handleDelete() {
     const confirmed = await confirm({
       title: 'Freigabe wirklich löschen?',
@@ -78,6 +94,14 @@ export default function MediaShareActions({
         className="rounded-md border border-line-strong px-3 py-2 text-[12px] font-semibold text-ink transition-colors hover:border-ink disabled:opacity-50"
       >
         Umbenennen
+      </button>
+      <button
+        type="button"
+        onClick={handleRegenerateToken}
+        disabled={busy}
+        className="rounded-md border border-line-strong px-3 py-2 text-[12px] font-semibold text-ink transition-colors hover:border-ink disabled:opacity-50"
+      >
+        Link erneuern
       </button>
       <button
         type="button"
