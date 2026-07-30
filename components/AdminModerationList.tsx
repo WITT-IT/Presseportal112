@@ -12,6 +12,7 @@ type ModerationPost = {
   alarm_code: string | null;
   published_at: string | null;
   uploaded_by: string | null;
+  content_confirmed_at: string | null;
   organization: { name: string } | null;
   images: { id: string; file_public_preview: string | null }[];
 };
@@ -96,8 +97,19 @@ export default function AdminModerationList({ posts }: { posts: ModerationPost[]
                   <div className="mb-1 truncate text-[11px] text-ink-3">
                     {post.organization?.name ?? 'Unbekannte Organisation'}
                   </div>
-                  <div className="mb-2 truncate text-[12px] font-medium">
+                  <div className="mb-1 truncate text-[12px] font-medium">
                     {post.title || post.alarm_code || 'Ohne Titel'}
+                  </div>
+                  <div className="mb-2 text-[10px] text-ink-3">
+                    {post.content_confirmed_at ? (
+                      <>
+                        <i className="ti ti-shield-check mr-1 text-ink-2" aria-hidden="true" />
+                        Bestätigt am{' '}
+                        {new Date(post.content_confirmed_at).toLocaleDateString('de-DE')}
+                      </>
+                    ) : (
+                      <span className="text-signal-deep">Keine Bestätigung hinterlegt</span>
+                    )}
                   </div>
                   <button
                     type="button"
