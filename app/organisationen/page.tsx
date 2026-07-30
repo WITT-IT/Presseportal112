@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
 import { getAllOrganizations, getGewerke } from '@/lib/queries';
-import { GEWERK_ICONS } from '@/lib/types';
+import OrganizationSearch from '@/components/OrganizationSearch';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,7 +19,6 @@ export default async function OrganisationenPage() {
   } catch (error) {
     console.error('Organisationsverzeichnis: Laden fehlgeschlagen:', error);
   }
-  const gewerkById = Object.fromEntries(gewerke.map((g) => [g.id, g]));
 
   return (
     <section className="px-8 py-14">
@@ -44,35 +43,7 @@ export default async function OrganisationenPage() {
           </Link>
         </div>
 
-        <h2 className="mb-5 font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
-          {organizations.length} angeschlossene Organisationen
-        </h2>
-
-        {organizations.length === 0 ? (
-          <p className="text-[13px] text-ink-2">
-            Noch keine Organisation registriert.
-          </p>
-        ) : (
-          <div className="grid grid-cols-2 gap-3 nav:grid-cols-3">
-            {organizations.map((org) => {
-              const gewerk = gewerkById[org.gewerk];
-              return (
-                <Link
-                  key={org.id}
-                  href={`/organisationen/${org.id}`}
-                  className="flex items-center gap-3 rounded-[10px] border border-line bg-white p-4 transition-colors hover:border-line-strong"
-                >
-                  <i
-                    className={`ti ${GEWERK_ICONS[org.gewerk] ?? 'ti-shield'} text-[18px]`}
-                    style={{ color: gewerk?.color }}
-                    aria-hidden="true"
-                  />
-                  <span className="text-[13px] font-medium">{org.name}</span>
-                </Link>
-              );
-            })}
-          </div>
-        )}
+        <OrganizationSearch organizations={organizations} gewerke={gewerke} />
       </div>
     </section>
   );
