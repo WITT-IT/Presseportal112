@@ -1,6 +1,14 @@
 import { readItem, readItems, readSingleton } from '@directus/sdk';
 import { directus, DIRECTUS_URL } from './directus';
-import type { Alarmcode, Gewerk, Organization, Post } from './types';
+import type {
+  Alarmcode,
+  Gewerk,
+  MediaShareDetail,
+  MediaShareSummary,
+  Organization,
+  Post,
+  PublicMediaShare,
+} from './types';
 import { normalizeTags } from './types';
 
 // Felder, die für die öffentliche Anzeige eines Beitrags gebraucht werden.
@@ -445,4 +453,174 @@ export async function getFolderWithPosts(
     .map((row) => row.posts_id)
     .filter((p): p is Post => !!p);
   return { id: data.id, name: data.name, posts };
+}
+
+// Eigene Medienfreigaben samt Beitragsanzahl -- für die Übersicht unter
+// /intern/freigaben.
+export async function getMyMediaShares(accessToken: string): Promise<MediaShareSummary[]> {
+  const fields = ['id', 'name', 'recipient_name', 'active', 'expires_at', 'posts.id'].join(',');
+  const res = await fetch(`${DIRECTUS_URL}/items/media_shares?fields=${fields}&sort=name`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    cache: 'no-store',
+  });
+  if (!res.ok) {
+    console.error(
+      `getMyMediaShares fehlgeschlagen (Status ${res.status}):`,
+      await res.text().catch(() => '')
+    );
+    return [];
+  }
+  const { data } = await res.json();
+  return (
+    data as {
+      id: string;
+      name: string;
+      recipient_name: string | null;
+      active: boolean;
+      expires_at: string;
+      posts?: unknown[];
+    }[]
+  ).map((row) => ({
+    id: row.id,
+    name: row.name,
+    recipientName: row.recipient_name,
+    active: row.active,
+    expiresAt: row.expires_at,
+    postCount: (row.posts || []).length,
+  }));
+}
+
+// Eine einzelne Freigabe mit allen zugeordneten Beiträgen -- für die
+// interne Verwaltungs-Detailseite (eingeloggt, eigene Organisation).
+export async function getMediaShareWithPosts(
+  accessToken: string,
+  shareId: string
+): Promise<MediaShareDetail | null> {
+  const fields = [
+    'id',
+    'name',
+    'recipient_name',
+    'recipient_email',
+    'token',
+    'active',
+    'expires_at',
+    'auto_delete_on_expiry',
+    'posts.posts_id.id',
+    'posts.posts_id.title',
+    'posts.posts_id.alarm_code',
+    'posts.posts_id.event_date',
+    'posts.posts_id.is_public',
+    'posts.posts_id.published_at',
+    'posts.posts_id.images.id',
+    'posts.posts_id.images.file_public_preview',
+    'posts.posts_id.images.sort',
+  ].join(',');
+
+  const res = await fetch(`${DIRECTUS_URL}/items/media_shares/${shareId}?fields=${fields}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    cache: 'no-store',
+  });
+  if (!res.ok) {
+    console.error(
+      `getMediaShareWithPosts(${shareId}) fehlgeschlagen (Status ${res.status}):`,
+      await res.text().catch(() => '')
+    );
+    return null;
+  }
+  const { data } = await res.json();
+  const posts = ((data.posts || []) as { posts_id: Post | null }[])
+    .map((row) => row.posts_id)
+    .filter((p): p is Post => !!p);
+
+  return {
+    id: data.id,
+    name: data.name,
+    recipientName: data.recipient_name,
+    recipientEmail: data.recipient_email,
+    token: data.token,
+    active: data.active,
+    expiresAt: data.expires_at,
+    autoDeleteOnExpiry: data.auto_delete_on_expiry,
+    posts,
+  };
+}
+
+// Öffentlicher Zugriff auf eine Freigabe per Token -- läuft bewusst
+// ausschließlich über den Service-Token, nie über eine Public-Policy.
+// Prüft dabei gleich mit, ob die Freigabe noch gültig ist, und räumt
+// abgelaufene Freigaben mit aktivierter Auto-Löschung im Vorbeigehen auf.
+export async function getMediaShareByToken(token: string): Promise<PublicMediaShare | null> {
+  const serviceToken = process.env.DIRECTUS_SERVICE_TOKEN;
+  if (!serviceToken) {
+    console.error('getMediaShareByToken: DIRECTUS_SERVICE_TOKEN fehlt.');
+    return null;
+  }
+
+  const fields = [
+    'id',
+    'name',
+    'recipient_name',
+    'active',
+    'expires_at',
+    'auto_delete_on_expiry',
+    'organization.name',
+    'posts.posts_id.id',
+    'posts.posts_id.title',
+    'posts.posts_id.alarm_code',
+    'posts.posts_id.event_date',
+    'posts.posts_id.location',
+    'posts.posts_id.is_public',
+    'posts.posts_id.published_at',
+    'posts.posts_id.images.id',
+    'posts.posts_id.images.file_public_preview',
+    'posts.posts_id.images.file_download',
+    'posts.posts_id.images.caption',
+    'posts.posts_id.images.sort',
+  ].join(',');
+
+  try {
+    const res = await fetch(
+      `${DIRECTUS_URL}/items/media_shares?filter[token][_eq]=${encodeURIComponent(
+        token
+      )}&fields=${fields}&limit=1`,
+      { headers: { Authorization: `Bearer ${serviceToken}` }, cache: 'no-store' }
+    );
+    if (!res.ok) {
+      console.error(
+        `getMediaShareByToken fehlgeschlagen (Status ${res.status}):`,
+        await res.text().catch(() => '')
+      );
+      return null;
+    }
+    const { data } = await res.json();
+    const row = data?.[0];
+    if (!row) return null;
+
+    const expired = !row.active || new Date(row.expires_at).getTime() <= Date.now();
+    if (expired) {
+      if (row.auto_delete_on_expiry) {
+        fetch(`${DIRECTUS_URL}/items/media_shares/${row.id}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${serviceToken}` },
+        }).catch(() => {});
+      }
+      return null;
+    }
+
+    const posts = ((row.posts || []) as { posts_id: Post | null }[])
+      .map((r) => r.posts_id)
+      .filter((p): p is Post => !!p);
+
+    return {
+      id: row.id,
+      name: row.name,
+      recipientName: row.recipient_name,
+      organizationName: row.organization?.name ?? null,
+      expiresAt: row.expires_at,
+      posts,
+    };
+  } catch (error) {
+    console.error('getMediaShareByToken fehlgeschlagen:', error);
+    return null;
+  }
 }
