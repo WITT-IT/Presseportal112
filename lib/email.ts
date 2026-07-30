@@ -22,6 +22,107 @@ function getTransporter(): nodemailer.Transporter {
   return transporter;
 }
 
+function siteUrl(): string {
+  return process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+}
+
+// Kleines HTML-Escaping für Werte, die in die Mail eingesetzt werden (Namen
+// etc.) -- verhindert, dass z.B. ein "<" im Namen das Layout zerschießt.
+function escHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// Gemeinsames Layout für alle "schönen" Mails -- Tabellen-basiert und mit
+// Inline-Styles, bewusst so simpel gehalten, weil viele Mail-Clients
+// (allen voran Outlook Desktop) modernes CSS wie Flexbox/Grid nicht
+// darstellen. Jede Mail bekommt Kopfzeile mit Wortmarke, einen Titel,
+// beliebigen Inhalt, optional einen roten CTA-Button, und einen Footer mit
+// Datenschutz-/Impressum-Links.
+function renderEmailLayout({
+  heading,
+  bodyHtml,
+  ctaLabel,
+  ctaUrl,
+}: {
+  heading: string;
+  bodyHtml: string;
+  ctaLabel?: string;
+  ctaUrl?: string;
+}): string {
+  const url = siteUrl();
+
+  return `<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Presseportal112</title>
+</head>
+<body style="margin:0; padding:0; background-color:#F5F6F5;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#F5F6F5; padding:32px 16px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px; width:100%; background-color:#ffffff; border-radius:10px; overflow:hidden; border:1px solid #E1E3E1;">
+
+          <tr>
+            <td style="background-color:#14161A; padding:26px 32px;">
+              <span style="font-family:Arial,Helvetica,sans-serif; font-size:19px; font-weight:bold; color:#ffffff; letter-spacing:0.5px;">
+                PRESSEPORTAL<span style="color:#E4483C;">112</span>
+              </span>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding:36px 32px 8px;">
+              <h1 style="margin:0 0 18px; font-family:Arial,Helvetica,sans-serif; font-size:21px; line-height:1.3; color:#14161A;">
+                ${heading}
+              </h1>
+              <div style="font-family:Arial,Helvetica,sans-serif; font-size:14px; line-height:1.65; color:#585D64;">
+                ${bodyHtml}
+              </div>
+              ${
+                ctaLabel && ctaUrl
+                  ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:26px 0 8px;">
+                <tr>
+                  <td style="border-radius:6px; background-color:#C81E2C;">
+                    <a href="${ctaUrl}" style="display:inline-block; padding:13px 26px; font-family:Arial,Helvetica,sans-serif; font-size:13px; font-weight:bold; color:#ffffff; text-decoration:none;">${ctaLabel} &rarr;</a>
+                  </td>
+                </tr>
+              </table>`
+                  : ''
+              }
+            </td>
+          </tr>
+
+          <tr>
+            <td style="height:28px; font-size:0; line-height:0;">&nbsp;</td>
+          </tr>
+
+          <tr>
+            <td style="padding:22px 32px; background-color:#ECEDEB; border-top:1px solid #E1E3E1;">
+              <p style="margin:0 0 8px; font-family:Arial,Helvetica,sans-serif; font-size:11px; line-height:1.6; color:#93969B;">
+                Presseportal112 &mdash; Plattform für Pressemitteilungen und Bildmaterial der Blaulichtfamilie.
+              </p>
+              <p style="margin:0; font-family:Arial,Helvetica,sans-serif; font-size:11px;">
+                <a href="${url}/datenschutz" style="color:#585D64; text-decoration:underline;">Datenschutzerklärung</a>
+                <span style="color:#93969B;">&nbsp;&middot;&nbsp;</span>
+                <a href="${url}/impressum" style="color:#585D64; text-decoration:underline;">Impressum</a>
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+}
+
 export async function sendContactEmail({
   to,
   replyTo,
@@ -60,8 +161,7 @@ export async function sendContactEmail({
 export async function sendSubscriptionConfirmEmail(to: string, token: string) {
   const transport = getTransporter();
   const from = process.env.SMTP_FROM || process.env.SMTP_USER!;
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
-  const confirmUrl = `${siteUrl}/api/subscribe/confirm?token=${token}`;
+  const confirmUrl = `${siteUrl()}/api/subscribe/confirm?token=${token}`;
 
   await transport.sendMail({
     from,
@@ -93,8 +193,7 @@ export async function sendNewImageAlert({
 }) {
   const transport = getTransporter();
   const from = process.env.SMTP_FROM || process.env.SMTP_USER!;
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
-  const unsubscribeUrl = `${siteUrl}/api/subscribe/unsubscribe?token=${unsubscribeToken}`;
+  const unsubscribeUrl = `${siteUrl()}/api/subscribe/unsubscribe?token=${unsubscribeToken}`;
 
   await transport.sendMail({
     from,
@@ -114,7 +213,8 @@ export async function sendNewImageAlert({
 
 // Geht an die registrierende Person direkt nach dem Absenden des
 // Registrierungsformulars -- bevor irgendjemand geprüft hat, rein als
-// Eingangsbestätigung.
+// Eingangsbestätigung. Jetzt im schönen HTML-Layout, mit Klartext-Fallback
+// für Mail-Clients, die kein HTML anzeigen.
 export async function sendRegistrationReceivedEmail({
   to,
   name,
@@ -124,6 +224,25 @@ export async function sendRegistrationReceivedEmail({
 }) {
   const transport = getTransporter();
   const from = process.env.SMTP_FROM || process.env.SMTP_USER!;
+  const url = siteUrl();
+  const safeName = escHtml(name || '');
+
+  const bodyHtml = `
+    <p style="margin:0 0 16px;">Hallo${safeName ? ` ${safeName}` : ''},</p>
+    <p style="margin:0 0 16px;">
+      vielen Dank für deine Registrierung bei <strong>Presseportal112</strong>.
+      Deine Anfrage ist bei uns eingegangen und wird schnellstmöglich von
+      unserem Team geprüft.
+    </p>
+    <p style="margin:0 0 16px;">
+      Sobald dein Konto freigeschaltet ist, erhältst du eine weitere E-Mail
+      und kannst dich direkt einloggen und Beiträge hochladen.
+    </p>
+    <p style="margin:0;">
+      Bis dahin kannst du dir schon einen Überblick über die aktuellen
+      Pressefotos im Bildarchiv verschaffen:
+    </p>
+  `;
 
   await transport.sendMail({
     from,
@@ -136,8 +255,17 @@ export async function sendRegistrationReceivedEmail({
       '',
       'Sobald dein Konto freigeschaltet ist, erhältst du eine weitere E-Mail und kannst dich einloggen.',
       '',
-      'Bei Fragen kannst du dich jederzeit über das Kontaktformular an uns wenden.',
+      `Bis dahin: ${url}/bildarchiv`,
+      '',
+      `Datenschutzerklärung: ${url}/datenschutz`,
+      `Impressum: ${url}/impressum`,
     ].join('\n'),
+    html: renderEmailLayout({
+      heading: 'Deine Registrierung ist bei uns eingegangen',
+      bodyHtml,
+      ctaLabel: 'Zum Bildarchiv',
+      ctaUrl: `${url}/bildarchiv`,
+    }),
   });
 }
 
@@ -154,7 +282,7 @@ export async function sendRegistrationApprovedEmail({
 }) {
   const transport = getTransporter();
   const from = process.env.SMTP_FROM || process.env.SMTP_USER!;
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+  const siteUrlValue = siteUrl();
 
   await transport.sendMail({
     from,
@@ -165,7 +293,7 @@ export async function sendRegistrationApprovedEmail({
       '',
       `dein Konto für ${organizationName} wurde freigeschaltet. Du kannst dich ab sofort einloggen und Beiträge hochladen:`,
       '',
-      `${siteUrl}/login`,
+      `${siteUrlValue}/login`,
       '',
       'Wir freuen uns auf die Zusammenarbeit.',
     ].join('\n'),
@@ -190,7 +318,7 @@ export async function sendNewRegistrationAdminNotification({
 }) {
   const transport = getTransporter();
   const from = process.env.SMTP_FROM || process.env.SMTP_USER!;
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+  const siteUrlValue = siteUrl();
 
   await transport.sendMail({
     from,
@@ -204,7 +332,7 @@ export async function sendNewRegistrationAdminNotification({
       `Gewünschte Organisation: ${requestedOrganizationName || '(nicht angegeben)'}`,
       `Gewerk: ${requestedGewerk}`,
       '',
-      `Freigeben unter: ${siteUrl}/intern/admin/registrierungen`,
+      `Freigeben unter: ${siteUrlValue}/intern/admin/registrierungen`,
     ].join('\n'),
   });
 }
