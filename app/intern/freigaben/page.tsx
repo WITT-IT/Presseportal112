@@ -1,7 +1,7 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
-import { SESSION_COOKIE } from '@/lib/auth';
+import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
 import { getMyMediaShares } from '@/lib/queries';
 import CreateMediaShareForm from '@/components/CreateMediaShareForm';
 
@@ -19,7 +19,11 @@ export default async function MediaSharesPage() {
     redirect('/login');
   }
 
-  const shares = await getMyMediaShares(session.accessToken);
+  const user = await getCurrentUser(session.accessToken);
+  if (!user) redirect('/login');
+  if (!user.organization?.id) redirect('/intern');
+
+  const shares = await getMyMediaShares(session.accessToken, user.organization.id);
 
   return (
     <section className="px-8 py-14">
