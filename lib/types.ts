@@ -41,8 +41,9 @@ export type PostImage = {
   id: string;
   post: Post | string | null;
   file_original: string | null; // unwatermarkt, nie öffentlich -- nur intern und für Medienfreigaben
-  file_public_preview: string | null; // Directus-Datei-UUID, watermarkt
-  file_download: string | null; // watermarkt
+  file_public_preview: string | null; // "aktive" Vorschau -- zeigt je nach no_watermark auf watermarkt oder Original
+  file_download: string | null; // "aktiver" Download -- zeigt je nach no_watermark auf watermarkt oder Original
+  no_watermark: boolean; // true = Organisation hat für dieses Foto bewusst auf Wasserzeichen verzichtet
   caption: string | null;
   sort: number;
 };
