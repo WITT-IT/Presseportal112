@@ -12,6 +12,7 @@ import {
   getMyFolders,
   getMyMediaShares,
 } from '@/lib/queries';
+import type { Post } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,12 +31,19 @@ export default async function InternDashboard() {
   const user = await getCurrentUser(session.accessToken);
   if (!user) redirect('/login');
 
+  const organizationId = user.organization?.id ?? null;
+
+  // Ohne eigene Organisation gibt's nichts eigenes zu laden -- explizit
+  // leere Listen statt die Funktionen mit einer leeren/undefinierten ID
+  // aufzurufen.
   const [posts, existingTags, alarmcodes, folders, mediaShares, admin] = await Promise.all([
-    getMyOrganizationImages(session.accessToken),
+    organizationId
+      ? getMyOrganizationImages(session.accessToken, organizationId)
+      : Promise.resolve([] as Post[]),
     getAllUsedTags(),
     getAlarmcodes(),
-    getMyFolders(session.accessToken),
-    getMyMediaShares(session.accessToken),
+    organizationId ? getMyFolders(session.accessToken, organizationId) : Promise.resolve([]),
+    organizationId ? getMyMediaShares(session.accessToken, organizationId) : Promise.resolve([]),
     isAdministrator(user.id),
   ]);
 
@@ -76,7 +84,7 @@ export default async function InternDashboard() {
           </div>
         </div>
 
-        {user.organization?.id ? (
+        {organizationId ? (
           <>
             <div className="mb-10">
               <h2 className="mb-4 font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
