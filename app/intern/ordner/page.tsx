@@ -1,7 +1,7 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
-import { SESSION_COOKIE } from '@/lib/auth';
+import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
 import { getMyFolders } from '@/lib/queries';
 import CreateFolderForm from '@/components/CreateFolderForm';
 
@@ -19,7 +19,11 @@ export default async function FoldersPage() {
     redirect('/login');
   }
 
-  const folders = await getMyFolders(session.accessToken);
+  const user = await getCurrentUser(session.accessToken);
+  if (!user) redirect('/login');
+  if (!user.organization?.id) redirect('/intern');
+
+  const folders = await getMyFolders(session.accessToken, user.organization.id);
 
   return (
     <section className="px-8 py-14">
