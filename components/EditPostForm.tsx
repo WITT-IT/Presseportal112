@@ -14,9 +14,18 @@ const MAX_IMAGES = 12;
 
 // Eine vereinheitlichte Liste für bestehende UND neu hinzugefügte Fotos --
 // beide lassen sich dadurch gemeinsam sortieren, statt zwei getrennte
-// Listen im Kopf abgleichen zu müssen.
+// Listen im Kopf abgleichen zu müssen. Die Wasserzeichen-Umschaltung gibt's
+// nur für bestehende Fotos -- ein neues Foto hat noch keine gespeicherte
+// Sicherungskopie der watermarkten Variante, gegen die zurückgeschaltet
+// werden könnte.
 type ImageEntry =
-  | { kind: 'existing'; id: string; previewUrl: string; caption: string }
+  | {
+      kind: 'existing';
+      id: string;
+      previewUrl: string;
+      caption: string;
+      noWatermark: boolean;
+    }
   | { kind: 'new'; key: string; file: File; previewUrl: string; caption: string };
 
 export default function EditPostForm({
@@ -47,6 +56,7 @@ export default function EditPostForm({
         ? directusAssetUrl(img.file_public_preview, 'width=200&quality=70')
         : '',
       caption: img.caption ?? '',
+      noWatermark: img.no_watermark ?? false,
     }));
   const [entries, setEntries] = useState<ImageEntry[]>(initialEntries);
   const [deletedIds, setDeletedIds] = useState<string[]>([]);
@@ -109,6 +119,12 @@ export default function EditPostForm({
     setEntries((prev) => prev.map((e, i) => (i === index ? { ...e, caption } : e)));
   }
 
+  function toggleNoWatermark(index: number, noWatermark: boolean) {
+    setEntries((prev) =>
+      prev.map((e, i) => (i === index && e.kind === 'existing' ? { ...e, noWatermark } : e))
+    );
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (entries.length === 0) {
@@ -130,13 +146,23 @@ export default function EditPostForm({
       formData.append('tags', tags);
       formData.append('delete_image_ids', JSON.stringify(deletedIds));
 
-      const existingOrder: { id: string; caption: string; sort: number }[] = [];
+      const existingOrder: {
+        id: string;
+        caption: string;
+        sort: number;
+        noWatermark: boolean;
+      }[] = [];
       let newCount = 0;
 
       for (let i = 0; i < entries.length; i++) {
         const entry = entries[i];
         if (entry.kind === 'existing') {
-          existingOrder.push({ id: entry.id, caption: entry.caption, sort: i });
+          existingOrder.push({
+            id: entry.id,
+            caption: entry.caption,
+            sort: i,
+            noWatermark: entry.noWatermark,
+          });
         } else {
           setProgress(`Wasserzeichen für neues Foto wird erstellt … (${newCount + 1})`);
           const { preview, download } = await createWatermarkedVariants(
@@ -217,14 +243,29 @@ export default function EditPostForm({
                         NEU
                       </span>
                     )}
+                    {entry.kind === 'existing' && entry.noWatermark && (
+                      <span className="rounded-[3px] bg-signal-deep px-1.5 py-0.5 text-[9px] font-semibold text-white">
+                        OHNE WASSERZEICHEN
+                      </span>
+                    )}
                   </div>
                   <input
                     type="text"
                     value={entry.caption}
                     onChange={(e) => updateCaption(i, e.target.value)}
                     placeholder="Bildunterschrift (optional)"
-                    className="w-full rounded border border-line-strong px-2 py-1 text-[12px] outline-none focus:border-ink"
+                    className="mb-1.5 w-full rounded border border-line-strong px-2 py-1 text-[12px] outline-none focus:border-ink"
                   />
+                  {entry.kind === 'existing' && (
+                    <label className="flex items-center gap-1.5 text-[11px] text-ink-2">
+                      <input
+                        type="checkbox"
+                        checked={entry.noWatermark}
+                        onChange={(e) => toggleNoWatermark(i, e.target.checked)}
+                      />
+                      Kein Wasserzeichen (öffentlich frei nutzbar)
+                    </label>
+                  )}
                 </div>
                 <div className="flex flex-none flex-col gap-1">
                   <button
@@ -269,7 +310,12 @@ export default function EditPostForm({
         <p className="mt-1 text-[11px] text-ink-3">
           Weitere Fotos hinzufügen, bestehende entfernen oder mit ↑↓ neu
           anordnen. Entfernte Originaldateien werden beim Speichern
-          unwiderruflich gelöscht.
+          unwiderruflich gelöscht. Standardmäßig haben veröffentlichte Fotos
+          ein Wasserzeichen — bei bestehenden Fotos lässt sich das über die
+          Checkbox einzeln deaktivieren, das Foto wird dann öffentlich ohne
+          Wasserzeichen angezeigt und heruntergeladen. Neu hinzugefügte
+          Fotos starten immer mit Wasserzeichen; die Option dafür steht nach
+          dem Speichern beim erneuten Bearbeiten zur Verfügung.
         </p>
       </div>
 
