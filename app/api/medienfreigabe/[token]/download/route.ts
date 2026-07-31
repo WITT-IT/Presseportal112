@@ -13,9 +13,29 @@ function sanitizeFilename(input: string): string {
   );
 }
 
+// file_original ist -- anders als die watermarkten Varianten -- nicht
+// zwingend JPEG (Upload erlaubt auch PNG/WebP/GIF unverändert). Endung
+// darum aus dem tatsächlichen Content-Type ableiten statt .jpg zu erzwingen.
+function extensionFromContentType(contentType: string | null): string {
+  switch (contentType) {
+    case 'image/png':
+      return 'png';
+    case 'image/webp':
+      return 'webp';
+    case 'image/gif':
+      return 'gif';
+    default:
+      return 'jpg';
+  }
+}
+
 // Zwei Modi, wie bei der internen Download-Route:
 //   ?imageId=... -> genau dieses eine Foto
 //   ohne Parameter -> alle Fotos der Freigabe als ZIP
+//
+// Bewusst file_original statt file_download -- Medienfreigaben gehen an
+// bereits autorisierte Empfänger:innen, die bekommen die Datei ohne
+// Wasserzeichen und in voller Originalqualität.
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ token: string }> }
@@ -45,40 +65,43 @@ export async function GET(
 
   if (imageId) {
     const image = allImages.find((img) => img.id === imageId);
-    if (!image?.file_download) {
+    if (!image?.file_original) {
       return NextResponse.json({ error: 'Foto nicht Teil dieser Freigabe.' }, { status: 404 });
     }
-    const assetRes = await fetch(directusAssetUrl(image.file_download), { headers: authHeader });
+    const assetRes = await fetch(directusAssetUrl(image.file_original), { headers: authHeader });
     if (!assetRes.ok) {
       return NextResponse.json({ error: 'Datei konnte nicht geladen werden.' }, { status: 502 });
     }
     const buffer = Buffer.from(await assetRes.arrayBuffer());
+    const contentType = assetRes.headers.get('content-type');
+    const ext = extensionFromContentType(contentType);
     const baseName = sanitizeFilename(image.caption || image.postTitle || image.postAlarmCode || 'foto');
     return new NextResponse(new Uint8Array(buffer), {
       headers: {
-        'Content-Type': assetRes.headers.get('content-type') || 'image/jpeg',
-        'Content-Disposition': `attachment; filename="presseportal112-${baseName}.jpg"`,
+        'Content-Type': contentType || 'image/jpeg',
+        'Content-Disposition': `attachment; filename="presseportal112-${baseName}.${ext}"`,
         'Content-Length': String(buffer.length),
       },
     });
   }
 
-  const downloadable = allImages.filter((img) => img.file_download);
+  const downloadable = allImages.filter((img) => img.file_original);
   if (downloadable.length === 0) {
     return NextResponse.json({ error: 'Keine Dateien vorhanden.' }, { status: 404 });
   }
 
   const zip = new JSZip();
   for (const [index, image] of downloadable.entries()) {
-    const assetRes = await fetch(directusAssetUrl(image.file_download as string), {
+    const assetRes = await fetch(directusAssetUrl(image.file_original as string), {
       headers: authHeader,
     });
     if (!assetRes.ok) continue;
     const buffer = Buffer.from(await assetRes.arrayBuffer());
+    const ext = extensionFromContentType(assetRes.headers.get('content-type'));
     const baseName = sanitizeFilename(
       image.caption || image.postTitle || image.postAlarmCode || `foto-${index + 1}`
     );
-    zip.file(`${baseName}-${index + 1}.jpg`, buffer);
+    zip.file(`${baseName}-${index + 1}.${ext}`, buffer);
   }
 
   const zipBuffer = await zip.generateAsync({ type: 'nodebuffer' });
