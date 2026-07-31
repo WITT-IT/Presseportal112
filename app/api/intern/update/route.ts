@@ -105,21 +105,30 @@ export async function POST(request: NextRequest) {
     }
 
     // 2) Entfernte Fotos: erst deren Datei-IDs auslesen, dann Foto-Datensatz
-    // und Dateien selbst löschen.
+    // und Dateien selbst löschen. Beide Wasserzeichen-Sicherungskopien
+    // gehören dazu, sonst blieben verwaiste Dateien in der Bibliothek zurück.
     const deleteImageIds: string[] = JSON.parse(
       (formData.get('delete_image_ids') as string) || '[]'
     );
 
     for (const imageId of deleteImageIds) {
       const imgRes = await fetch(
-        `${DIRECTUS_URL}/items/images/${imageId}?fields=file_original,file_public_preview,file_download`,
+        `${DIRECTUS_URL}/items/images/${imageId}?fields=file_original,file_public_preview,file_download,file_public_preview_watermarked,file_download_watermarked`,
         { headers }
       );
       if (imgRes.ok) {
         const { data } = await imgRes.json();
-        const fileIds = [data.file_original, data.file_public_preview, data.file_download].filter(
-          Boolean
-        ) as string[];
+        const fileIds = Array.from(
+          new Set(
+            [
+              data.file_original,
+              data.file_public_preview,
+              data.file_download,
+              data.file_public_preview_watermarked,
+              data.file_download_watermarked,
+            ].filter(Boolean) as string[]
+          )
+        );
         await fetch(`${DIRECTUS_URL}/items/images/${imageId}`, { method: 'DELETE', headers });
         await Promise.allSettled(
           fileIds.map((fileId) =>
@@ -129,24 +138,56 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 3) Reihenfolge/Bildunterschrift der beibehaltenen bestehenden Fotos.
-    const existingOrder: { id: string; caption: string; sort: number }[] = JSON.parse(
-      (formData.get('existing_image_order') as string) || '[]'
-    );
+    // 3) Reihenfolge/Bildunterschrift/Wasserzeichen-Umschaltung der
+    // beibehaltenen bestehenden Fotos. Für die Wasserzeichen-Umschaltung
+    // wird bewusst frisch nachgeladen, welche Dateien wirklich zu diesem
+    // Foto gehören, statt dem Client zu vertrauen -- sonst könnte jemand
+    // über die API eine fremde Datei-ID unterschieben.
+    const existingOrder: {
+      id: string;
+      caption: string;
+      sort: number;
+      noWatermark: boolean;
+    }[] = JSON.parse((formData.get('existing_image_order') as string) || '[]');
 
     await Promise.allSettled(
-      existingOrder.map((item) =>
-        fetch(`${DIRECTUS_URL}/items/images/${item.id}`, {
+      existingOrder.map(async (item) => {
+        const patch: Record<string, unknown> = {
+          caption: item.caption || null,
+          sort: item.sort,
+        };
+
+        const imgRes = await fetch(
+          `${DIRECTUS_URL}/items/images/${item.id}?fields=file_original,file_public_preview_watermarked,file_download_watermarked`,
+          { headers }
+        );
+        if (imgRes.ok) {
+          const { data: img } = await imgRes.json();
+          if (item.noWatermark) {
+            patch.file_public_preview = img.file_original;
+            patch.file_download = img.file_original;
+            patch.no_watermark = true;
+          } else {
+            patch.file_public_preview = img.file_public_preview_watermarked;
+            patch.file_download = img.file_download_watermarked;
+            patch.no_watermark = false;
+          }
+        }
+
+        return fetch(`${DIRECTUS_URL}/items/images/${item.id}`, {
           method: 'PATCH',
           headers,
-          body: JSON.stringify({ caption: item.caption || null, sort: item.sort }),
-        })
-      )
+          body: JSON.stringify(patch),
+        });
+      })
     );
 
     // 4) Neu hinzugefügte Fotos -- gleicher Ablauf wie beim Erst-Upload:
     // Wasserzeichen wurde schon im Browser erzeugt, hier nur noch hochladen
-    // und mit dem Beitrag verknüpfen.
+    // und mit dem Beitrag verknüpfen. Neue Fotos starten immer mit
+    // Wasserzeichen an (Standard) -- die Umschaltung ist erst nach dem
+    // Speichern über einen erneuten Bearbeiten-Aufruf möglich, sobald die
+    // Sicherungskopie existiert.
     const newCount = Number(formData.get('new_image_count') || 0);
 
     for (let i = 0; i < newCount; i++) {
@@ -185,6 +226,9 @@ export async function POST(request: NextRequest) {
           file_original: originalId,
           file_public_preview: previewId,
           file_download: downloadId,
+          file_public_preview_watermarked: previewId,
+          file_download_watermarked: downloadId,
+          no_watermark: false,
           caption,
           sort,
         }),
