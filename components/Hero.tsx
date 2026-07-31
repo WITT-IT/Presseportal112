@@ -3,7 +3,9 @@ import { directusAssetUrl } from '@/lib/directus';
 import { primaryImage, type Post } from '@/lib/types';
 import DarkMasthead from './DarkMasthead';
 import SearchBox from './SearchBox';
-import Ticker from './Ticker';
+// NEUAUSRICHTUNG (Kunde, Juli 2026): Ticker vorübergehend ausgeblendet,
+// Import bleibt zum leichten Wiedereinblenden auskommentiert stehen.
+// import Ticker from './Ticker';
 
 export default function Hero({
   latestImages,
@@ -76,7 +78,12 @@ export default function Hero({
         </div>
       </div>
 
+      {/*
+        NEUAUSRICHTUNG (Kunde, Juli 2026): Laufband ausgeblendet, Code
+        bleibt erhalten -- zum Wiedereinblenden Import oben und Zeile hier
+        entkommentieren.
       <Ticker images={latestImages} />
+      */}
     </DarkMasthead>
   );
 }
