@@ -11,6 +11,50 @@ const NAV_LINKS = [
   { href: '/kontakt', label: 'Kontakt' },
 ];
 
+// Eingebettetes SVG statt der externen Tabler-Icons-Schrift -- bewusst nur
+// für dieses eine, kritische Bedienelement (Menü öffnen/schließen). Ein
+// SVG mit stroke="currentColor" erbt die Textfarbe direkt vom Button,
+// unabhängig davon, was irgendeine extern geladene Stylesheet-Kaskade an
+// Standardfarben für Icon-Klassen mitbringt -- keine Abhängigkeit, kein
+// Risiko einer falschen Farbe durch Drittanbieter-CSS.
+function MenuIcon({ open }: { open: boolean }) {
+  if (open) {
+    return (
+      <svg
+        width="20"
+        height="20"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <line x1="18" y1="6" x2="6" y2="18" />
+        <line x1="6" y1="6" x2="18" y2="18" />
+      </svg>
+    );
+  }
+  return (
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <line x1="4" y1="6" x2="20" y2="6" />
+      <line x1="4" y1="12" x2="20" y2="12" />
+      <line x1="4" y1="18" x2="20" y2="18" />
+    </svg>
+  );
+}
+
 export default function Header({ loggedIn }: { loggedIn: boolean }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
@@ -102,12 +146,9 @@ export default function Header({ loggedIn }: { loggedIn: boolean }) {
           aria-label="Menü öffnen"
           aria-expanded={menuOpen}
           onClick={() => setMenuOpen((v) => !v)}
-          className="flex h-9 w-9 items-center justify-center rounded-md text-ink nav:hidden"
+          className="flex h-9 w-9 flex-none items-center justify-center rounded-md text-ink nav:hidden"
         >
-          <i
-            className={`ti ${menuOpen ? 'ti-x' : 'ti-menu-2'} text-[20px]`}
-            aria-hidden="true"
-          />
+          <MenuIcon open={menuOpen} />
         </button>
       </div>
 
