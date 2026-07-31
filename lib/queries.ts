@@ -126,7 +126,17 @@ export async function getPublicImagesPage({
 
 // Beiträge der eigenen Organisation für den internen Bereich. Nutzt den
 // User-Token statt des anonymen Clients, damit auch Entwürfe sichtbar sind.
-export async function getMyOrganizationImages(accessToken: string): Promise<Post[]> {
+//
+// WICHTIG: filtert jetzt explizit auf organizationId, statt sich
+// ausschließlich auf die Directus-Berechtigungsfilter zu verlassen. Zweite
+// Sicherheitsebene, nachdem eine falsch konfigurierte Directus-Policy
+// dazu geführt hat, dass Organisationen fremde Beiträge sehen konnten --
+// selbst wenn die Directus-Seite künftig wieder falsch steht, filtert
+// dieser Code trotzdem korrekt.
+export async function getMyOrganizationImages(
+  accessToken: string,
+  organizationId: string
+): Promise<Post[]> {
   const fields = [
     'id',
     'title',
@@ -146,7 +156,7 @@ export async function getMyOrganizationImages(accessToken: string): Promise<Post
   ].join(',');
 
   const res = await fetch(
-    `${DIRECTUS_URL}/items/posts?sort=-event_date&fields=${fields}`,
+    `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${organizationId}&sort=-event_date&fields=${fields}`,
     {
       headers: { Authorization: `Bearer ${accessToken}` },
       cache: 'no-store',
@@ -398,13 +408,19 @@ export async function getAlarmcodes(): Promise<Alarmcode[]> {
 }
 
 // Eigene Ordner der Organisation samt Beitragsanzahl -- für die Übersicht.
+// Jetzt ebenfalls mit explizitem organizationId-Filter, aus demselben
+// Sicherheitsgrund wie bei getMyOrganizationImages.
 export async function getMyFolders(
-  accessToken: string
+  accessToken: string,
+  organizationId: string
 ): Promise<{ id: string; name: string; postCount: number }[]> {
-  const res = await fetch(`${DIRECTUS_URL}/items/folders?fields=id,name,posts.id&sort=name`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-    cache: 'no-store',
-  });
+  const res = await fetch(
+    `${DIRECTUS_URL}/items/folders?filter[organization][_eq]=${organizationId}&fields=id,name,posts.id&sort=name`,
+    {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: 'no-store',
+    }
+  );
   if (!res.ok) {
     console.error(`getMyFolders fehlgeschlagen (Status ${res.status}):`, await res.text().catch(() => ''));
     return [];
@@ -456,13 +472,19 @@ export async function getFolderWithPosts(
 }
 
 // Eigene Medienfreigaben samt Beitragsanzahl -- für die Übersicht unter
-// /intern/freigaben.
-export async function getMyMediaShares(accessToken: string): Promise<MediaShareSummary[]> {
+// /intern/freigaben. Ebenfalls mit explizitem organizationId-Filter.
+export async function getMyMediaShares(
+  accessToken: string,
+  organizationId: string
+): Promise<MediaShareSummary[]> {
   const fields = ['id', 'name', 'recipient_name', 'active', 'expires_at', 'posts.id'].join(',');
-  const res = await fetch(`${DIRECTUS_URL}/items/media_shares?fields=${fields}&sort=name`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-    cache: 'no-store',
-  });
+  const res = await fetch(
+    `${DIRECTUS_URL}/items/media_shares?filter[organization][_eq]=${organizationId}&fields=${fields}&sort=name`,
+    {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: 'no-store',
+    }
+  );
   if (!res.ok) {
     console.error(
       `getMyMediaShares fehlgeschlagen (Status ${res.status}):`,
