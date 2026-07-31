@@ -40,8 +40,9 @@ export type Organization = {
 export type PostImage = {
   id: string;
   post: Post | string | null;
-  file_public_preview: string | null; // Directus-Datei-UUID
-  file_download: string | null;
+  file_original: string | null; // unwatermarkt, nie öffentlich -- nur intern und für Medienfreigaben
+  file_public_preview: string | null; // Directus-Datei-UUID, watermarkt
+  file_download: string | null; // watermarkt
   caption: string | null;
   sort: number;
 };
