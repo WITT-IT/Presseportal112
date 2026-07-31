@@ -252,6 +252,7 @@ export async function getPostForEdit(accessToken: string, id: string): Promise<P
     'images.file_public_preview',
     'images.caption',
     'images.sort',
+    'images.no_watermark',
   ].join(',');
 
   const res = await fetch(`${DIRECTUS_URL}/items/posts/${id}?fields=${fields}`, {
