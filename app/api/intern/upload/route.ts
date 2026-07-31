@@ -183,8 +183,17 @@ export async function POST(request: NextRequest) {
           id: randomUUID(),
           post: postId,
           file_original: originalId,
+          // "aktive" Felder starten auf der watermarkten Variante --
+          // Standard ist Wasserzeichen AN, wie gewünscht.
           file_public_preview: previewId,
           file_download: downloadId,
+          // Permanente Sicherungskopie der watermarkten Varianten -- wird
+          // nie überschrieben, dient nur zum Zurückschalten, falls das
+          // Wasserzeichen für dieses Foto später mal deaktiviert und
+          // wieder aktiviert wird.
+          file_public_preview_watermarked: previewId,
+          file_download_watermarked: downloadId,
+          no_watermark: false,
           caption,
           sort: i,
         }),
