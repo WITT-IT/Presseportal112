@@ -2,7 +2,7 @@ import { cookies } from 'next/headers';
 import { redirect, notFound } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
-import { SESSION_COOKIE } from '@/lib/auth';
+import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
 import { getMediaShareWithPosts, getMyOrganizationImages } from '@/lib/queries';
 import { directusAssetUrl } from '@/lib/directus';
 import { primaryImage } from '@/lib/types';
@@ -31,9 +31,13 @@ export default async function MediaShareDetailPage({
     redirect('/login');
   }
 
+  const user = await getCurrentUser(session.accessToken);
+  if (!user) redirect('/login');
+  if (!user.organization?.id) redirect('/intern');
+
   const [share, allOwnPosts] = await Promise.all([
     getMediaShareWithPosts(session.accessToken, id),
-    getMyOrganizationImages(session.accessToken),
+    getMyOrganizationImages(session.accessToken, user.organization.id),
   ]);
   if (!share) notFound();
 
