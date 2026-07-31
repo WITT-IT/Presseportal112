@@ -594,6 +594,7 @@ export async function getMediaShareByToken(token: string): Promise<PublicMediaSh
     'posts.posts_id.is_public',
     'posts.posts_id.published_at',
     'posts.posts_id.images.id',
+    'posts.posts_id.images.file_original',
     'posts.posts_id.images.file_public_preview',
     'posts.posts_id.images.file_download',
     'posts.posts_id.images.caption',
