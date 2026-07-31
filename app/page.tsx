@@ -1,8 +1,4 @@
-import Link from 'next/link';
 import Hero from '@/components/Hero';
-import GewerkeGrid from '@/components/GewerkeGrid';
-import PhotoMosaic from '@/components/PhotoMosaic';
-import StatStrip from '@/components/StatStrip';
 import {
   getFeaturedHeroPost,
   getGewerke,
@@ -20,6 +16,11 @@ export default async function HomePage() {
   // Fällt Directus mal aus, soll die Seite trotzdem laden statt komplett
   // abzustürzen -- deshalb hier bewusst weich abgefangen, nicht einfach
   // await Promise.all([...]) ohne Netz.
+  //
+  // HINWEIS (Neuausrichtung): gewerke/counts/totalImages/totalOrganizations
+  // werden aktuell von keinem sichtbaren Abschnitt mehr gebraucht (siehe
+  // die auskommentierten Blöcke unten), bleiben aber bewusst stehen --
+  // spart beim Wiedereinblenden das erneute Verdrahten.
   let gewerke: Awaited<ReturnType<typeof getGewerke>> = [];
   let counts: Record<string, number> = {};
   let latestImages: Awaited<ReturnType<typeof getLatestPublicImages>> = [];
@@ -63,6 +64,12 @@ export default async function HomePage() {
 
       <Hero latestImages={latestImages} featuredPost={featuredPost} />
 
+      {/*
+        NEUAUSRICHTUNG (Kunde, Juli 2026): Portal wird vom reinen
+        Presseportal zu einem Upload-/Anfrage-Portal umgebaut. Die
+        Gewerke-Übersicht ist bis auf Weiteres ausgeblendet, Code bleibt
+        erhalten -- zum Wiedereinblenden diesen Kommentarblock entfernen.
+
       <section className="px-8 py-16">
         <div className="mx-auto max-w-[1180px]">
           <div className="mb-7 flex flex-wrap items-end justify-between gap-3">
@@ -80,6 +87,11 @@ export default async function HomePage() {
           <GewerkeGrid gewerke={gewerke} counts={counts} />
         </div>
       </section>
+      */}
+
+      {/*
+        NEUAUSRICHTUNG (Kunde, Juli 2026): "Zuletzt freigegeben" ebenfalls
+        ausgeblendet, Code bleibt erhalten.
 
       <section className="px-8 pb-16">
         <div className="mx-auto max-w-[1180px]">
@@ -98,8 +110,15 @@ export default async function HomePage() {
           <PhotoMosaic images={latestImages} />
         </div>
       </section>
+      */}
+
+      {/*
+        NEUAUSRICHTUNG (Kunde, Juli 2026): Statistik-Leiste ebenfalls
+        ausgeblendet, da sie nach dem Entfernen der beiden Blöcke oben
+        allein am Seitenende stehen würde. Code bleibt erhalten.
 
       <StatStrip totalImages={totalImages} totalOrganizations={totalOrganizations} />
+      */}
     </>
   );
 }
