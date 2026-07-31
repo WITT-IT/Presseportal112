@@ -18,7 +18,11 @@ export async function GET(
   }
 
   const image = share.posts.flatMap((post) => post.images ?? []).find((img) => img.id === imageId);
-  if (!image?.file_public_preview) {
+  // Bewusst file_original statt file_public_preview -- Medienfreigaben
+  // gehen an bereits autorisierte Empfänger:innen, die brauchen kein
+  // Wasserzeichen. Directus verkleinert trotzdem on-the-fly über die
+  // width/quality-Parameter, unabhängig von der Originalgröße.
+  if (!image?.file_original) {
     return NextResponse.json({ error: 'Foto nicht Teil dieser Freigabe.' }, { status: 404 });
   }
 
@@ -32,10 +36,9 @@ export async function GET(
   // statt die Directus-Asset-URL direkt im Browser aufzurufen -- so
   // funktioniert das unabhängig davon, ob der zugehörige Beitrag öffentlich
   // ist oder nicht, ohne die Public-Policy dafür öffnen zu müssen.
-  const assetRes = await fetch(
-    directusAssetUrl(image.file_public_preview, 'width=600&quality=75'),
-    { headers: { Authorization: `Bearer ${serviceToken}` } }
-  );
+  const assetRes = await fetch(directusAssetUrl(image.file_original, 'width=600&quality=75'), {
+    headers: { Authorization: `Bearer ${serviceToken}` },
+  });
   if (!assetRes.ok) {
     return NextResponse.json({ error: 'Datei konnte nicht geladen werden.' }, { status: 502 });
   }
