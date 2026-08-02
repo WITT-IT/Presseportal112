@@ -55,7 +55,7 @@ export async function GET(request: NextRequest) {
 
   const zip = new JSZip();
   const captionLines: string[] = [
-    'Presseportal112 -- Pressemappe',
+    'Presseportal112 -- Favoriten',
     `Erstellt am ${new Date().toLocaleString('de-DE')}`,
     `${posts.length} Beitrag/Beiträge`,
     '',
