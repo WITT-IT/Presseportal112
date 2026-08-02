@@ -16,7 +16,7 @@ export default function ArticleCartToggle({ imageId }: { imageId: string }) {
           : 'border-line-strong text-ink hover:border-ink'
       }`}
     >
-      {inCart ? '✓ In der Pressemappe' : '+ Zur Pressemappe'}
+      {inCart ? '✓ In den Favoriten' : '+ Zu Favoriten'}
     </button>
   );
 }
