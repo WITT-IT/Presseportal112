@@ -5,6 +5,7 @@ import UploadForm from '@/components/UploadForm';
 import MyImagesList from '@/components/MyImagesList';
 import PostCalendar from '@/components/PostCalendar';
 import { getCurrentUser, isAdministrator, SESSION_COOKIE } from '@/lib/auth';
+import { DIRECTUS_URL } from '@/lib/directus';
 import {
   getMyOrganizationImages,
   getAllUsedTags,
@@ -15,6 +16,40 @@ import {
 import type { Post } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
+
+// Bewusst hier direkt statt in lib/queries.ts -- läuft wie das gesamte
+// Nachrichtensystem über den Service-Token, nicht über den User-Token wie
+// die anderen Abfragen auf dieser Seite.
+async function getUnreadConversationCount(organizationId: string): Promise<number> {
+  const serviceToken = process.env.DIRECTUS_SERVICE_TOKEN;
+  if (!serviceToken) return 0;
+  const headers = { Authorization: `Bearer ${serviceToken}` };
+
+  try {
+    const fields = ['last_read_at', 'conversation.last_message_at'].join(',');
+    const res = await fetch(
+      `${DIRECTUS_URL}/items/conversation_participants?filter[organization][_eq]=${organizationId}&filter[left_at][_null]=true&filter[is_archived][_neq]=true&fields=${fields}&limit=-1`,
+      { headers, cache: 'no-store' }
+    );
+    if (!res.ok) return 0;
+    const { data } = await res.json();
+    return (
+      data as {
+        last_read_at: string | null;
+        conversation: { last_message_at: string | null } | null;
+      }[]
+    ).filter(
+      (row) =>
+        row.conversation &&
+        (!row.last_read_at ||
+          (row.conversation.last_message_at &&
+            new Date(row.conversation.last_message_at) > new Date(row.last_read_at)))
+    ).length;
+  } catch (error) {
+    console.error('getUnreadConversationCount fehlgeschlagen:', error);
+    return 0;
+  }
+}
 
 export default async function InternDashboard() {
   const cookieStore = await cookies();
@@ -36,16 +71,18 @@ export default async function InternDashboard() {
   // Ohne eigene Organisation gibt's nichts eigenes zu laden -- explizit
   // leere Listen statt die Funktionen mit einer leeren/undefinierten ID
   // aufzurufen.
-  const [posts, existingTags, alarmcodes, folders, mediaShares, admin] = await Promise.all([
-    organizationId
-      ? getMyOrganizationImages(session.accessToken, organizationId)
-      : Promise.resolve([] as Post[]),
-    getAllUsedTags(),
-    getAlarmcodes(),
-    organizationId ? getMyFolders(session.accessToken, organizationId) : Promise.resolve([]),
-    organizationId ? getMyMediaShares(session.accessToken, organizationId) : Promise.resolve([]),
-    isAdministrator(user.id),
-  ]);
+  const [posts, existingTags, alarmcodes, folders, mediaShares, admin, unreadCount] =
+    await Promise.all([
+      organizationId
+        ? getMyOrganizationImages(session.accessToken, organizationId)
+        : Promise.resolve([] as Post[]),
+      getAllUsedTags(),
+      getAlarmcodes(),
+      organizationId ? getMyFolders(session.accessToken, organizationId) : Promise.resolve([]),
+      organizationId ? getMyMediaShares(session.accessToken, organizationId) : Promise.resolve([]),
+      isAdministrator(user.id),
+      organizationId ? getUnreadConversationCount(organizationId) : Promise.resolve(0),
+    ]);
 
   const watermarkText =
     user.organization?.branding_label || `Foto: ${user.organization?.name ?? ''}`;
@@ -74,6 +111,31 @@ export default async function InternDashboard() {
                 Administration
               </Link>
             )}
+            {organizationId && (
+              <>
+                <Link
+                  href="/intern/ordner"
+                  className="flex items-center gap-1.5 rounded-md border border-signal/40 px-3 py-2 text-[12.5px] font-semibold text-signal-deep transition-colors hover:border-signal hover:bg-signal/5"
+                >
+                  <i className="ti ti-folder text-[14px]" aria-hidden="true" />
+                  Eigene Ordner
+                </Link>
+                <Link
+                  href="/intern/freigaben"
+                  className="flex items-center gap-1.5 rounded-md border border-signal/40 px-3 py-2 text-[12.5px] font-semibold text-signal-deep transition-colors hover:border-signal hover:bg-signal/5"
+                >
+                  <i className="ti ti-share text-[14px]" aria-hidden="true" />
+                  Medienfreigaben
+                </Link>
+                <Link
+                  href="/intern/nachrichten"
+                  className="flex items-center gap-1.5 rounded-md border border-signal/40 px-3 py-2 text-[12.5px] font-semibold text-signal-deep transition-colors hover:border-signal hover:bg-signal/5"
+                >
+                  <i className="ti ti-message-circle text-[14px]" aria-hidden="true" />
+                  Nachrichten
+                </Link>
+              </>
+            )}
             <Link
               href="/intern/konto"
               className="flex items-center gap-1.5 rounded-md border border-line-strong px-3 py-2 text-[12.5px] font-semibold text-ink-2 transition-colors hover:border-ink hover:text-ink"
@@ -86,6 +148,21 @@ export default async function InternDashboard() {
 
         {organizationId ? (
           <>
+            {unreadCount > 0 && (
+              <Link
+                href="/intern/nachrichten"
+                className="mb-6 flex items-center justify-between gap-3 rounded-md border border-signal/40 bg-signal/5 px-4 py-3 text-[13px] font-semibold text-signal-deep transition-colors hover:border-signal"
+              >
+                <span className="flex items-center gap-2">
+                  <i className="ti ti-message-circle text-[16px]" aria-hidden="true" />
+                  {unreadCount === 1
+                    ? '1 neue Unterhaltung wartet auf dich'
+                    : `${unreadCount} neue Unterhaltungen warten auf dich`}
+                </span>
+                <i className="ti ti-arrow-right text-[16px]" aria-hidden="true" />
+              </Link>
+            )}
+
             <div className="mb-10">
               <h2 className="mb-4 font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
                 Neues Foto hochladen
@@ -98,36 +175,11 @@ export default async function InternDashboard() {
               />
             </div>
 
-            <div className="mb-10 flex flex-wrap items-end gap-6">
-              <div className="min-w-0 flex-1">
-                <h2 className="mb-4 font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
-                  Kalender
-                </h2>
-                <PostCalendar posts={posts} />
-              </div>
-              <div className="flex flex-none flex-wrap gap-2">
-                <Link
-                  href="/intern/ordner"
-                  className="flex items-center gap-1.5 rounded-md border border-signal/40 px-4 py-2.5 text-[12.5px] font-semibold text-signal-deep transition-colors hover:border-signal hover:bg-signal/5"
-                >
-                  <i className="ti ti-folder text-[14px]" aria-hidden="true" />
-                  Eigene Ordner
-                </Link>
-                <Link
-                  href="/intern/freigaben"
-                  className="flex items-center gap-1.5 rounded-md border border-signal/40 px-4 py-2.5 text-[12.5px] font-semibold text-signal-deep transition-colors hover:border-signal hover:bg-signal/5"
-                >
-                  <i className="ti ti-share text-[14px]" aria-hidden="true" />
-                  Medienfreigaben
-                </Link>
-                <Link
-                  href="/intern/nachrichten"
-                  className="flex items-center gap-1.5 rounded-md border border-signal/40 px-4 py-2.5 text-[12.5px] font-semibold text-signal-deep transition-colors hover:border-signal hover:bg-signal/5"
-                >
-                  <i className="ti ti-message-circle text-[14px]" aria-hidden="true" />
-                  Nachrichten
-                </Link>
-              </div>
+            <div className="mb-10">
+              <h2 className="mb-4 font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
+                Kalender
+              </h2>
+              <PostCalendar posts={posts} />
             </div>
 
             <div className="mb-4">
