@@ -31,7 +31,7 @@ async function getMyConversations(organizationId: string): Promise<ConversationL
       'conversation.last_message_preview',
     ].join(',');
     const res = await fetch(
-      `${DIRECTUS_URL}/items/conversation_participants?filter[organization][_eq]=${organizationId}&filter[left_at][_null]=true&filter[is_archived][_eq]=false&fields=${fields}&limit=-1`,
+      `${DIRECTUS_URL}/items/conversation_participants?filter[organization][_eq]=${organizationId}&filter[left_at][_null]=true&filter[is_archived][_neq]=true&fields=${fields}&limit=-1`,
       { headers, cache: 'no-store' }
     );
     if (!res.ok) {
