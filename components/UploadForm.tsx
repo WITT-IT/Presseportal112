@@ -9,6 +9,7 @@ import type { Alarmcode } from '@/lib/types';
 
 const MAX_FILE_SIZE = 80 * 1024 * 1024; // 80 MB pro Datei
 const MAX_IMAGES = 12;
+const NEW_FOLDER_VALUE = '__new__';
 
 type SelectedImage = {
   file: File;
@@ -20,10 +21,12 @@ export default function UploadForm({
   watermarkText,
   existingTags,
   alarmcodes,
+  folders,
 }: {
   watermarkText: string;
   existingTags: string[];
   alarmcodes: Alarmcode[];
+  folders: { id: string; name: string }[];
 }) {
   const router = useRouter();
   const [images, setImages] = useState<SelectedImage[]>([]);
@@ -34,6 +37,11 @@ export default function UploadForm({
   const [tags, setTags] = useState('');
   const [articleBody, setArticleBody] = useState('');
   const [contentConfirmed, setContentConfirmed] = useState(false);
+  // '' = kein Ordner (Standard, rein optionales Angebot), '__new__' = Feld
+  // für einen neuen Ordnernamen einblenden, sonst die ID eines bestehenden
+  // Ordners.
+  const [folderChoice, setFolderChoice] = useState('');
+  const [newFolderName, setNewFolderName] = useState('');
   const [status, setStatus] = useState<'idle' | 'working' | 'done' | 'error'>('idle');
   const [progress, setProgress] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -99,11 +107,38 @@ export default function UploadForm({
       setError('Bitte Titel, Ort und Alarmcode ausfüllen.');
       return;
     }
+    if (folderChoice === NEW_FOLDER_VALUE && !newFolderName.trim()) {
+      setError('Bitte einen Namen für den neuen Ordner angeben.');
+      return;
+    }
 
     setStatus('working');
     setError(null);
 
     try {
+      // Ordner-Zuordnung ist bewusst ein Angebot, keine Pflicht -- läuft
+      // deshalb komplett unabhängig vom eigentlichen Upload. Ein neuer
+      // Ordner wird hier, falls gewünscht, direkt an Ort und Stelle
+      // angelegt, noch bevor der Beitrag selbst existiert.
+      let targetFolderId: string | null = null;
+
+      if (folderChoice === NEW_FOLDER_VALUE) {
+        setProgress('Ordner wird angelegt …');
+        const folderRes = await fetch('/api/intern/folders', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: newFolderName.trim() }),
+        });
+        if (!folderRes.ok) {
+          const body = await folderRes.json().catch(() => ({}));
+          throw new Error(body.error ?? 'Ordner konnte nicht angelegt werden.');
+        }
+        const folderData = await folderRes.json();
+        targetFolderId = folderData.id;
+      } else if (folderChoice) {
+        targetFolderId = folderChoice;
+      }
+
       const formData = new FormData();
       formData.append('title', title);
       formData.append('event_date', eventDate);
@@ -136,6 +171,26 @@ export default function UploadForm({
         throw new Error(body.error ?? 'Upload fehlgeschlagen.');
       }
 
+      const uploadData = await res.json();
+
+      // Ordner-Zuordnung bewusst best-effort -- der Beitrag ist an dieser
+      // Stelle schon sicher hochgeladen. Schlägt nur die Zuordnung fehl,
+      // soll das nicht als kompletter Fehlschlag erscheinen, sondern nur
+      // als kurzer Hinweis.
+      let folderWarning: string | null = null;
+      if (targetFolderId && uploadData.id) {
+        setProgress('Ordner-Zuordnung wird gespeichert …');
+        const assignRes = await fetch('/api/intern/folders/assign', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ folderId: targetFolderId, postId: uploadData.id, action: 'add' }),
+        });
+        if (!assignRes.ok) {
+          folderWarning =
+            'Beitrag wurde hochgeladen, die Ordner-Zuordnung hat aber nicht geklappt -- lässt sich nachträglich unter „Meine Bilder" nachholen.';
+        }
+      }
+
       images.forEach((img) => URL.revokeObjectURL(img.previewUrl));
       setImages([]);
       setTitle('');
@@ -145,8 +200,11 @@ export default function UploadForm({
       setTags('');
       setArticleBody('');
       setContentConfirmed(false);
+      setFolderChoice('');
+      setNewFolderName('');
       setStatus('done');
       setProgress('');
+      setError(folderWarning);
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload fehlgeschlagen.');
@@ -316,6 +374,40 @@ export default function UploadForm({
         )}
       </div>
 
+      <div className="rounded-md border border-line bg-panel p-3.5">
+        <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">
+          Ordner (optional)
+        </label>
+        <select
+          value={folderChoice}
+          onChange={(e) => setFolderChoice(e.target.value)}
+          className="w-full rounded-md border border-line-strong bg-white px-3 py-2 text-[13.5px] outline-none focus:border-ink"
+        >
+          <option value="">Keinem Ordner zuordnen</option>
+          {folders.map((folder) => (
+            <option key={folder.id} value={folder.id}>
+              {folder.name}
+            </option>
+          ))}
+          <option value={NEW_FOLDER_VALUE}>+ Neuen Ordner anlegen …</option>
+        </select>
+
+        {folderChoice === NEW_FOLDER_VALUE && (
+          <input
+            type="text"
+            value={newFolderName}
+            onChange={(e) => setNewFolderName(e.target.value)}
+            placeholder="Name des neuen Ordners"
+            className="mt-2.5 w-full rounded-md border border-line-strong px-3 py-2 text-[13.5px] outline-none focus:border-ink"
+          />
+        )}
+
+        <p className="mt-1.5 text-[11px] text-ink-3">
+          Rein optional — der Beitrag lässt sich auch später jederzeit
+          unter „Meine Bilder" einem Ordner zuordnen.
+        </p>
+      </div>
+
       <label className="flex items-start gap-2.5 rounded-md border border-line-strong bg-panel p-3.5 text-[12px] leading-[1.55] text-ink-2">
         <input
           type="checkbox"
@@ -331,7 +423,7 @@ export default function UploadForm({
       </label>
 
       {error && <p className="text-[12.5px] text-signal-deep">{error}</p>}
-      {status === 'done' && (
+      {status === 'done' && !error && (
         <p className="text-[12.5px] text-ink-2">
           Hochgeladen — als Entwurf, noch nicht öffentlich sichtbar.
         </p>
