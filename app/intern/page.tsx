@@ -97,33 +97,35 @@ export default async function InternDashboard() {
               />
             </div>
 
-            <div className="mb-10">
-              <h2 className="mb-4 font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
-                Kalender
-              </h2>
-              <PostCalendar posts={posts} />
-            </div>
-
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-              <h2 className="font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
-                Meine Bilder
-              </h2>
-              <div className="flex gap-4">
+            <div className="mb-10 flex flex-wrap items-end gap-6">
+              <div className="min-w-0 flex-1">
+                <h2 className="mb-4 font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
+                  Kalender
+                </h2>
+                <PostCalendar posts={posts} />
+              </div>
+              <div className="flex flex-none flex-wrap gap-2">
                 <Link
                   href="/intern/ordner"
-                  className="flex items-center gap-1 text-[12.5px] font-semibold text-signal-deep"
+                  className="flex items-center gap-1.5 rounded-md border border-signal/40 px-4 py-2.5 text-[12.5px] font-semibold text-signal-deep transition-colors hover:border-signal hover:bg-signal/5"
                 >
                   <i className="ti ti-folder text-[14px]" aria-hidden="true" />
                   Eigene Ordner
                 </Link>
                 <Link
                   href="/intern/freigaben"
-                  className="flex items-center gap-1 text-[12.5px] font-semibold text-signal-deep"
+                  className="flex items-center gap-1.5 rounded-md border border-signal/40 px-4 py-2.5 text-[12.5px] font-semibold text-signal-deep transition-colors hover:border-signal hover:bg-signal/5"
                 >
                   <i className="ti ti-share text-[14px]" aria-hidden="true" />
                   Medienfreigaben
                 </Link>
               </div>
+            </div>
+
+            <div className="mb-4">
+              <h2 className="font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
+                Meine Bilder
+              </h2>
             </div>
             <MyImagesList posts={posts} folders={folders} mediaShares={mediaShares} />
           </>
