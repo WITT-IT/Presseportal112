@@ -95,6 +95,10 @@ export default function UploadForm({
       setError('Bitte die Bestätigung zum Bildinhalt ankreuzen.');
       return;
     }
+    if (!title.trim() || !location.trim() || !alarmCode.trim()) {
+      setError('Bitte Titel, Ort und Alarmcode ausfüllen.');
+      return;
+    }
 
     setStatus('working');
     setError(null);
@@ -249,16 +253,17 @@ export default function UploadForm({
         </div>
         <div>
           <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">
-            Alarmcode
+            Alarmcode *
           </label>
           <AlarmCodeInput value={alarmCode} onChange={setAlarmCode} alarmcodes={alarmcodes} />
         </div>
       </div>
 
       <div>
-        <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">Titel</label>
+        <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">Titel *</label>
         <input
           type="text"
+          required
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           className="w-full rounded-md border border-line-strong px-3 py-2 text-[14px] outline-none focus:border-ink"
@@ -266,9 +271,10 @@ export default function UploadForm({
       </div>
 
       <div>
-        <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">Ort</label>
+        <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">Ort *</label>
         <input
           type="text"
+          required
           value={location}
           onChange={(e) => setLocation(e.target.value)}
           className="w-full rounded-md border border-line-strong px-3 py-2 text-[14px] outline-none focus:border-ink"
