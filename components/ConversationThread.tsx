@@ -83,6 +83,13 @@ export default function ConversationThread({
           <p className="text-[13px] text-ink-2">Noch keine Nachrichten.</p>
         ) : (
           messages.map((msg) => {
+            if (msg.messageType === 'system') {
+              return (
+                <div key={msg.id} className="text-center text-[11.5px] text-ink-3">
+                  {msg.body}
+                </div>
+              );
+            }
             const isOwn = msg.senderOrganizationId === ownOrganizationId;
             return (
               <div
