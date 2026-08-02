@@ -118,7 +118,7 @@ export default function DatenschutzPage() {
             Benachrichtigungsmail widerrufen werden.
           </p>
 
-          <h2>9. Presse-Korb / Pressemappe</h2>
+          <h2>9. Presse-Korb / Favoriten</h2>
           <p>
             Die Auswahl gesammelter Fotos wird ausschließlich lokal im Browser gespeichert
             (Local Storage) und nicht an unsere Server übertragen, solange kein Download
