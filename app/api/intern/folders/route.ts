@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { SESSION_COOKIE } from '@/lib/auth';
 import { DIRECTUS_URL } from '@/lib/directus';
@@ -19,6 +20,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Bitte einen Namen angeben.' }, { status: 400 });
   }
 
+  // ID selbst vergeben statt aus der Antwort auszulesen -- Directus
+  // antwortet nach dem Anlegen manchmal mit 204 statt 200+Daten (siehe
+  // directus/directus#22649). Wird jetzt außerdem gebraucht, damit der
+  // Aufrufer (z. B. das Upload-Formular) den frisch angelegten Ordner
+  // direkt weiterverwenden kann, ohne eine zweite Anfrage zum Nachladen
+  // zu brauchen.
+  const id = randomUUID();
+
   try {
     const res = await fetch(`${DIRECTUS_URL}/items/folders`, {
       method: 'POST',
@@ -29,10 +38,7 @@ export async function POST(request: NextRequest) {
       // organization wird serverseitig über das Field Preset in Directus
       // automatisch auf die eigene Organisation gesetzt -- wir schicken es
       // bewusst nicht selbst mit.
-      // WICHTIG: falls "folder_type" in Directus ein Pflichtfeld ohne Default
-      // ist, hier zusätzlich "folder_type: 'custom'" (oder passenden Wert)
-      // ergänzen -- siehe Hinweis im Hand-off zu diesem Baustein.
-      body: JSON.stringify({ name: String(name).trim() }),
+      body: JSON.stringify({ id, name: String(name).trim() }),
     });
 
     if (!res.ok) {
@@ -41,7 +47,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Ordner konnte nicht angelegt werden.' }, { status: 500 });
     }
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, id });
   } catch (err) {
     console.error('Ordner anlegen -- Netzwerkfehler:', err);
     return NextResponse.json({ error: 'Ordner konnte nicht angelegt werden.' }, { status: 500 });
