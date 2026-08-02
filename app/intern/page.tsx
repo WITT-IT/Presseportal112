@@ -94,6 +94,7 @@ export default async function InternDashboard() {
                 watermarkText={watermarkText}
                 existingTags={existingTags}
                 alarmcodes={alarmcodes}
+                folders={folders}
               />
             </div>
 
