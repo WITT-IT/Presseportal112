@@ -120,6 +120,13 @@ export default async function InternDashboard() {
                   <i className="ti ti-share text-[14px]" aria-hidden="true" />
                   Medienfreigaben
                 </Link>
+                <Link
+                  href="/intern/nachrichten"
+                  className="flex items-center gap-1.5 rounded-md border border-signal/40 px-4 py-2.5 text-[12.5px] font-semibold text-signal-deep transition-colors hover:border-signal hover:bg-signal/5"
+                >
+                  <i className="ti ti-message-circle text-[14px]" aria-hidden="true" />
+                  Nachrichten
+                </Link>
               </div>
             </div>
 
