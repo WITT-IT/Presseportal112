@@ -107,7 +107,7 @@ export default function Header({ loggedIn }: { loggedIn: boolean }) {
             href="/pressemappe"
             className="flex items-center gap-1.5 text-[13.5px] font-medium text-ink-2 transition-colors hover:text-ink"
           >
-            Pressemappe
+            Favoriten
             {cartIds.length > 0 && (
               <span className="flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-signal px-1 text-[10px] font-bold text-white">
                 {cartIds.length}
@@ -170,7 +170,7 @@ export default function Header({ loggedIn }: { loggedIn: boolean }) {
               onClick={() => setMenuOpen(false)}
               className="flex items-center gap-1.5 rounded-md px-2 py-3 text-[14px] font-medium text-ink-2 hover:bg-panel hover:text-ink"
             >
-              Pressemappe
+              Favoriten
               {cartIds.length > 0 && (
                 <span className="flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-signal px-1 text-[10px] font-bold text-white">
                   {cartIds.length}
