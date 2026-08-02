@@ -85,6 +85,13 @@ export async function POST(request: NextRequest) {
     ? sanitizeHtml(articleBodyRaw, ARTICLE_SANITIZE_OPTIONS)
     : null;
 
+  if (!title?.trim() || !location?.trim() || !alarmCode?.trim()) {
+    return NextResponse.json(
+      { error: 'Bitte Titel, Ort und Alarmcode ausfüllen.' },
+      { status: 400 }
+    );
+  }
+
   // Inhalts-Bestätigung: Pflicht, unabhängig vom Frontend nochmal geprüft --
   // der Haken im Formular blockt zwar schon clientseitig, aber wer die API
   // direkt anspricht, soll das nicht umgehen können.
