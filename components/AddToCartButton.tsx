@@ -22,8 +22,8 @@ export default function AddToCartButton({ imageId }: { imageId: string }) {
     <button
       type="button"
       onClick={handleClick}
-      aria-label={inCart ? 'Aus Pressemappe entfernen' : 'Zur Pressemappe hinzufügen'}
-      title={inCart ? 'Aus Pressemappe entfernen' : 'Zur Pressemappe hinzufügen'}
+      aria-label={inCart ? 'Aus Favoriten entfernen' : 'Zu Favoriten hinzufügen'}
+      title={inCart ? 'Aus Favoriten entfernen' : 'Zu Favoriten hinzufügen'}
       className={`absolute right-2.5 top-2.5 z-10 flex h-7 w-7 items-center justify-center rounded-full text-[14px] font-bold shadow-sm transition-colors ${
         inCart
           ? 'bg-ink text-white'
