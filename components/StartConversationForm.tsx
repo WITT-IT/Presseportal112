@@ -4,6 +4,8 @@ import { useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import type { Organization } from '@/lib/types';
 
+const MAX_RECIPIENTS = 9;
+
 export default function StartConversationForm({
   organizations,
 }: {
@@ -11,21 +13,37 @@ export default function StartConversationForm({
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [recipientId, setRecipientId] = useState('');
+  const [recipientIds, setRecipientIds] = useState<string[]>([]);
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
   const [status, setStatus] = useState<'idle' | 'saving' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
 
+  function toggleRecipient(id: string) {
+    setRecipientIds((prev) => {
+      if (prev.includes(id)) return prev.filter((x) => x !== id);
+      if (prev.length >= MAX_RECIPIENTS) {
+        setError(`Maximal ${MAX_RECIPIENTS} Empfänger-Organisationen gleichzeitig.`);
+        return prev;
+      }
+      setError(null);
+      return [...prev, id];
+    });
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    if (recipientIds.length === 0) {
+      setError('Bitte mindestens eine Organisation auswählen.');
+      return;
+    }
     setStatus('saving');
     setError(null);
 
     const res = await fetch('/api/intern/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ recipientOrganizationId: recipientId, subject, message }),
+      body: JSON.stringify({ recipientOrganizationIds: recipientIds, subject, message }),
     });
 
     if (res.ok) {
@@ -59,21 +77,30 @@ export default function StartConversationForm({
     >
       <div>
         <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">
-          An welche Organisation? *
+          An welche Organisation(en)? *{' '}
+          <span className="font-normal text-ink-3">(bis zu {MAX_RECIPIENTS})</span>
         </label>
-        <select
-          required
-          value={recipientId}
-          onChange={(e) => setRecipientId(e.target.value)}
-          className="w-full rounded-md border border-line-strong bg-white px-3 py-2 text-[13.5px] outline-none focus:border-ink"
-        >
-          <option value="">Bitte auswählen …</option>
+        <div className="max-h-[200px] overflow-y-auto rounded-md border border-line-strong bg-white p-2">
           {organizations.map((org) => (
-            <option key={org.id} value={org.id}>
+            <label
+              key={org.id}
+              className="flex items-center gap-2 rounded px-2 py-1.5 text-[13px] hover:bg-panel"
+            >
+              <input
+                type="checkbox"
+                checked={recipientIds.includes(org.id)}
+                onChange={() => toggleRecipient(org.id)}
+              />
               {org.name}
-            </option>
+            </label>
           ))}
-        </select>
+        </div>
+        {recipientIds.length > 1 && (
+          <p className="mt-1 text-[11px] text-ink-3">
+            {recipientIds.length} Organisationen ausgewählt — es entsteht eine
+            Gruppenunterhaltung.
+          </p>
+        )}
       </div>
 
       <div>
