@@ -45,7 +45,7 @@ export default function PressemappeView() {
   if (ids.length === 0) {
     return (
       <div className="rounded-[10px] border border-dashed border-line-strong p-10 text-center text-[13px] text-ink-2">
-        Deine Pressemappe ist leer. Im{' '}
+        Deine Favoriten sind leer. Im{' '}
         <Link href="/bildarchiv" className="font-semibold text-signal-deep">
           Bildarchiv
         </Link>{' '}
@@ -66,7 +66,7 @@ export default function PressemappeView() {
             onClick={clear}
             className="rounded-md border border-line-strong px-4 py-2 text-[12.5px] font-semibold text-ink-2 transition-colors hover:border-ink hover:text-ink"
           >
-            Mappe leeren
+            Favoriten leeren
           </button>
           <a
             href={`/api/pressemappe/download?ids=${ids.join(',')}`}
