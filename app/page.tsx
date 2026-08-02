@@ -1,5 +1,7 @@
 import Hero from '@/components/Hero';
+import ContactForm from '@/components/ContactForm';
 import {
+  getAllOrganizations,
   getFeaturedHeroPost,
   getGewerke,
   getLatestPublicImages,
@@ -26,15 +28,17 @@ export default async function HomePage() {
   let latestImages: Awaited<ReturnType<typeof getLatestPublicImages>> = [];
   let totalImages = 0;
   let totalOrganizations = 0;
+  let organizations: Awaited<ReturnType<typeof getAllOrganizations>> = [];
   let directusError = false;
 
   try {
     gewerke = await getGewerke();
-    [counts, latestImages, totalImages, totalOrganizations] = await Promise.all([
+    [counts, latestImages, totalImages, totalOrganizations, organizations] = await Promise.all([
       getPublicImageCountsByGewerk(gewerke.map((g) => g.id)),
       getLatestPublicImages(8),
       getTotalPublicImageCount(),
       getTotalOrganizationCount(),
+      getAllOrganizations(),
     ]);
   } catch (error) {
     console.error('Directus nicht erreichbar:', error);
@@ -65,10 +69,9 @@ export default async function HomePage() {
       <Hero latestImages={latestImages} featuredPost={featuredPost} />
 
       {/*
-        NEUAUSRICHTUNG (Kunde, Juli 2026): Portal wird vom reinen
-        Presseportal zu einem Upload-/Anfrage-Portal umgebaut. Die
-        Gewerke-Übersicht ist bis auf Weiteres ausgeblendet, Code bleibt
-        erhalten -- zum Wiedereinblenden diesen Kommentarblock entfernen.
+        NEUAUSRICHTUNG (Kunde, Juli 2026): Gewerke-Übersicht ist bis auf
+        Weiteres ausgeblendet, Code bleibt erhalten -- zum Wiedereinblenden
+        diesen Kommentarblock entfernen.
 
       <section className="px-8 py-16">
         <div className="mx-auto max-w-[1180px]">
@@ -112,10 +115,29 @@ export default async function HomePage() {
       </section>
       */}
 
+      {/* Kontaktformular direkt auf der Startseite, im hellen "Papier"-System
+          als bewusster Kontrast zum dunklen Hero darüber. */}
+      <section className="px-8 py-20">
+        <div className="mx-auto max-w-[640px]">
+          <div className="mb-8 text-center">
+            <h2 className="mb-2 font-display text-[28px] font-bold text-ink">
+              Anfrage stellen
+            </h2>
+            <p className="text-[14px] leading-[1.6] text-ink-2">
+              Du suchst ein bestimmtes Bild, möchtest Bildmaterial anfragen
+              oder mit einer Organisation in Kontakt treten? Schreib uns
+              direkt — wir leiten deine Anfrage an die richtige Stelle
+              weiter.
+            </p>
+          </div>
+          <ContactForm organizations={organizations} />
+        </div>
+      </section>
+
       {/*
         NEUAUSRICHTUNG (Kunde, Juli 2026): Statistik-Leiste ebenfalls
-        ausgeblendet, da sie nach dem Entfernen der beiden Blöcke oben
-        allein am Seitenende stehen würde. Code bleibt erhalten.
+        ausgeblendet, da sie sonst allein am Seitenende stehen würde. Code
+        bleibt erhalten.
 
       <StatStrip totalImages={totalImages} totalOrganizations={totalOrganizations} />
       */}
