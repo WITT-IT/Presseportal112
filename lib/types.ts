@@ -32,6 +32,13 @@ export type Organization = {
   gewerk: string;
   organization_type?: string | null;
   branding_label?: string | null;
+  description?: string | null;
+  website?: string | null;
+  social_links?: Record<string, string> | null;
+  show_website?: boolean;
+  show_social_links?: boolean;
+  logo?: string | null;
+  banner_image?: string | null;
 };
 
 // Ein Foto innerhalb eines Beitrags. Enthält bewusst eine eigene
