@@ -76,14 +76,11 @@ export default async function AdminRegistrationsPage() {
         </Link>
 
         <h1 className="mb-2 font-display text-[32px] font-bold">Registrierungen</h1>
-        <p className="mb-8 text-[13.5px] text-ink-2">
-          Neue Konten warten hier auf Freigabe. Existiert die gewünschte
-          Organisation noch nicht, zuerst in Directus unter{' '}
-          <span className="font-mono">organizations</span> anlegen. Bei
-          Presse-Anfragen (im Text markiert): dort{' '}
-          <span className="font-mono">organization_type</span> auf{' '}
-          <span className="font-mono">press</span> setzen und{' '}
-          <span className="font-mono">gewerk</span> leer lassen.
+        <p className="mb-8 text-[13.5px] leading-[1.6] text-ink-2">
+          Neue Konten warten hier auf Freigabe. Bei „Neu anlegen" wird die
+          Organisation direkt hier angelegt — kein Directus mehr nötig. Bei
+          einer möglichen Übereinstimmung mit einer bereits vorhandenen
+          Organisation erscheint automatisch ein Hinweis.
         </p>
 
         <AdminRegistrationsList registrations={registrations} organizations={organizations} />
