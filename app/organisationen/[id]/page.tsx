@@ -1,15 +1,18 @@
+import { cookies } from 'next/headers';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import type { Metadata } from 'next';
 import GalleryCard from '@/components/GalleryCard';
 import DarkMasthead from '@/components/DarkMasthead';
+import OrgProfileEditor from '@/components/OrgProfileEditor';
 import { directusAssetUrl } from '@/lib/directus';
+import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
 import {
   getGewerke,
   getOrganizationById,
   getPublicImagesByOrganization,
 } from '@/lib/queries';
-import { GEWERK_ICONS, primaryImage } from '@/lib/types';
+import { GEWERK_COLORS, primaryImage } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,7 +24,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   if (!org) return {};
   return {
     title: org.name,
-    description: `Freigegebene Einsatzfotos von ${org.name} auf Presseportal112.`,
+    description:
+      org.description || `Freigegebene Einsatzfotos von ${org.name} auf Presseportal112.`,
   };
 }
 
@@ -29,6 +33,22 @@ export default async function OrganizationProfilePage({ params }: Props) {
   const { id } = await params;
   const org = await getOrganizationById(id);
   if (!org) notFound();
+
+  // Eingeloggt und genau diese eigene Organisation? Dann darf bearbeitet
+  // werden -- serverseitig geprüft, nicht nur versteckt im Frontend
+  // (die Schreibzugriffe selbst prüfen das in der Route zusätzlich nochmal).
+  let canEdit = false;
+  try {
+    const cookieStore = await cookies();
+    const raw = cookieStore.get(SESSION_COOKIE)?.value;
+    if (raw) {
+      const session = JSON.parse(raw) as { accessToken: string };
+      const user = await getCurrentUser(session.accessToken);
+      canEdit = user?.organization?.id === id;
+    }
+  } catch {
+    // Keine gültige Sitzung -- ganz normal als Besucher weiterlaufen.
+  }
 
   let images: Awaited<ReturnType<typeof getPublicImagesByOrganization>> = [];
   let gewerke: Awaited<ReturnType<typeof getGewerke>> = [];
@@ -42,9 +62,12 @@ export default async function OrganizationProfilePage({ params }: Props) {
   }
   const gewerk = gewerke.find((g) => g.id === org.gewerk);
 
-  const backdropImage = images
-    .map((p) => primaryImage(p))
-    .find((img) => img?.file_public_preview)?.file_public_preview;
+  // Eigenes Titelbild hat Vorrang -- ohne eins fällt's automatisch auf das
+  // erste freigegebene Foto zurück, wie bisher.
+  const backdropImage =
+    org.banner_image ||
+    images.map((p) => primaryImage(p)).find((img) => img?.file_public_preview)
+      ?.file_public_preview;
 
   return (
     <section>
@@ -63,34 +86,22 @@ export default async function OrganizationProfilePage({ params }: Props) {
               Alle Organisationen
             </Link>
 
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div className="flex items-center gap-4">
-                <span
-                  className="flex h-14 w-14 flex-none items-center justify-center rounded-[10px] border border-white/10 bg-white/[0.06]"
-                >
-                  <i
-                    className={`ti ${GEWERK_ICONS[org.gewerk] ?? 'ti-shield'} text-[26px]`}
-                    style={{ color: gewerk?.color ?? '#E8A93D' }}
-                    aria-hidden="true"
-                  />
-                </span>
-                <div>
-                  <div className="mb-1 font-mono text-[11px] font-medium uppercase tracking-[0.1em] text-amber">
-                    {gewerk?.name ?? org.gewerk}
-                  </div>
-                  <h1 className="font-display text-[clamp(28px,4vw,42px)] font-bold leading-[1.02] text-white">
-                    {org.name}
-                  </h1>
-                </div>
-              </div>
-              <Link
-                href={`/kontakt?org=${org.id}`}
-                className="inline-flex items-center gap-1.5 rounded-md border border-white/20 px-3.5 py-2.5 text-[12.5px] font-semibold text-white transition-colors hover:border-white/40"
-              >
-                <i className="ti ti-mail text-[13px]" aria-hidden="true" />
-                Kontakt aufnehmen
-              </Link>
-            </div>
+            <OrgProfileEditor
+              org={{
+                id: org.id,
+                name: org.name,
+                gewerk: org.gewerk,
+                description: org.description ?? null,
+                website: org.website ?? null,
+                social_links: org.social_links ?? null,
+                show_website: org.show_website ?? true,
+                show_social_links: org.show_social_links ?? true,
+                logo: org.logo ?? null,
+              }}
+              gewerkName={gewerk?.name ?? org.gewerk}
+              gewerkColor={gewerk?.color ?? GEWERK_COLORS[org.gewerk] ?? '#E8A93D'}
+              canEdit={canEdit}
+            />
           </div>
         </div>
       </DarkMasthead>
