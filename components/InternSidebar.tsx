@@ -32,6 +32,7 @@ export default function InternSidebar({
   const mainItems: NavItem[] = isPress
     ? [
         { href: '/intern', label: 'Übersicht', icon: 'ti-layout-dashboard' },
+        { href: '/intern/freigaben', label: 'Freigaben', icon: 'ti-share' },
         {
           href: '/intern/nachrichten',
           label: 'Nachrichten',
