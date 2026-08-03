@@ -22,11 +22,13 @@ export default function UploadForm({
   existingTags,
   alarmcodes,
   folders,
+  preselectedFolderId = null,
 }: {
   watermarkText: string;
   existingTags: string[];
   alarmcodes: Alarmcode[];
   folders: { id: string; name: string }[];
+  preselectedFolderId?: string | null;
 }) {
   const router = useRouter();
   const [images, setImages] = useState<SelectedImage[]>([]);
@@ -39,8 +41,9 @@ export default function UploadForm({
   const [contentConfirmed, setContentConfirmed] = useState(false);
   // '' = kein Ordner (Standard, rein optionales Angebot), '__new__' = Feld
   // für einen neuen Ordnernamen einblenden, sonst die ID eines bestehenden
-  // Ordners.
-  const [folderChoice, setFolderChoice] = useState('');
+  // Ordners. Kommt man über einen Ordner-Kontext hierher (Upload-Button
+  // direkt im Ordner), ist der schon vorausgewählt.
+  const [folderChoice, setFolderChoice] = useState(preselectedFolderId ?? '');
   const [newFolderName, setNewFolderName] = useState('');
   const [status, setStatus] = useState<'idle' | 'working' | 'done' | 'error'>('idle');
   const [progress, setProgress] = useState('');
@@ -200,8 +203,18 @@ export default function UploadForm({
       setTags('');
       setArticleBody('');
       setContentConfirmed(false);
-      setFolderChoice('');
+      setFolderChoice(preselectedFolderId ?? '');
       setNewFolderName('');
+
+      // Kam der Upload aus einem Ordner-Kontext und die Zuordnung hat
+      // geklappt, direkt zurück in den Ordner springen -- schließt den
+      // Kreis, ohne dass man selbst dorthin navigieren muss.
+      if (preselectedFolderId && !folderWarning) {
+        router.push(`/intern/ordner/${preselectedFolderId}`);
+        router.refresh();
+        return;
+      }
+
       setStatus('done');
       setProgress('');
       setError(folderWarning);
