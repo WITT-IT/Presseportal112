@@ -15,6 +15,7 @@ export default function MediaSharePostPicker({
 }) {
   const router = useRouter();
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
 
   const filtered = availablePosts.filter((post) => {
@@ -28,13 +29,23 @@ export default function MediaSharePostPicker({
 
   async function handleAdd(postId: string) {
     setBusyId(postId);
-    await fetch('/api/intern/media-shares/assign', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ shareId, postId, action: 'add' }),
-    });
-    setBusyId(null);
-    router.refresh();
+    setError(null);
+    try {
+      const res = await fetch('/api/intern/media-shares/assign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shareId, postId, action: 'add' }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? `Fehlgeschlagen (Status ${res.status})`);
+      }
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Hinzufügen fehlgeschlagen.');
+    } finally {
+      setBusyId(null);
+    }
   }
 
   if (availablePosts.length === 0) {
@@ -56,6 +67,8 @@ export default function MediaSharePostPicker({
         placeholder="Beiträge durchsuchen …"
         className="mb-4 w-full rounded-md border border-line-strong px-3 py-2 text-[13px] outline-none focus:border-ink"
       />
+
+      {error && <p className="mb-3 text-[12px] text-signal-deep">{error}</p>}
 
       {filtered.length === 0 ? (
         <p className="text-[13px] text-ink-2">Keine Treffer.</p>
