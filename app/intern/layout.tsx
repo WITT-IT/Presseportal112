@@ -56,6 +56,8 @@ export default async function InternLayout({ children }: { children: ReactNode }
   const user = await getCurrentUser(session.accessToken);
   if (!user) redirect('/login');
 
+  const isPress = user.organization?.organization_type === 'press';
+
   const [admin, unreadCount] = await Promise.all([
     isAdministrator(user.id),
     user.organization?.id
@@ -68,6 +70,7 @@ export default async function InternLayout({ children }: { children: ReactNode }
       <InternSidebar
         organizationName={user.organization?.name ?? null}
         isAdmin={admin}
+        isPress={isPress}
         unreadCount={unreadCount}
       />
       <main className="min-w-0 flex-1 bg-paper px-8 py-10 nav:px-12 nav:py-12">{children}</main>
