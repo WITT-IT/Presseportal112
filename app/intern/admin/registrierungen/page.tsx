@@ -20,6 +20,7 @@ async function getPendingRegistrations() {
     'requested_gewerk',
     'requested_website',
     'requested_social_links',
+    'requested_account_type',
   ].join(',');
   try {
     const res = await fetch(`${DIRECTUS_URL}/users?filter[status][_eq]=draft&fields=${fields}`, {
@@ -76,9 +77,13 @@ export default async function AdminRegistrationsPage() {
 
         <h1 className="mb-2 font-display text-[32px] font-bold">Registrierungen</h1>
         <p className="mb-8 text-[13.5px] text-ink-2">
-          Neue Organisations-Konten warten hier auf Freigabe. Existiert die
-          gewünschte Organisation noch nicht, zuerst in Directus unter{' '}
-          <span className="font-mono">organizations</span> anlegen.
+          Neue Konten warten hier auf Freigabe. Existiert die gewünschte
+          Organisation noch nicht, zuerst in Directus unter{' '}
+          <span className="font-mono">organizations</span> anlegen. Bei
+          Presse-Anfragen (im Text markiert): dort{' '}
+          <span className="font-mono">organization_type</span> auf{' '}
+          <span className="font-mono">press</span> setzen und{' '}
+          <span className="font-mono">gewerk</span> leer lassen.
         </p>
 
         <AdminRegistrationsList registrations={registrations} organizations={organizations} />
