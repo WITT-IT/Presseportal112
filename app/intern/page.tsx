@@ -39,16 +39,39 @@ async function getUnreadConversationCount(organizationId: string): Promise<numbe
   }
 }
 
-function StatTile({ icon, label, value }: { icon: string; label: string; value: number }) {
-  return (
-    <div className="rounded-[10px] border border-line bg-white p-4">
+function StatTile({
+  icon,
+  label,
+  value,
+  href,
+}: {
+  icon: string;
+  label: string;
+  value: number;
+  href?: string;
+}) {
+  const content = (
+    <>
       <div className="mb-2 flex items-center gap-2 text-ink-3">
         <i className={`ti ${icon} text-[16px]`} aria-hidden="true" />
         <span className="text-[11px] font-semibold uppercase tracking-[0.05em]">{label}</span>
       </div>
       <div className="font-display text-[26px] font-bold text-ink">{value}</div>
-    </div>
+    </>
   );
+
+  if (href) {
+    return (
+      <Link
+        href={href}
+        className="block rounded-[10px] border border-line bg-white p-4 transition-colors hover:border-line-strong"
+      >
+        {content}
+      </Link>
+    );
+  }
+
+  return <div className="rounded-[10px] border border-line bg-white p-4">{content}</div>;
 }
 
 export default async function OverviewPage() {
@@ -112,7 +135,7 @@ export default async function OverviewPage() {
           className="flex items-center gap-2 rounded-md bg-ink px-5 py-3 text-[13px] font-semibold text-white transition-colors hover:bg-black"
         >
           <i className="ti ti-plus text-[15px]" aria-hidden="true" />
-          Neues Foto hochladen
+          Neuen Beitrag hochladen
         </Link>
       </div>
 
@@ -133,9 +156,24 @@ export default async function OverviewPage() {
 
       <div className="mb-10 grid grid-cols-2 gap-3 nav:grid-cols-4">
         <StatTile icon="ti-photo" label="Beiträge gesamt" value={posts.length} />
-        <StatTile icon="ti-eye" label="Öffentlich" value={publishedCount} />
-        <StatTile icon="ti-file-pencil" label="Entwürfe" value={draftCount} />
-        <StatTile icon="ti-share" label="Aktive Freigaben" value={activeShareCount} />
+        <StatTile
+          icon="ti-eye"
+          label="Öffentlich"
+          value={publishedCount}
+          href="/intern/medien?status=public"
+        />
+        <StatTile
+          icon="ti-file-pencil"
+          label="Entwürfe"
+          value={draftCount}
+          href="/intern/medien?status=draft"
+        />
+        <StatTile
+          icon="ti-share"
+          label="Aktive Freigaben"
+          value={activeShareCount}
+          href="/intern/freigaben"
+        />
       </div>
 
       <div className="mb-4 flex items-center justify-between">
