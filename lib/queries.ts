@@ -227,19 +227,28 @@ export async function getOrganizationById(id: string): Promise<Organization | nu
 // Öffentliche Beiträge einer bestimmten Organisation, für deren Profilseite.
 export async function getPublicImagesByOrganization(
   organizationId: string,
-  limit = 24
-): Promise<Post[]> {
-  return directus.request(
+  { page = 1, pageSize = 24 }: { page?: number; pageSize?: number } = {}
+): Promise<{ images: Post[]; hasNextPage: boolean }> {
+  // Ein Element mehr anfragen als angezeigt wird, um zu erkennen ob es eine
+  // weitere Seite gibt -- spart eine zweite Zählabfrage. Gleiches Muster
+  // wie im Bildarchiv.
+  const rows = (await directus.request(
     readItems('posts', {
       filter: {
         is_public: { _eq: true },
         organization: { _eq: organizationId },
       },
       sort: ['-published_at'],
-      limit,
+      limit: pageSize + 1,
+      offset: (page - 1) * pageSize,
       fields: PUBLIC_POST_FIELDS as unknown as string[],
     })
-  ) as Promise<Post[]>;
+  )) as Post[];
+
+  return {
+    images: rows.slice(0, pageSize),
+    hasNextPage: rows.length > pageSize,
+  };
 }
 
 // Einzelner Beitrag mit allen Feldern zum Bearbeiten -- läuft über den
