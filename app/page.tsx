@@ -1,5 +1,4 @@
 import Hero from '@/components/Hero';
-import ContactForm from '@/components/ContactForm';
 import {
   getAllOrganizations,
   getFeaturedHeroPost,
@@ -22,7 +21,8 @@ export default async function HomePage() {
   // HINWEIS (Neuausrichtung): gewerke/counts/totalImages/totalOrganizations
   // werden aktuell von keinem sichtbaren Abschnitt mehr gebraucht (siehe
   // die auskommentierten Blöcke unten), bleiben aber bewusst stehen --
-  // spart beim Wiedereinblenden das erneute Verdrahten.
+  // spart beim Wiedereinblenden das erneute Verdrahten. organizations wird
+  // jetzt fürs Kontaktformular im Hero gebraucht.
   let gewerke: Awaited<ReturnType<typeof getGewerke>> = [];
   let counts: Record<string, number> = {};
   let latestImages: Awaited<ReturnType<typeof getLatestPublicImages>> = [];
@@ -66,7 +66,7 @@ export default async function HomePage() {
         </div>
       )}
 
-      <Hero latestImages={latestImages} featuredPost={featuredPost} />
+      <Hero latestImages={latestImages} featuredPost={featuredPost} organizations={organizations} />
 
       {/*
         NEUAUSRICHTUNG (Kunde, Juli 2026): Gewerke-Übersicht ist bis auf
@@ -115,8 +115,13 @@ export default async function HomePage() {
       </section>
       */}
 
-      {/* Kontaktformular direkt auf der Startseite, im hellen "Papier"-System
-          als bewusster Kontrast zum dunklen Hero darüber. */}
+      {/*
+        UMBAU (August 2026): Kontaktformular ist umgezogen -- steht jetzt
+        direkt im Hero rechts daneben (components/Hero.tsx), nicht mehr als
+        eigener Abschnitt hier darunter. Code hier bewusst nicht gelöscht,
+        nur als Referenz auskommentiert, falls es später doch wieder als
+        eigener Abschnitt gewünscht ist.
+
       <section className="px-8 py-20">
         <div className="mx-auto max-w-[640px]">
           <div className="mb-8 text-center">
@@ -133,6 +138,7 @@ export default async function HomePage() {
           <ContactForm organizations={organizations} />
         </div>
       </section>
+      */}
 
       {/*
         NEUAUSRICHTUNG (Kunde, Juli 2026): Statistik-Leiste ebenfalls
