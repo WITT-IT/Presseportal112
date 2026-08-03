@@ -5,8 +5,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
 const NAV_LINKS = [
-  { href: '/favoriten', label: 'Favoriten'},
-  { href: '/organisationen', label: 'Organisationen' },
+  { href: '/favoriten', label: 'Favoriten' },
+  { href: '/organisationen', label: 'Für Organisationen' },
   { href: '/kontakt', label: 'Kontakt' },
 ];
 
@@ -101,6 +101,12 @@ export default function Header({ loggedIn }: { loggedIn: boolean }) {
               {link.label}
             </Link>
           ))}
+          <Link
+            href="/pressemappe"
+            className="text-[13.5px] font-medium text-ink-2 transition-colors hover:text-ink"
+          >
+            Favoriten
+          </Link>
           {loggedIn ? (
             <>
               <Link
@@ -152,6 +158,13 @@ export default function Header({ loggedIn }: { loggedIn: boolean }) {
                 {link.label}
               </Link>
             ))}
+            <Link
+              href="/pressemappe"
+              onClick={() => setMenuOpen(false)}
+              className="rounded-md px-2 py-3 text-[14px] font-medium text-ink-2 hover:bg-panel hover:text-ink"
+            >
+              Favoriten
+            </Link>
             {loggedIn ? (
               <>
                 <Link
