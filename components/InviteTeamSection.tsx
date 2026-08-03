@@ -21,7 +21,7 @@ export default function InviteTeamSection() {
 
   async function loadInvites() {
     setLoading(true);
-    const res = await fetch('/api/intern/invites');
+    const res = await fetch('/api/intern/invite');
     if (res.ok) {
       const data = await res.json();
       setInvites(data.invites || []);
@@ -39,7 +39,7 @@ export default function InviteTeamSection() {
     setError(null);
     setLastLink(null);
 
-    const res = await fetch('/api/intern/invites', {
+    const res = await fetch('/api/intern/invite', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: email || null }),
@@ -58,7 +58,7 @@ export default function InviteTeamSection() {
   }
 
   async function handleRevoke(id: string) {
-    await fetch(`/api/intern/invites/${id}`, { method: 'DELETE' });
+    await fetch(`/api/intern/invite/${id}`, { method: 'DELETE' });
     loadInvites();
   }
 
