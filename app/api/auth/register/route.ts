@@ -11,8 +11,16 @@ import { sendRegistrationReceivedEmail, sendNewRegistrationAdminNotification } f
 // nochmal prüfen müssen.
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null);
-  const { first_name, last_name, email, password, requested_organization_name, requested_gewerk } =
-    body || {};
+  const {
+    first_name,
+    last_name,
+    email,
+    password,
+    requested_organization_name,
+    requested_gewerk,
+    requested_website,
+    requested_social_links,
+  } = body || {};
 
   if (!first_name || !last_name || !email || !password || !requested_gewerk) {
     return NextResponse.json({ error: 'Bitte alle Pflichtfelder ausfüllen.' }, { status: 400 });
@@ -22,6 +30,18 @@ export async function POST(request: NextRequest) {
       { error: 'Das Passwort muss mindestens 8 Zeichen lang sein.' },
       { status: 400 }
     );
+  }
+
+  // Beide Zusatzfelder sind bewusst optional -- nur übernehmen, wenn
+  // tatsächlich etwas eingetragen wurde.
+  const website = requested_website ? String(requested_website).trim() : null;
+  const socialLinks: Record<string, string> = {};
+  if (requested_social_links && typeof requested_social_links === 'object') {
+    for (const [key, value] of Object.entries(requested_social_links)) {
+      if (typeof value === 'string' && value.trim()) {
+        socialLinks[key] = value.trim();
+      }
+    }
   }
 
   const res = await fetch(`${DIRECTUS_URL}/users`, {
@@ -34,6 +54,8 @@ export async function POST(request: NextRequest) {
       password,
       requested_organization_name: requested_organization_name || null,
       requested_gewerk,
+      requested_website: website,
+      requested_social_links: Object.keys(socialLinks).length > 0 ? socialLinks : null,
     }),
   });
 
