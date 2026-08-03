@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
 const NAV_LINKS = [
-   { href: '/kontakt', label: 'Kontakt' },
+   { href: '/kontakt', label: '' },
 ];
 
 // Eingebettetes SVG statt der externen Tabler-Icons-Schrift -- bewusst nur
