@@ -67,13 +67,18 @@ export default function Hero({
               Bildarchiv durchsuchen
               <i className="ti ti-arrow-right text-[16px]" aria-hidden="true" />
             </Link>
+            {/*
+              NEUAUSRICHTUNG (Kunde, August 2026): Presse-Alarm-Button
+              ausgeblendet, Code bleibt erhalten -- zum Wiedereinblenden
+              diesen Kommentarblock entfernen.
             <Link
               href="/presse-alarm"
               className="inline-flex items-center gap-1.5 rounded-md border border-white/20 px-6 py-3.5 text-[13.5px] font-semibold text-white transition-colors hover:border-white/40"
             >
-               Presse-Alarm aktivieren 
+              Presse-Alarm aktivieren
               <i className="ti ti-chevron-right text-[15px]" aria-hidden="true" />
             </Link>
+            */}
           </div>
         </div>
       </div>
