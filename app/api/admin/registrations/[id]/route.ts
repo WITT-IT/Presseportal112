@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser, isAdministrator, SESSION_COOKIE } from '@/lib/auth';
 import { DIRECTUS_URL } from '@/lib/directus';
@@ -27,10 +28,8 @@ export async function POST(
     return NextResponse.json({ error: 'Keine Berechtigung.' }, { status: 403 });
   }
   const { id } = await params;
-  const { organizationId, organizationName } = await request.json().catch(() => ({}));
-  if (!organizationId) {
-    return NextResponse.json({ error: 'Bitte eine Organisation auswählen.' }, { status: 400 });
-  }
+  const { organizationId, organizationName, newOrganizationName, newOrganizationGewerk } =
+    await request.json().catch(() => ({}));
 
   const serviceToken = process.env.DIRECTUS_SERVICE_TOKEN;
   if (!serviceToken) {
@@ -42,10 +41,60 @@ export async function POST(
     'Content-Type': 'application/json',
   };
 
+  let finalOrganizationId: string;
+  let finalOrganizationName: string;
+
+  if (newOrganizationName) {
+    // Neue Organisation direkt hier anlegen -- kein Umweg über Directus
+    // mehr nötig. Ob es eine BOS-Organisation oder eine Presse-Redaktion
+    // wird, entscheidet der ursprüngliche Registrierungstyp -- frisch aus
+    // Directus nachgeladen, nicht dem Client vertraut.
+    const regRes = await fetch(`${DIRECTUS_URL}/users/${id}?fields=requested_account_type`, {
+      headers: adminHeaders,
+    });
+    const regData = regRes.ok ? (await regRes.json()).data : null;
+    const accountType = regData?.requested_account_type === 'press' ? 'press' : 'bos';
+
+    const name = String(newOrganizationName).trim();
+    if (!name) {
+      return NextResponse.json({ error: 'Bitte einen Organisationsnamen angeben.' }, { status: 400 });
+    }
+    if (accountType === 'bos' && !newOrganizationGewerk) {
+      return NextResponse.json({ error: 'Bitte ein Gewerk auswählen.' }, { status: 400 });
+    }
+
+    finalOrganizationId = randomUUID();
+    const createRes = await fetch(`${DIRECTUS_URL}/items/organizations`, {
+      method: 'POST',
+      headers: adminHeaders,
+      body: JSON.stringify({
+        id: finalOrganizationId,
+        name,
+        gewerk: accountType === 'bos' ? newOrganizationGewerk : null,
+        organization_type: accountType,
+      }),
+    });
+    if (!createRes.ok) {
+      const body = await createRes.text();
+      console.error('Organisation anlegen fehlgeschlagen:', body);
+      return NextResponse.json(
+        { error: 'Organisation konnte nicht angelegt werden.' },
+        { status: 500 }
+      );
+    }
+    finalOrganizationName = name;
+  } else {
+    if (!organizationId) {
+      return NextResponse.json({ error: 'Bitte eine Organisation auswählen.' }, { status: 400 });
+    }
+    finalOrganizationId = organizationId;
+    finalOrganizationName = organizationName || 'deiner Organisation';
+  }
+
   const res = await fetch(`${DIRECTUS_URL}/users/${id}`, {
     method: 'PATCH',
     headers: adminHeaders,
-    body: JSON.stringify({ organization: organizationId, status: 'active' }),
+    body: JSON.stringify({ organization: finalOrganizationId, status: 'active' }),
   });
 
   if (!res.ok) {
@@ -68,7 +117,7 @@ export async function POST(
         await sendRegistrationApprovedEmail({
           to: user.email,
           name: user.first_name || '',
-          organizationName: organizationName || 'deiner Organisation',
+          organizationName: finalOrganizationName,
         });
       }
     }
