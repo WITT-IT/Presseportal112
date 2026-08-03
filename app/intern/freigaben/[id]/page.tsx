@@ -2,7 +2,11 @@ import { cookies } from 'next/headers';
 import { redirect, notFound } from 'next/navigation';
 import Image from 'next/image';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
-import { getMediaShareWithPosts, getMyOrganizationImages } from '@/lib/queries';
+import {
+  getMediaShareWithPosts,
+  getMyOrganizationImages,
+  getMyFoldersWithPostIds,
+} from '@/lib/queries';
 import { directusAssetUrl } from '@/lib/directus';
 import { primaryImage } from '@/lib/types';
 import Breadcrumbs from '@/components/Breadcrumbs';
@@ -10,6 +14,7 @@ import MediaShareActions from '@/components/MediaShareActions';
 import MediaShareLinkBox from '@/components/MediaShareLinkBox';
 import RemoveFromMediaShareButton from '@/components/RemoveFromMediaShareButton';
 import MediaSharePostPicker from '@/components/MediaSharePostPicker';
+import FolderToShareControl from '@/components/FolderToShareControl';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,13 +39,12 @@ export default async function MediaShareDetailPage({
   const user = await getCurrentUser(session.accessToken);
   if (!user) redirect('/login');
   if (!user.organization?.id) redirect('/intern');
-  // Presse-Konten erhalten Freigaben, erstellen aber keine eigenen -- diese
-  // Seite ist ausschließlich für BOS-Organisationen gedacht.
   if (user.organization.organization_type === 'press') redirect('/intern');
 
-  const [share, allOwnPosts] = await Promise.all([
+  const [share, allOwnPosts, folders] = await Promise.all([
     getMediaShareWithPosts(session.accessToken, id),
     getMyOrganizationImages(session.accessToken, user.organization.id),
+    getMyFoldersWithPostIds(session.accessToken, user.organization.id),
   ]);
   if (!share) notFound();
 
@@ -76,7 +80,8 @@ export default async function MediaShareDetailPage({
       </h2>
       {share.posts.length === 0 ? (
         <p className="mb-10 text-[13px] text-ink-2">
-          Noch keine Beiträge in dieser Freigabe — wähl unten welche aus.
+          Noch keine Beiträge in dieser Freigabe — wähl unten welche aus,
+          oder direkt einen ganzen Ordner hinzufügen.
         </p>
       ) : (
         <div className="mb-10 grid grid-cols-2 gap-4 nav:grid-cols-4">
@@ -112,6 +117,13 @@ export default async function MediaShareDetailPage({
       <h2 className="mb-4 font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
         Weitere Beiträge hinzufügen
       </h2>
+
+      <FolderToShareControl
+        shareId={share.id}
+        folders={folders}
+        existingPostIds={share.posts.map((p) => p.id)}
+      />
+
       <MediaSharePostPicker shareId={share.id} availablePosts={availablePosts} />
     </div>
   );
