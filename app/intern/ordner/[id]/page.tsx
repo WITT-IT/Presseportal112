@@ -3,12 +3,13 @@ import { redirect, notFound } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
-import { getFolderWithPosts, getMyOrganizationImages } from '@/lib/queries';
+import { getFolderWithPosts, getMyOrganizationImages, getMyMediaShares } from '@/lib/queries';
 import { directusAssetUrl } from '@/lib/directus';
 import { primaryImage } from '@/lib/types';
 import Breadcrumbs from '@/components/Breadcrumbs';
 import FolderActions from '@/components/FolderActions';
 import RemoveFromFolderButton from '@/components/RemoveFromFolderButton';
+import AddToMediaShareControl from '@/components/AddToMediaShareControl';
 import FolderPostPicker from '@/components/FolderPostPicker';
 
 export const dynamic = 'force-dynamic';
@@ -34,13 +35,12 @@ export default async function FolderDetailPage({
   const user = await getCurrentUser(session.accessToken);
   if (!user) redirect('/login');
   if (!user.organization?.id) redirect('/intern');
-  // Presse-Konten haben keine eigenen Ordner -- diese Seite ist
-  // ausschließlich für BOS-Organisationen gedacht.
   if (user.organization.organization_type === 'press') redirect('/intern');
 
-  const [folder, allOwnPosts] = await Promise.all([
+  const [folder, allOwnPosts, mediaShares] = await Promise.all([
     getFolderWithPosts(session.accessToken, id),
     getMyOrganizationImages(session.accessToken, user.organization.id),
+    getMyMediaShares(session.accessToken, user.organization.id),
   ]);
   if (!folder) notFound();
 
@@ -75,7 +75,8 @@ export default async function FolderDetailPage({
         Öffentliche und noch nicht veröffentlichte Beiträge können
         problemlos gemeinsam in diesem Ordner liegen — praktisch, wenn ein
         Medienvertreter gezielt nach einem noch nicht freigegebenen Bild aus
-        demselben Einsatz fragt.
+        demselben Einsatz fragt. Über „Zu Freigabe hinzufügen" lässt sich
+        ein Beitrag direkt von hier aus einer Freigabe zuordnen.
       </p>
 
       <h2 className="mb-4 font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
@@ -114,9 +115,10 @@ export default async function FolderDetailPage({
                   </span>
                 </div>
                 <div className="p-2.5">
-                  <span className="truncate text-[12px] font-medium">
+                  <span className="mb-2 block truncate text-[12px] font-medium">
                     {post.title || post.alarm_code || 'Ohne Titel'}
                   </span>
+                  <AddToMediaShareControl postId={post.id} mediaShares={mediaShares} />
                 </div>
               </div>
             );
