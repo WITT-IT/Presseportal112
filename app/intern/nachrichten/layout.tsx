@@ -1,10 +1,10 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
 import { DIRECTUS_URL } from '@/lib/directus';
 import { getAllOrganizations } from '@/lib/queries';
+import Breadcrumbs from '@/components/Breadcrumbs';
 import StartConversationForm from '@/components/StartConversationForm';
 import ConversationListItem from '@/components/ConversationListItem';
 
@@ -100,46 +100,36 @@ export default async function MessagesLayout({ children }: { children: ReactNode
   const otherOrganizations = organizations.filter((org) => org.id !== user.organization?.id);
 
   return (
-    <section className="px-8 py-14">
-      <div className="mx-auto max-w-[1180px]">
-        <Link
-          href="/intern"
-          className="mb-6 inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-ink-2 hover:text-ink"
-        >
-          <i className="ti ti-arrow-left text-[14px]" aria-hidden="true" />
-          Zurück zum internen Bereich
-        </Link>
+    <div>
+      <Breadcrumbs items={[{ label: 'Übersicht', href: '/intern' }, { label: 'Nachrichten' }]} />
 
-        <h1 className="mb-6 font-display text-[32px] font-bold">Nachrichten</h1>
-
-        <div className="flex gap-5" style={{ minHeight: '620px' }}>
-          {/* Linke Spalte: alle Unterhaltungen, dauerhaft sichtbar */}
-          <div className="flex w-[300px] flex-none flex-col gap-3">
-            <StartConversationForm organizations={otherOrganizations} />
-            <div className="flex flex-col gap-1.5 overflow-y-auto">
-              {conversations.length === 0 ? (
-                <p className="px-1 text-[12.5px] text-ink-2">Noch keine Unterhaltungen.</p>
-              ) : (
-                conversations.map((conv) => (
-                  <ConversationListItem
-                    key={conv.id}
-                    id={conv.id}
-                    subject={conv.subject}
-                    lastMessagePreview={conv.lastMessagePreview}
-                    lastMessageAt={conv.lastMessageAt}
-                    unread={conv.unread}
-                  />
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* Rechte Spalte: die ausgewählte Unterhaltung */}
-          <div className="flex min-w-0 flex-1 flex-col rounded-[10px] border border-line bg-white p-6">
-            {children}
+      <div className="flex gap-5" style={{ minHeight: '600px' }}>
+        {/* Linke Spalte: alle Unterhaltungen, dauerhaft sichtbar */}
+        <div className="flex w-[300px] flex-none flex-col gap-3">
+          <StartConversationForm organizations={otherOrganizations} />
+          <div className="flex flex-col gap-1.5 overflow-y-auto">
+            {conversations.length === 0 ? (
+              <p className="px-1 text-[12.5px] text-ink-2">Noch keine Unterhaltungen.</p>
+            ) : (
+              conversations.map((conv) => (
+                <ConversationListItem
+                  key={conv.id}
+                  id={conv.id}
+                  subject={conv.subject}
+                  lastMessagePreview={conv.lastMessagePreview}
+                  lastMessageAt={conv.lastMessageAt}
+                  unread={conv.unread}
+                />
+              ))
+            )}
           </div>
         </div>
+
+        {/* Rechte Spalte: die ausgewählte Unterhaltung */}
+        <div className="flex min-w-0 flex-1 flex-col rounded-[10px] border border-line bg-white p-6">
+          {children}
+        </div>
       </div>
-    </section>
+    </div>
   );
 }
