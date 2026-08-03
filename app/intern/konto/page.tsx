@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
 import { DIRECTUS_URL } from '@/lib/directus';
 import AccountDeleteForm from '@/components/AccountDeleteForm';
+import InviteTeamSection from '@/components/InviteTeamSection';
 
 export const dynamic = 'force-dynamic';
 
@@ -74,6 +75,12 @@ export default async function AccountPage() {
             </div>
           </dl>
         </div>
+
+        {user.organization?.id && (
+          <div className="mb-8">
+            <InviteTeamSection />
+          </div>
+        )}
 
         <AccountDeleteForm privateCount={counts.privateCount} publicCount={counts.publicCount} />
       </div>
