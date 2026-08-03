@@ -5,9 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
 const NAV_LINKS = [
-  
-  { href: '/kontakt', label: 'Kontakt' },
-
+   { href: '/kontakt', label: 'Kontakt' },
 ];
 
 // Eingebettetes SVG statt der externen Tabler-Icons-Schrift -- bewusst nur
@@ -92,21 +90,25 @@ export default function Header({ loggedIn }: { loggedIn: boolean }) {
         </Link>
 
         <nav className="hidden items-center gap-[34px] nav:flex">
-          {NAV_LINKS.map((link) => (
-            <Link
-              key={link.href}
-              href={link.href}
-              className="text-[13.5px] font-medium text-ink-2 transition-colors hover:text-ink"
-            >
-              {link.label}
-            </Link>
-          ))}
-          <Link
-            href="/pressemappe"
-            className="text-[13.5px] font-medium text-ink-2 transition-colors hover:text-ink"
-          >
-            Favoriten
-          </Link>
+          {!loggedIn && (
+            <>
+              {NAV_LINKS.map((link) => (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  className="text-[13.5px] font-medium text-ink-2 transition-colors hover:text-ink"
+                >
+                  {link.label}
+                </Link>
+              ))}
+              <Link
+                href="/pressemappe"
+                className="text-[13.5px] font-medium text-ink-2 transition-colors hover:text-ink"
+              >
+                Favoriten
+              </Link>
+            </>
+          )}
           {loggedIn ? (
             <>
               <Link
@@ -148,23 +150,27 @@ export default function Header({ loggedIn }: { loggedIn: boolean }) {
       {menuOpen && (
         <div className="border-t border-line bg-paper px-8 py-4 nav:hidden">
           <nav className="flex flex-col gap-1">
-            {NAV_LINKS.map((link) => (
-              <Link
-                key={link.href}
-                href={link.href}
-                onClick={() => setMenuOpen(false)}
-                className="rounded-md px-2 py-3 text-[14px] font-medium text-ink-2 hover:bg-panel hover:text-ink"
-              >
-                {link.label}
-              </Link>
-            ))}
-            <Link
-              href="/pressemappe"
-              onClick={() => setMenuOpen(false)}
-              className="rounded-md px-2 py-3 text-[14px] font-medium text-ink-2 hover:bg-panel hover:text-ink"
-            >
-              Favoriten
-            </Link>
+            {!loggedIn && (
+              <>
+                {NAV_LINKS.map((link) => (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    onClick={() => setMenuOpen(false)}
+                    className="rounded-md px-2 py-3 text-[14px] font-medium text-ink-2 hover:bg-panel hover:text-ink"
+                  >
+                    {link.label}
+                  </Link>
+                ))}
+                <Link
+                  href="/pressemappe"
+                  onClick={() => setMenuOpen(false)}
+                  className="rounded-md px-2 py-3 text-[14px] font-medium text-ink-2 hover:bg-panel hover:text-ink"
+                >
+                  Favoriten
+                </Link>
+              </>
+            )}
             {loggedIn ? (
               <>
                 <Link
