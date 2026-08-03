@@ -11,6 +11,8 @@ type Registration = {
   last_name: string | null;
   requested_organization_name: string | null;
   requested_gewerk: string | null;
+  requested_website: string | null;
+  requested_social_links: Record<string, string> | null;
 };
 
 type OrgOption = { id: string; name: string };
@@ -88,6 +90,35 @@ export default function AdminRegistrationsList({
                 }) registriert werden`
               : ''}
           </div>
+          {(reg.requested_website ||
+            (reg.requested_social_links && Object.keys(reg.requested_social_links).length > 0)) && (
+            <div className="mb-3 flex flex-wrap gap-x-3 gap-y-1 text-[11.5px] text-ink-3">
+              {reg.requested_website && (
+                <a
+                  href={reg.requested_website}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 underline hover:text-ink"
+                >
+                  <i className="ti ti-world text-[13px]" aria-hidden="true" />
+                  Website
+                </a>
+              )}
+              {reg.requested_social_links &&
+                Object.entries(reg.requested_social_links).map(([platform, url]) => (
+                  <a
+                    key={platform}
+                    href={url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 underline hover:text-ink"
+                  >
+                    <i className="ti ti-link text-[13px]" aria-hidden="true" />
+                    {platform}
+                  </a>
+                ))}
+            </div>
+          )}
           <div className="flex flex-wrap items-center gap-2">
             <select
               value={selected[reg.id] ?? ''}
