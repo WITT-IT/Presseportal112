@@ -505,6 +505,56 @@ export async function sendNewRegistrationAdminNotification({
   });
 }
 
+// Geht an die Empfänger-Organisation, sobald eine andere Organisation eine
+// neue Unterhaltung im internen Nachrichtensystem startet.
+export async function sendNewConversationEmail({
+  to,
+  fromOrganizationName,
+  subject,
+  messagePreview,
+}: {
+  to: string;
+  fromOrganizationName: string;
+  subject: string;
+  messagePreview: string;
+}) {
+  const transport = getTransporter();
+  const from = process.env.SMTP_FROM || process.env.SMTP_USER!;
+  const url = siteUrl();
+  const safeOrgName = escHtml(fromOrganizationName);
+  const safeSubject = escHtml(subject);
+  const safePreview = escHtml(messagePreview).replace(/\n/g, '<br>');
+
+  const bodyHtml = `
+    <p style="margin:0 0 16px;">
+      <strong>${safeOrgName}</strong> hat eine neue Unterhaltung mit dir
+      gestartet: <strong>${safeSubject}</strong>.
+    </p>
+    <div style="margin:0; padding:16px; background-color:#ECEDEB; border-radius:8px; font-size:14px; line-height:1.6; color:#14161A;">
+      ${safePreview}
+    </div>
+  `;
+
+  await transport.sendMail({
+    from,
+    to,
+    subject: `Presseportal112 -- Neue Nachricht von ${fromOrganizationName}`,
+    text: [
+      `${fromOrganizationName} hat eine neue Unterhaltung mit dir gestartet: ${subject}`,
+      '',
+      messagePreview,
+      '',
+      `Antworten: ${url}/intern/nachrichten`,
+    ].join('\n'),
+    html: renderEmailLayout({
+      heading: 'Neue Nachricht',
+      bodyHtml,
+      ctaLabel: 'Zur Unterhaltung',
+      ctaUrl: `${url}/intern/nachrichten`,
+    }),
+  });
+}
+
 // Geht an die eingeladene Person, sobald ein bestehendes Organisationsmitglied
 // eine Einladung mit hinterlegter E-Mail-Adresse erstellt.
 export async function sendInviteEmail({
