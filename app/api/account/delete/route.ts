@@ -62,6 +62,31 @@ export async function POST(request: NextRequest) {
     'Content-Type': 'application/json',
   };
 
+  // Kleiner Helfer: alle Datensätze einer Collection finden, die per FK auf
+  // diesen Nutzer verweisen, und das Feld auf null setzen -- statt die
+  // Datensätze selbst zu löschen. So bleiben z. B. bereits verschickte
+  // Einladungen oder erstellte Freigaben funktionsfähig erhalten, nur der
+  // Bezug zum gelöschten Konto verschwindet.
+  async function nullifyReferences(collection: string, field: string, userId: string) {
+    try {
+      const res = await fetch(
+        `${DIRECTUS_URL}/items/${collection}?filter[${field}][_eq]=${userId}&fields=id&limit=-1`,
+        { headers: adminHeaders }
+      );
+      if (!res.ok) return;
+      const { data } = (await res.json()) as { data: { id: string }[] };
+      for (const row of data) {
+        await fetch(`${DIRECTUS_URL}/items/${collection}/${row.id}`, {
+          method: 'PATCH',
+          headers: adminHeaders,
+          body: JSON.stringify({ [field]: null }),
+        }).catch(() => {});
+      }
+    } catch (error) {
+      console.error(`nullifyReferences(${collection}.${field}) fehlgeschlagen:`, error);
+    }
+  }
+
   try {
     const fields = [
       'id',
@@ -141,6 +166,15 @@ export async function POST(request: NextRequest) {
         }),
       });
     }
+
+    // NEU: Referenzen aufräumen, die erst nach dem ursprünglichen Bau dieser
+    // Route dazugekommen sind (Einladungssystem, Medienfreigaben) -- ohne
+    // das lehnt Directus das Löschen des Kontos mit einem
+    // Fremdschlüssel-Fehler (500) ab, sobald der Nutzer jemals eine
+    // Einladung erstellt/eingelöst oder eine Freigabe angelegt hat.
+    await nullifyReferences('organization_invites', 'created_by', effectiveTargetId);
+    await nullifyReferences('organization_invites', 'used_by', effectiveTargetId);
+    await nullifyReferences('media_shares', 'created_by', effectiveTargetId);
 
     const deleteUserRes = await fetch(`${DIRECTUS_URL}/users/${effectiveTargetId}`, {
       method: 'DELETE',
