@@ -664,6 +664,64 @@ export async function getMediaShareWithPosts(
 // ausschließlich über den Service-Token, nie über eine Public-Policy.
 // Prüft dabei gleich mit, ob die Freigabe noch gültig ist, und räumt
 // abgelaufene Freigaben mit aktivierter Auto-Löschung im Vorbeigehen auf.
+// Freigaben, die andere Organisationen gezielt an ein Presse-Konto
+// geschickt haben -- läuft über den Service-Token, weil das zwangsläufig
+// über Organisationsgrenzen hinweg gelesen werden muss (die empfangende
+// Organisation ist ja nicht die, die den Beitrag besitzt).
+export async function getReceivedMediaShares(organizationId: string): Promise<
+  {
+    id: string;
+    name: string;
+    senderOrganizationName: string | null;
+    token: string;
+    active: boolean;
+    expiresAt: string;
+    postCount: number;
+  }[]
+> {
+  const serviceToken = process.env.DIRECTUS_SERVICE_TOKEN;
+  if (!serviceToken) return [];
+  const fields = ['id', 'name', 'token', 'active', 'expires_at', 'organization.name', 'posts.id'].join(
+    ','
+  );
+  try {
+    const res = await fetch(
+      `${DIRECTUS_URL}/items/media_shares?filter[recipient_organization][_eq]=${organizationId}&fields=${fields}&sort=-expires_at`,
+      { headers: { Authorization: `Bearer ${serviceToken}` }, cache: 'no-store' }
+    );
+    if (!res.ok) {
+      console.error(
+        `getReceivedMediaShares fehlgeschlagen (Status ${res.status}):`,
+        await res.text().catch(() => '')
+      );
+      return [];
+    }
+    const { data } = await res.json();
+    return (
+      data as {
+        id: string;
+        name: string;
+        token: string;
+        active: boolean;
+        expires_at: string;
+        organization: { name: string } | null;
+        posts?: unknown[];
+      }[]
+    ).map((row) => ({
+      id: row.id,
+      name: row.name,
+      senderOrganizationName: row.organization?.name ?? null,
+      token: row.token,
+      active: row.active,
+      expiresAt: row.expires_at,
+      postCount: (row.posts || []).length,
+    }));
+  } catch (error) {
+    console.error('getReceivedMediaShares fehlgeschlagen:', error);
+    return [];
+  }
+}
+
 export async function getMediaShareByToken(token: string): Promise<PublicMediaShare | null> {
   const serviceToken = process.env.DIRECTUS_SERVICE_TOKEN;
   if (!serviceToken) {
