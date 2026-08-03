@@ -29,6 +29,9 @@ export default async function MedienPage({
   const user = await getCurrentUser(session.accessToken);
   if (!user) redirect('/login');
   if (!user.organization?.id) redirect('/intern');
+  // Presse-Konten haben keine eigenen Medien zu verwalten -- diese Seite
+  // ist ausschließlich für BOS-Organisationen gedacht.
+  if (user.organization.organization_type === 'press') redirect('/intern');
 
   const [posts, folders, mediaShares] = await Promise.all([
     getMyOrganizationImages(session.accessToken, user.organization.id),
