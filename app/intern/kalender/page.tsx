@@ -22,6 +22,9 @@ export default async function KalenderPage() {
   const user = await getCurrentUser(session.accessToken);
   if (!user) redirect('/login');
   if (!user.organization?.id) redirect('/intern');
+  // Presse-Konten haben keinen eigenen Beitragskalender -- diese Seite ist
+  // ausschließlich für BOS-Organisationen gedacht.
+  if (user.organization.organization_type === 'press') redirect('/intern');
 
   const posts = await getMyOrganizationImages(session.accessToken, user.organization.id);
 
