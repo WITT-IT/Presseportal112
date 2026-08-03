@@ -42,13 +42,12 @@ export async function POST(
     return NextResponse.json({ error: 'Nicht verfügbar.' }, { status: 500 });
   }
 
-  // Nur die Moderation darf Teilnehmer hinzufügen.
+  // Geändert gegenüber vorher: Hinzufügen darf jetzt jeder aktive
+  // Teilnehmer, nicht mehr nur die Moderation -- Entfernen bleibt exklusiv
+  // bei der Moderation (siehe die separate [orgId]-Route).
   const caller = await getActiveParticipant(conversationId, user.organization.id);
-  if (!caller || !caller.is_moderator) {
-    return NextResponse.json(
-      { error: 'Nur die Moderation kann Teilnehmer hinzufügen.' },
-      { status: 403 }
-    );
+  if (!caller) {
+    return NextResponse.json({ error: 'Keine Berechtigung für diese Unterhaltung.' }, { status: 403 });
   }
 
   try {
@@ -100,10 +99,8 @@ export async function POST(
       throw new Error(await addRes.text());
     }
 
-    const systemText = `${org.name} wurde zur Unterhaltung hinzugefügt.`;
+    const systemText = `${org.name} wurde von ${user.organization.name ?? 'einer Organisation'} zur Unterhaltung hinzugefügt.`;
 
-    // Eine ursprünglich direkte Unterhaltung wird durch das Hinzufügen
-    // automatisch zur Gruppe.
     await fetch(`${DIRECTUS_URL}/items/conversations/${conversationId}`, {
       method: 'PATCH',
       headers,
