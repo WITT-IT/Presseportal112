@@ -1,13 +1,13 @@
 import { cookies } from 'next/headers';
 import { redirect, notFound } from 'next/navigation';
-import Link from 'next/link';
 import Image from 'next/image';
-import { SESSION_COOKIE } from '@/lib/auth';
-import { getFolderWithPosts } from '@/lib/queries';
+import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
+import { getFolderWithPosts, getMyOrganizationImages } from '@/lib/queries';
 import { directusAssetUrl } from '@/lib/directus';
 import { primaryImage } from '@/lib/types';
-import FolderActions from '@/components/FolderActions';
+import Breadcrumbs from '@/components/Breadcrumbs';
 import RemoveFromFolderButton from '@/components/RemoveFromFolderButton';
+import FolderPostPicker from '@/components/FolderPostPicker';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,70 +29,72 @@ export default async function FolderDetailPage({
     redirect('/login');
   }
 
-  const folder = await getFolderWithPosts(session.accessToken, id);
+  const user = await getCurrentUser(session.accessToken);
+  if (!user) redirect('/login');
+  if (!user.organization?.id) redirect('/intern');
+
+  const [folder, allOwnPosts] = await Promise.all([
+    getFolderWithPosts(session.accessToken, id),
+    getMyOrganizationImages(session.accessToken, user.organization.id),
+  ]);
   if (!folder) notFound();
 
+  const includedIds = new Set(folder.posts.map((p) => p.id));
+  const availablePosts = allOwnPosts.filter((p) => !includedIds.has(p.id));
+
   return (
-    <section className="px-8 py-14">
-      <div className="mx-auto max-w-[1180px]">
-        <Link
-          href="/intern/ordner"
-          className="mb-6 inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-ink-2 hover:text-ink"
-        >
-          <i className="ti ti-arrow-left text-[14px]" aria-hidden="true" />
-          Alle Ordner
-        </Link>
+    <div>
+      <Breadcrumbs
+        items={[
+          { label: 'Übersicht', href: '/intern' },
+          { label: 'Ordner', href: '/intern/ordner' },
+          { label: folder.name },
+        ]}
+      />
+      <h1 className="mb-6 font-display text-[28px] font-bold">{folder.name}</h1>
 
-        <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
-          <h1 className="font-display text-[32px] font-bold">{folder.name}</h1>
-          <FolderActions folderId={folder.id} name={folder.name} />
-        </div>
-
-        {folder.posts.length === 0 ? (
-          <p className="text-[13px] text-ink-2">
-            Noch keine Beiträge in diesem Ordner. Beim Hochladen oder
-            Bearbeiten eines Beitrags lässt er sich zuordnen.
-          </p>
-        ) : (
-          <div className="grid grid-cols-2 gap-4 nav:grid-cols-4">
-            {folder.posts.map((post) => {
-              const hero = primaryImage(post);
-              return (
-                <div key={post.id} className="relative">
-                  <RemoveFromFolderButton folderId={folder.id} postId={post.id} />
-                  <Link
-                    href={`/intern/bearbeiten/${post.id}`}
-                    className="block overflow-hidden rounded-[10px] border border-line bg-white"
-                  >
-                    <div className="relative h-[110px] bg-panel">
-                      {hero?.file_public_preview && (
-                        <Image
-                          src={directusAssetUrl(hero.file_public_preview, 'width=300&quality=70')}
-                          alt=""
-                          fill
-                          className="object-cover"
-                        />
-                      )}
-                      <span
-                        className={`absolute bottom-2 left-2 rounded-[4px] px-1.5 py-0.5 text-[10px] font-semibold ${
-                          post.is_public ? 'bg-ink text-white' : 'bg-white text-ink-2'
-                        }`}
-                      >
-                        {post.is_public ? 'Öffentlich' : 'Entwurf'}
-                      </span>
-                    </div>
-                    <div className="p-2.5">
-                      <span className="truncate text-[12px] font-medium">
-                        {post.title || post.alarm_code || 'Ohne Titel'}
-                      </span>
-                    </div>
-                  </Link>
+      <h2 className="mb-4 font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
+        Enthaltene Beiträge ({folder.posts.length})
+      </h2>
+      {folder.posts.length === 0 ? (
+        <p className="mb-10 text-[13px] text-ink-2">
+          Noch keine Beiträge in diesem Ordner — wähl unten welche aus.
+        </p>
+      ) : (
+        <div className="mb-10 grid grid-cols-2 gap-4 nav:grid-cols-4">
+          {folder.posts.map((post) => {
+            const hero = primaryImage(post);
+            return (
+              <div
+                key={post.id}
+                className="relative overflow-hidden rounded-[10px] border border-line bg-white"
+              >
+                <RemoveFromFolderButton folderId={folder.id} postId={post.id} />
+                <div className="relative h-[110px] bg-panel">
+                  {hero?.file_public_preview && (
+                    <Image
+                      src={directusAssetUrl(hero.file_public_preview, 'width=300&quality=70')}
+                      alt=""
+                      fill
+                      className="object-cover"
+                    />
+                  )}
                 </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    </section>
+                <div className="p-2.5">
+                  <span className="truncate text-[12px] font-medium">
+                    {post.title || post.alarm_code || 'Ohne Titel'}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <h2 className="mb-4 font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
+        Weitere Beiträge hinzufügen
+      </h2>
+      <FolderPostPicker folderId={folder.id} availablePosts={availablePosts} />
+    </div>
   );
 }
