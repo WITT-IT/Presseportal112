@@ -28,6 +28,9 @@ export default async function UploadPage({
   const user = await getCurrentUser(session.accessToken);
   if (!user) redirect('/login');
   if (!user.organization?.id) redirect('/intern');
+  // Presse-Konten laden keine eigenen Beiträge hoch -- diese Seite ist
+  // ausschließlich für BOS-Organisationen gedacht.
+  if (user.organization.organization_type === 'press') redirect('/intern');
 
   const [existingTags, alarmcodes, folders] = await Promise.all([
     getAllUsedTags(),
