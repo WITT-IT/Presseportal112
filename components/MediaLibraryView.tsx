@@ -8,13 +8,15 @@ export default function MediaLibraryView({
   posts,
   folders,
   mediaShares,
+  initialStatus = 'all',
 }: {
   posts: Post[];
   folders: { id: string; name: string }[];
   mediaShares: { id: string; name: string }[];
+  initialStatus?: 'all' | 'public' | 'draft';
 }) {
   const [query, setQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'public' | 'draft'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'public' | 'draft'>(initialStatus);
 
   const filtered = posts.filter((post) => {
     if (statusFilter === 'public' && !post.is_public) return false;
