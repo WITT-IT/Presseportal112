@@ -7,6 +7,7 @@ import { getFolderWithPosts, getMyOrganizationImages } from '@/lib/queries';
 import { directusAssetUrl } from '@/lib/directus';
 import { primaryImage } from '@/lib/types';
 import Breadcrumbs from '@/components/Breadcrumbs';
+import FolderActions from '@/components/FolderActions';
 import RemoveFromFolderButton from '@/components/RemoveFromFolderButton';
 import FolderPostPicker from '@/components/FolderPostPicker';
 
@@ -55,13 +56,16 @@ export default async function FolderDetailPage({
 
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <h1 className="font-display text-[28px] font-bold">{folder.name}</h1>
-        <Link
-          href={`/intern/upload?folderId=${folder.id}`}
-          className="flex items-center gap-2 rounded-md bg-ink px-4 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-black"
-        >
-          <i className="ti ti-plus text-[14px]" aria-hidden="true" />
-          Foto in diesen Ordner hochladen
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <FolderActions folderId={folder.id} name={folder.name} />
+          <Link
+            href={`/intern/upload?folderId=${folder.id}`}
+            className="flex items-center gap-2 rounded-md bg-ink px-4 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-black"
+          >
+            <i className="ti ti-plus text-[14px]" aria-hidden="true" />
+            Foto in diesen Ordner hochladen
+          </Link>
+        </div>
       </div>
 
       <p className="mb-6 max-w-[560px] text-[12.5px] leading-[1.6] text-ink-2">
