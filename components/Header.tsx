@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 
 const NAV_LINKS = [
   { href: '/bildarchiv', label: 'Bildarchiv' },
-  { href: '/organisationen', label: 'Für Organisationen' },
+  { href: '/organisationen', label: 'Organisationen' },
   { href: '/kontakt', label: 'Kontakt' },
 ];
 
