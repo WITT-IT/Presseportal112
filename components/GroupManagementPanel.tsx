@@ -119,7 +119,7 @@ export default function GroupManagementPanel({
   const otherParticipants = participants.filter((p) => p.organizationId !== ownOrganizationId);
 
   return (
-    <div className="mb-6 rounded-[10px] border border-line bg-panel p-4">
+    <div className="mb-6 flex-none rounded-[10px] border border-line bg-panel p-4">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -165,7 +165,9 @@ export default function GroupManagementPanel({
             ))}
           </div>
 
-          {isOwnModerator && availableOrganizations.length > 0 && (
+          {/* Hinzufügen: jetzt für JEDEN Teilnehmer möglich, nicht mehr nur
+              die Moderation -- dafür bleibt Entfernen exklusiv oben. */}
+          {availableOrganizations.length > 0 && (
             <div className="flex gap-2">
               <select
                 value={addChoice}
