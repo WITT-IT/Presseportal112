@@ -90,6 +90,7 @@ export default async function OverviewPage() {
   if (!user) redirect('/login');
 
   const organizationId = user.organization?.id ?? null;
+  const isPress = user.organization?.organization_type === 'press';
 
   if (!organizationId) {
     return (
@@ -100,6 +101,61 @@ export default async function OverviewPage() {
         <div className="mt-6 rounded-[10px] border border-dashed border-line-strong p-10 text-center text-[13px] text-ink-2">
           Deinem Konto ist noch keine Organisation zugeordnet — bitte an die
           Redaktion wenden.
+        </div>
+      </div>
+    );
+  }
+
+  // Presse-Konten bekommen eine eigene, schlanke Übersicht -- die
+  // BOS-Kennzahlen (Beiträge, Entwürfe, Freigaben verwalten) betreffen
+  // sie nicht, sie erhalten Freigaben, statt sie zu erstellen.
+  if (isPress) {
+    const unreadCount = await getUnreadConversationCount(organizationId);
+    return (
+      <div>
+        <div className="mb-8">
+          <h1 className="mb-1 font-display text-[28px] font-bold">
+            Willkommen, {user.first_name || user.email}
+          </h1>
+          <p className="text-[13.5px] text-ink-2">{user.organization?.name}</p>
+        </div>
+
+        {unreadCount > 0 && (
+          <Link
+            href="/intern/nachrichten"
+            className="mb-8 flex items-center justify-between gap-3 rounded-md border border-signal/40 bg-signal/5 px-4 py-3 text-[13px] font-semibold text-signal-deep transition-colors hover:border-signal"
+          >
+            <span className="flex items-center gap-2">
+              <i className="ti ti-message-circle text-[16px]" aria-hidden="true" />
+              {unreadCount === 1
+                ? '1 neue Unterhaltung wartet auf dich'
+                : `${unreadCount} neue Unterhaltungen warten auf dich`}
+            </span>
+            <i className="ti ti-arrow-right text-[16px]" aria-hidden="true" />
+          </Link>
+        )}
+
+        <div className="grid grid-cols-1 gap-4 nav:grid-cols-2">
+          <Link
+            href="/intern/nachrichten"
+            className="rounded-[10px] border border-line bg-white p-6 transition-colors hover:border-line-strong"
+          >
+            <i className="ti ti-message-circle mb-3 block text-[24px] text-ink-2" aria-hidden="true" />
+            <h2 className="mb-1 font-display text-[16px] font-bold">Nachrichten</h2>
+            <p className="text-[12.5px] text-ink-2">
+              Direkt mit Organisationen austauschen und Anfragen stellen.
+            </p>
+          </Link>
+          <Link
+            href="/intern/favoriten"
+            className="rounded-[10px] border border-line bg-white p-6 transition-colors hover:border-line-strong"
+          >
+            <i className="ti ti-star mb-3 block text-[24px] text-ink-2" aria-hidden="true" />
+            <h2 className="mb-1 font-display text-[16px] font-bold">Favoriten</h2>
+            <p className="text-[12.5px] text-ink-2">
+              Gesammelte Fotos aus dem Bildarchiv, gebündelt zum Download.
+            </p>
+          </Link>
         </div>
       </div>
     );
@@ -191,7 +247,7 @@ export default async function OverviewPage() {
 
       {recentPosts.length === 0 ? (
         <p className="text-[13px] text-ink-2">
-          Noch keine Beiträge hochgeladen — „Neues Foto hochladen" oben legt direkt los.
+          Noch keine Beiträge hochgeladen — „Neuen Beitrag hochladen" oben legt direkt los.
         </p>
       ) : (
         <div className="grid grid-cols-2 gap-4 nav:grid-cols-4">
