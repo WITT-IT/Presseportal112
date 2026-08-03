@@ -1,8 +1,10 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
+import Image from 'next/image';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
 import { getMyFolders } from '@/lib/queries';
+import { directusAssetUrl } from '@/lib/directus';
 import CreateFolderForm from '@/components/CreateFolderForm';
 
 export const dynamic = 'force-dynamic';
@@ -27,7 +29,7 @@ export default async function FoldersPage() {
 
   return (
     <section className="px-8 py-14">
-      <div className="mx-auto max-w-[720px]">
+      <div className="mx-auto max-w-[1180px]">
         <Link
           href="/intern"
           className="mb-6 inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-ink-2 hover:text-ink"
@@ -47,20 +49,35 @@ export default async function FoldersPage() {
         {folders.length === 0 ? (
           <p className="text-[13px] text-ink-2">Noch keine Ordner angelegt.</p>
         ) : (
-          <div className="flex flex-col gap-2">
+          <div className="grid grid-cols-2 gap-4 nav:grid-cols-4">
             {folders.map((folder) => (
               <Link
                 key={folder.id}
                 href={`/intern/ordner/${folder.id}`}
-                className="flex items-center justify-between rounded-md border border-line bg-white px-4 py-3 transition-colors hover:border-line-strong"
+                className="overflow-hidden rounded-[10px] border border-line bg-white transition-colors hover:border-line-strong"
               >
-                <span className="flex items-center gap-2.5 text-[13.5px] font-medium">
-                  <i className="ti ti-folder text-[16px] text-ink-2" aria-hidden="true" />
-                  {folder.name}
-                </span>
-                <span className="font-mono text-[11px] text-ink-3">
-                  {folder.postCount} Beitrag{folder.postCount === 1 ? '' : 'e'}
-                </span>
+                <div className="relative h-[120px] bg-panel">
+                  {folder.coverImage ? (
+                    <Image
+                      src={directusAssetUrl(folder.coverImage, 'width=300&quality=70')}
+                      alt=""
+                      fill
+                      className="object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-full items-center justify-center">
+                      <i className="ti ti-folder text-[32px] text-ink-3" aria-hidden="true" />
+                    </div>
+                  )}
+                </div>
+                <div className="p-3">
+                  <div className="mb-0.5 truncate text-[13px] font-semibold text-ink">
+                    {folder.name}
+                  </div>
+                  <div className="font-mono text-[10.5px] text-ink-3">
+                    {folder.postCount} Beitrag{folder.postCount === 1 ? '' : 'e'}
+                  </div>
+                </div>
               </Link>
             ))}
           </div>
