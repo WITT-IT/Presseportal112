@@ -1,30 +1,18 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
-import UploadForm from '@/components/UploadForm';
-import MyImagesList from '@/components/MyImagesList';
-import PostCalendar from '@/components/PostCalendar';
-import { getCurrentUser, isAdministrator, SESSION_COOKIE } from '@/lib/auth';
-import { DIRECTUS_URL } from '@/lib/directus';
-import {
-  getMyOrganizationImages,
-  getAllUsedTags,
-  getAlarmcodes,
-  getMyFolders,
-  getMyMediaShares,
-} from '@/lib/queries';
-import type { Post } from '@/lib/types';
+import Image from 'next/image';
+import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
+import { DIRECTUS_URL, directusAssetUrl } from '@/lib/directus';
+import { getMyOrganizationImages, getMyFolders, getMyMediaShares } from '@/lib/queries';
+import { primaryImage } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
-// Bewusst hier direkt statt in lib/queries.ts -- läuft wie das gesamte
-// Nachrichtensystem über den Service-Token, nicht über den User-Token wie
-// die anderen Abfragen auf dieser Seite.
 async function getUnreadConversationCount(organizationId: string): Promise<number> {
   const serviceToken = process.env.DIRECTUS_SERVICE_TOKEN;
   if (!serviceToken) return 0;
   const headers = { Authorization: `Bearer ${serviceToken}` };
-
   try {
     const fields = ['last_read_at', 'conversation.last_message_at'].join(',');
     const res = await fetch(
@@ -51,7 +39,19 @@ async function getUnreadConversationCount(organizationId: string): Promise<numbe
   }
 }
 
-export default async function InternDashboard() {
+function StatTile({ icon, label, value }: { icon: string; label: string; value: number }) {
+  return (
+    <div className="rounded-[10px] border border-line bg-white p-4">
+      <div className="mb-2 flex items-center gap-2 text-ink-3">
+        <i className={`ti ${icon} text-[16px]`} aria-hidden="true" />
+        <span className="text-[11px] font-semibold uppercase tracking-[0.05em]">{label}</span>
+      </div>
+      <div className="font-display text-[26px] font-bold text-ink">{value}</div>
+    </div>
+  );
+}
+
+export default async function OverviewPage() {
   const cookieStore = await cookies();
   const raw = cookieStore.get(SESSION_COOKIE)?.value;
   if (!raw) redirect('/login');
@@ -68,134 +68,130 @@ export default async function InternDashboard() {
 
   const organizationId = user.organization?.id ?? null;
 
-  // Ohne eigene Organisation gibt's nichts eigenes zu laden -- explizit
-  // leere Listen statt die Funktionen mit einer leeren/undefinierten ID
-  // aufzurufen.
-  const [posts, existingTags, alarmcodes, folders, mediaShares, admin, unreadCount] =
-    await Promise.all([
-      organizationId
-        ? getMyOrganizationImages(session.accessToken, organizationId)
-        : Promise.resolve([] as Post[]),
-      getAllUsedTags(),
-      getAlarmcodes(),
-      organizationId ? getMyFolders(session.accessToken, organizationId) : Promise.resolve([]),
-      organizationId ? getMyMediaShares(session.accessToken, organizationId) : Promise.resolve([]),
-      isAdministrator(user.id),
-      organizationId ? getUnreadConversationCount(organizationId) : Promise.resolve(0),
-    ]);
+  if (!organizationId) {
+    return (
+      <div>
+        <h1 className="mb-2 font-display text-[28px] font-bold">
+          Willkommen, {user.first_name || user.email}
+        </h1>
+        <div className="mt-6 rounded-[10px] border border-dashed border-line-strong p-10 text-center text-[13px] text-ink-2">
+          Deinem Konto ist noch keine Organisation zugeordnet — bitte an die
+          Redaktion wenden.
+        </div>
+      </div>
+    );
+  }
 
-  const watermarkText =
-    user.organization?.branding_label || `Foto: ${user.organization?.name ?? ''}`;
+  const [posts, folders, mediaShares, unreadCount] = await Promise.all([
+    getMyOrganizationImages(session.accessToken, organizationId),
+    getMyFolders(session.accessToken, organizationId),
+    getMyMediaShares(session.accessToken, organizationId),
+    getUnreadConversationCount(organizationId),
+  ]);
+
+  const publishedCount = posts.filter((p) => p.is_public).length;
+  const draftCount = posts.length - publishedCount;
+  const activeShareCount = mediaShares.filter(
+    (s) => s.active && new Date(s.expiresAt).getTime() > Date.now()
+  ).length;
+  const recentPosts = [...posts]
+    .sort((a, b) => (b.event_date || '').localeCompare(a.event_date || ''))
+    .slice(0, 8);
 
   return (
-    <section className="px-8 py-14">
-      <div className="mx-auto max-w-[1180px]">
-        <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h1 className="mb-2 font-display text-[32px] font-bold">
-              Willkommen, {user.first_name || user.email}
-            </h1>
-            <p className="text-[14px] text-ink-2">
-              {user.organization?.name
-                ? `Angemeldet für ${user.organization.name}`
-                : 'Deinem Konto ist noch keine Organisation zugeordnet -- bitte an die Redaktion wenden.'}
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {admin && (
-              <Link
-                href="/intern/admin"
-                className="flex items-center gap-1.5 rounded-md border border-signal/50 px-3 py-2 text-[12.5px] font-semibold text-signal-deep transition-colors hover:border-signal"
-              >
-                <i className="ti ti-shield text-[14px]" aria-hidden="true" />
-                Administration
-              </Link>
-            )}
-            {organizationId && (
-              <>
-                <Link
-                  href="/intern/ordner"
-                  className="flex items-center gap-1.5 rounded-md border border-signal/40 px-3 py-2 text-[12.5px] font-semibold text-signal-deep transition-colors hover:border-signal hover:bg-signal/5"
-                >
-                  <i className="ti ti-folder text-[14px]" aria-hidden="true" />
-                  Eigene Ordner
-                </Link>
-                <Link
-                  href="/intern/freigaben"
-                  className="flex items-center gap-1.5 rounded-md border border-signal/40 px-3 py-2 text-[12.5px] font-semibold text-signal-deep transition-colors hover:border-signal hover:bg-signal/5"
-                >
-                  <i className="ti ti-share text-[14px]" aria-hidden="true" />
-                  Medienfreigaben
-                </Link>
-                <Link
-                  href="/intern/nachrichten"
-                  className="flex items-center gap-1.5 rounded-md border border-signal/40 px-3 py-2 text-[12.5px] font-semibold text-signal-deep transition-colors hover:border-signal hover:bg-signal/5"
-                >
-                  <i className="ti ti-message-circle text-[14px]" aria-hidden="true" />
-                  Nachrichten
-                </Link>
-              </>
-            )}
-            <Link
-              href="/intern/konto"
-              className="flex items-center gap-1.5 rounded-md border border-line-strong px-3 py-2 text-[12.5px] font-semibold text-ink-2 transition-colors hover:border-ink hover:text-ink"
-            >
-              <i className="ti ti-user text-[14px]" aria-hidden="true" />
-              Konto &amp; Datenschutz
-            </Link>
-          </div>
+    <div>
+      <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="mb-1 font-display text-[28px] font-bold">
+            Willkommen, {user.first_name || user.email}
+          </h1>
+          <p className="text-[13.5px] text-ink-2">{user.organization?.name}</p>
         </div>
-
-        {organizationId ? (
-          <>
-            {unreadCount > 0 && (
-              <Link
-                href="/intern/nachrichten"
-                className="mb-6 flex items-center justify-between gap-3 rounded-md border border-signal/40 bg-signal/5 px-4 py-3 text-[13px] font-semibold text-signal-deep transition-colors hover:border-signal"
-              >
-                <span className="flex items-center gap-2">
-                  <i className="ti ti-message-circle text-[16px]" aria-hidden="true" />
-                  {unreadCount === 1
-                    ? '1 neue Unterhaltung wartet auf dich'
-                    : `${unreadCount} neue Unterhaltungen warten auf dich`}
-                </span>
-                <i className="ti ti-arrow-right text-[16px]" aria-hidden="true" />
-              </Link>
-            )}
-
-            <div className="mb-10">
-              <h2 className="mb-4 font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
-                Neues Foto hochladen
-              </h2>
-              <UploadForm
-                watermarkText={watermarkText}
-                existingTags={existingTags}
-                alarmcodes={alarmcodes}
-                folders={folders}
-              />
-            </div>
-
-            <div className="mb-10">
-              <h2 className="mb-4 font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
-                Kalender
-              </h2>
-              <PostCalendar posts={posts} />
-            </div>
-
-            <div className="mb-4">
-              <h2 className="font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
-                Meine Bilder
-              </h2>
-            </div>
-            <MyImagesList posts={posts} folders={folders} mediaShares={mediaShares} />
-          </>
-        ) : (
-          <div className="rounded-[10px] border border-dashed border-line-strong p-10 text-center text-[13px] text-ink-2">
-            Ohne zugeordnete Organisation kann noch nichts hochgeladen
-            werden.
-          </div>
-        )}
+        <Link
+          href="/intern/upload"
+          className="flex items-center gap-2 rounded-md bg-ink px-5 py-3 text-[13px] font-semibold text-white transition-colors hover:bg-black"
+        >
+          <i className="ti ti-plus text-[15px]" aria-hidden="true" />
+          Neues Foto hochladen
+        </Link>
       </div>
-    </section>
+
+      {unreadCount > 0 && (
+        <Link
+          href="/intern/nachrichten"
+          className="mb-8 flex items-center justify-between gap-3 rounded-md border border-signal/40 bg-signal/5 px-4 py-3 text-[13px] font-semibold text-signal-deep transition-colors hover:border-signal"
+        >
+          <span className="flex items-center gap-2">
+            <i className="ti ti-message-circle text-[16px]" aria-hidden="true" />
+            {unreadCount === 1
+              ? '1 neue Unterhaltung wartet auf dich'
+              : `${unreadCount} neue Unterhaltungen warten auf dich`}
+          </span>
+          <i className="ti ti-arrow-right text-[16px]" aria-hidden="true" />
+        </Link>
+      )}
+
+      <div className="mb-10 grid grid-cols-2 gap-3 nav:grid-cols-4">
+        <StatTile icon="ti-photo" label="Beiträge gesamt" value={posts.length} />
+        <StatTile icon="ti-eye" label="Öffentlich" value={publishedCount} />
+        <StatTile icon="ti-file-pencil" label="Entwürfe" value={draftCount} />
+        <StatTile icon="ti-share" label="Aktive Freigaben" value={activeShareCount} />
+      </div>
+
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
+          Zuletzt hochgeladen
+        </h2>
+        <Link
+          href="/intern/medien"
+          className="flex items-center gap-1 text-[12.5px] font-semibold text-signal-deep"
+        >
+          Alle Medien
+          <i className="ti ti-arrow-right text-[14px]" aria-hidden="true" />
+        </Link>
+      </div>
+
+      {recentPosts.length === 0 ? (
+        <p className="text-[13px] text-ink-2">
+          Noch keine Beiträge hochgeladen — „Neues Foto hochladen" oben legt direkt los.
+        </p>
+      ) : (
+        <div className="grid grid-cols-2 gap-4 nav:grid-cols-4">
+          {recentPosts.map((post) => {
+            const hero = primaryImage(post);
+            return (
+              <Link
+                key={post.id}
+                href={`/intern/bearbeiten/${post.id}`}
+                className="overflow-hidden rounded-[10px] border border-line bg-white transition-colors hover:border-line-strong"
+              >
+                <div className="relative h-[110px] bg-panel">
+                  {hero?.file_public_preview && (
+                    <Image
+                      src={directusAssetUrl(hero.file_public_preview, 'width=300&quality=70')}
+                      alt=""
+                      fill
+                      className="object-cover"
+                    />
+                  )}
+                  <span
+                    className={`absolute left-2 top-2 rounded-[4px] px-1.5 py-0.5 text-[10px] font-semibold ${
+                      post.is_public ? 'bg-ink text-white' : 'bg-white text-ink-2'
+                    }`}
+                  >
+                    {post.is_public ? 'Öffentlich' : 'Entwurf'}
+                  </span>
+                </div>
+                <div className="p-2.5">
+                  <span className="truncate text-[12px] font-medium">
+                    {post.title || post.alarm_code || 'Ohne Titel'}
+                  </span>
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
