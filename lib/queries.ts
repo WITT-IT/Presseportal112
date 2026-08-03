@@ -203,7 +203,18 @@ export async function getOrganizationById(id: string): Promise<Organization | nu
   try {
     const result = await directus.request(
       readItem('organizations', id, {
-        fields: ['id', 'name', 'gewerk'],
+        fields: [
+          'id',
+          'name',
+          'gewerk',
+          'description',
+          'website',
+          'social_links',
+          'show_website',
+          'show_social_links',
+          'logo',
+          'banner_image',
+        ],
       })
     );
     return result as unknown as Organization;
