@@ -40,7 +40,9 @@ export default function FolderPostPicker({
   if (availablePosts.length === 0) {
     return (
       <p className="text-[13px] text-ink-2">
-        Alle eigenen Beiträge sind bereits Teil dieses Ordners.
+        Du hast bereits jeden deiner Beiträge, der noch nicht in diesem
+        Ordner ist, hier zugeordnet — es gibt gerade nichts weiter
+        auszuwählen.
       </p>
     );
   }
