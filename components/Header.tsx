@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
 const NAV_LINKS = [
+  { href: '/favoriten', label: 'Favoriten'},
   { href: '/organisationen', label: 'Organisationen' },
   { href: '/kontakt', label: 'Kontakt' },
 ];
