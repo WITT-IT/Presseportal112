@@ -531,6 +531,41 @@ export async function getFolderWithPosts(
 
 // Eigene Medienfreigaben samt Beitragsanzahl -- für die Übersicht unter
 // /intern/freigaben. Ebenfalls mit explizitem organizationId-Filter.
+// Eigene Ordner samt der IDs ihrer Beiträge -- schlanker als
+// getFolderWithPosts (keine Bilder, keine Titel), gedacht für den
+// "ganzen Ordner in eine Freigabe ziehen"-Baustein, der nur wissen muss,
+// welche IDs zu welchem Ordner gehören.
+export async function getMyFoldersWithPostIds(
+  accessToken: string,
+  organizationId: string
+): Promise<{ id: string; name: string; postIds: string[] }[]> {
+  const fields = ['id', 'name', 'posts.posts_id.id'].join(',');
+  const res = await fetch(
+    `${DIRECTUS_URL}/items/folders?filter[organization][_eq]=${organizationId}&fields=${fields}&sort=name`,
+    {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: 'no-store',
+    }
+  );
+  if (!res.ok) {
+    console.error(
+      `getMyFoldersWithPostIds fehlgeschlagen (Status ${res.status}):`,
+      await res.text().catch(() => '')
+    );
+    return [];
+  }
+  const { data } = await res.json();
+  return (
+    data as { id: string; name: string; posts?: { posts_id: { id: string } | null }[] }[]
+  ).map((f) => ({
+    id: f.id,
+    name: f.name,
+    postIds: (f.posts || [])
+      .map((p) => p.posts_id?.id)
+      .filter((id): id is string => !!id),
+  }));
+}
+
 export async function getMyMediaShares(
   accessToken: string,
   organizationId: string
