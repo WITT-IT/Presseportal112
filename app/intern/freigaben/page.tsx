@@ -23,6 +23,9 @@ export default async function MediaSharesPage() {
   const user = await getCurrentUser(session.accessToken);
   if (!user) redirect('/login');
   if (!user.organization?.id) redirect('/intern');
+  // Presse-Konten erhalten Freigaben, erstellen aber keine eigenen -- diese
+  // Seite ist ausschließlich für BOS-Organisationen gedacht.
+  if (user.organization.organization_type === 'press') redirect('/intern');
 
   const shares = await getMyMediaShares(session.accessToken, user.organization.id);
 
