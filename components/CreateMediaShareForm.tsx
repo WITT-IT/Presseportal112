@@ -3,12 +3,17 @@
 import { useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 
-export default function CreateMediaShareForm() {
+export default function CreateMediaShareForm({
+  pressOrganizations,
+}: {
+  pressOrganizations: { id: string; name: string }[];
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [recipientName, setRecipientName] = useState('');
   const [recipientEmail, setRecipientEmail] = useState('');
+  const [recipientOrgId, setRecipientOrgId] = useState('');
   const [validityDays, setValidityDays] = useState('10');
   const [autoDelete, setAutoDelete] = useState(true);
   const [status, setStatus] = useState<'idle' | 'saving' | 'error'>('idle');
@@ -26,6 +31,7 @@ export default function CreateMediaShareForm() {
         name,
         recipientName: recipientName || null,
         recipientEmail: recipientEmail || null,
+        recipientOrganizationId: recipientOrgId || null,
         validityDays: Number(validityDays),
         autoDeleteOnExpiry: autoDelete,
       }),
@@ -35,6 +41,7 @@ export default function CreateMediaShareForm() {
       setName('');
       setRecipientName('');
       setRecipientEmail('');
+      setRecipientOrgId('');
       setOpen(false);
       setStatus('idle');
       router.refresh();
@@ -103,6 +110,30 @@ export default function CreateMediaShareForm() {
           />
         </div>
       </div>
+
+      {pressOrganizations.length > 0 && (
+        <div>
+          <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">
+            Direkt einem registrierten Presse-Konto zuordnen (optional)
+          </label>
+          <select
+            value={recipientOrgId}
+            onChange={(e) => setRecipientOrgId(e.target.value)}
+            className="w-full rounded-md border border-line-strong bg-white px-3 py-2 text-[14px] outline-none focus:border-ink"
+          >
+            <option value="">Keine direkte Zuordnung</option>
+            {pressOrganizations.map((org) => (
+              <option key={org.id} value={org.id}>
+                {org.name}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-[11px] text-ink-3">
+            Erscheint dann zusätzlich zum Link direkt im internen Bereich
+            dieser Redaktion, unter „Freigaben".
+          </p>
+        </div>
+      )}
 
       <div>
         <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">
