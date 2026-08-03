@@ -26,6 +26,8 @@ export async function POST(
       { status: 403 }
     );
   }
+  const senderUserName =
+    [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email || null;
 
   const { id: conversationId } = await params;
   const { message } = await request.json().catch(() => ({}));
@@ -42,8 +44,6 @@ export async function POST(
     return NextResponse.json({ error: 'Nicht verfügbar.' }, { status: 500 });
   }
 
-  // Zentrale Sicherheitsprüfung: nur wer aktiver Teilnehmer ist, darf
-  // überhaupt in diese Unterhaltung schreiben.
   const participant = await getActiveParticipant(conversationId, user.organization.id);
   if (!participant) {
     return NextResponse.json({ error: 'Keine Berechtigung für diese Unterhaltung.' }, { status: 403 });
@@ -59,6 +59,7 @@ export async function POST(
         id: randomUUID(),
         conversation: conversationId,
         sender_organization: user.organization.id,
+        sender_user_name: senderUserName,
         body: messageTrimmed,
         message_type: 'message',
         created_at: now,
@@ -77,8 +78,6 @@ export async function POST(
       }),
     });
 
-    // Eigenen Lese-Status direkt mit aktualisieren -- die eigene Nachricht
-    // gilt logischerweise als gelesen.
     await fetch(`${DIRECTUS_URL}/items/conversation_participants/${participant.id}`, {
       method: 'PATCH',
       headers,
