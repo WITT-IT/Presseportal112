@@ -3,7 +3,7 @@ import Link from 'next/link';
 import type { Metadata } from 'next';
 import { directusAssetUrl } from '@/lib/directus';
 import { getPublicImageById, getPublicImagesByOrganization } from '@/lib/queries';
-import { GEWERK_COLORS, normalizeTags, primaryImage } from '@/lib/types';
+import { GEWERK_COLORS, normalizeTags, primaryImage, type Post } from '@/lib/types';
 import { toJsonLd } from '@/lib/structuredData';
 import ArticleCartToggle from '@/components/ArticleCartToggle';
 import GalleryCard from '@/components/GalleryCard';
@@ -60,12 +60,11 @@ export default async function PostArticlePage({ params }: Props) {
   // aktuellen Beitrags trotzdem genug übrig bleiben. Bewusst abgesichert --
   // scheitert das, soll die Artikelseite trotzdem laden, nur eben ohne
   // "Weitere Meldungen".
-  let relatedPosts: Awaited<ReturnType<typeof getPublicImagesByOrganization>> = [];
+  let relatedPosts: Post[] = [];
   if (org) {
     try {
-      relatedPosts = (await getPublicImagesByOrganization(org.id, 5))
-        .filter((p) => p.id !== post.id)
-        .slice(0, 4);
+      const result = await getPublicImagesByOrganization(org.id, { pageSize: 5 });
+      relatedPosts = result.images.filter((p) => p.id !== post.id).slice(0, 4);
     } catch (error) {
       console.error(`Weitere Meldungen für Organisation ${org.id} fehlgeschlagen:`, error);
     }
