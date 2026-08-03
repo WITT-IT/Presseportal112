@@ -20,10 +20,24 @@ export async function POST(request: NextRequest) {
     requested_gewerk,
     requested_website,
     requested_social_links,
+    requested_account_type,
   } = body || {};
 
-  if (!first_name || !last_name || !email || !password || !requested_gewerk) {
+  const accountType = requested_account_type === 'press' ? 'press' : 'organization';
+
+  if (!first_name || !last_name || !email || !password) {
     return NextResponse.json({ error: 'Bitte alle Pflichtfelder ausfüllen.' }, { status: 400 });
+  }
+  // Gewerk ist nur bei einer BOS-Organisation Pflicht -- eine Redaktion hat
+  // kein Gewerk.
+  if (accountType === 'organization' && !requested_gewerk) {
+    return NextResponse.json({ error: 'Bitte alle Pflichtfelder ausfüllen.' }, { status: 400 });
+  }
+  if (accountType === 'press' && !requested_organization_name) {
+    return NextResponse.json(
+      { error: 'Bitte Redaktion oder Publikation angeben.' },
+      { status: 400 }
+    );
   }
   if (String(password).length < 8) {
     return NextResponse.json(
@@ -53,9 +67,10 @@ export async function POST(request: NextRequest) {
       email,
       password,
       requested_organization_name: requested_organization_name || null,
-      requested_gewerk,
+      requested_gewerk: accountType === 'organization' ? requested_gewerk : null,
       requested_website: website,
       requested_social_links: Object.keys(socialLinks).length > 0 ? socialLinks : null,
+      requested_account_type: accountType,
     }),
   });
 
@@ -91,7 +106,7 @@ export async function POST(request: NextRequest) {
         registrantName: `${first_name} ${last_name}`,
         registrantEmail: email,
         requestedOrganizationName: requested_organization_name || null,
-        requestedGewerk: requested_gewerk,
+        requestedGewerk: accountType === 'press' ? 'Presse' : requested_gewerk,
       });
     } catch (error) {
       console.error('Admin-Benachrichtigung über neue Registrierung fehlgeschlagen:', error);
