@@ -10,6 +10,10 @@ export default function RegisterForm({ gewerke }: { gewerke: Gewerk[] }) {
   const [password, setPassword] = useState('');
   const [orgName, setOrgName] = useState('');
   const [gewerkId, setGewerkId] = useState(gewerke[0]?.id ?? '');
+  const [website, setWebsite] = useState('');
+  const [facebook, setFacebook] = useState('');
+  const [instagram, setInstagram] = useState('');
+  const [otherSocial, setOtherSocial] = useState('');
   const [status, setStatus] = useState<'idle' | 'sending' | 'done' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
 
@@ -28,6 +32,12 @@ export default function RegisterForm({ gewerke }: { gewerke: Gewerk[] }) {
         password,
         requested_organization_name: orgName,
         requested_gewerk: gewerkId,
+        requested_website: website || null,
+        requested_social_links: {
+          facebook: facebook || undefined,
+          instagram: instagram || undefined,
+          sonstiges: otherSocial || undefined,
+        },
       }),
     });
 
@@ -142,6 +152,70 @@ export default function RegisterForm({ gewerke }: { gewerke: Gewerk[] }) {
             </option>
           ))}
         </select>
+      </div>
+
+      <div className="rounded-md border border-line bg-panel p-3.5">
+        <p className="mb-3 text-[12px] font-semibold uppercase tracking-[0.05em] text-ink-2">
+          Für euren Auftritt (optional)
+        </p>
+
+        <div className="mb-3">
+          <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">
+            Website
+          </label>
+          <input
+            type="url"
+            value={website}
+            onChange={(e) => setWebsite(e.target.value)}
+            placeholder="https://…"
+            className="w-full rounded-md border border-line-strong bg-white px-3 py-2 text-[14px] outline-none focus:border-ink"
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">
+              Facebook
+            </label>
+            <input
+              type="url"
+              value={facebook}
+              onChange={(e) => setFacebook(e.target.value)}
+              placeholder="https://facebook.com/…"
+              className="w-full rounded-md border border-line-strong bg-white px-3 py-2 text-[14px] outline-none focus:border-ink"
+            />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">
+              Instagram
+            </label>
+            <input
+              type="url"
+              value={instagram}
+              onChange={(e) => setInstagram(e.target.value)}
+              placeholder="https://instagram.com/…"
+              className="w-full rounded-md border border-line-strong bg-white px-3 py-2 text-[14px] outline-none focus:border-ink"
+            />
+          </div>
+        </div>
+
+        <div className="mt-3">
+          <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">
+            Weiterer Link (z. B. X, YouTube, TikTok)
+          </label>
+          <input
+            type="url"
+            value={otherSocial}
+            onChange={(e) => setOtherSocial(e.target.value)}
+            placeholder="https://…"
+            className="w-full rounded-md border border-line-strong bg-white px-3 py-2 text-[14px] outline-none focus:border-ink"
+          />
+        </div>
+
+        <p className="mt-2.5 text-[11px] text-ink-3">
+          Landet zunächst bei der Redaktion und wird bei der Freigabe in
+          euer Organisationsprofil übernommen.
+        </p>
       </div>
 
       {error && <p className="text-[12.5px] text-signal-deep">{error}</p>}
