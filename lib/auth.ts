@@ -71,9 +71,12 @@ export async function logoutDirectus(refreshToken: string) {
 
 // Holt das eigene Profil inkl. Organisation -- für die Begrüßung im
 // internen Bereich und um zu prüfen, ob der Account wirklich freigeschaltet ist.
+// organization.organization_type ist neu dazugekommen -- ohne dieses Feld
+// lässt sich an keiner Stelle im Code unterscheiden, ob ein Konto zu einer
+// BOS-Organisation oder einer Presse-Redaktion gehört.
 export async function getCurrentUser(accessToken: string) {
   const res = await fetch(
-    `${DIRECTUS_URL}/users/me?fields=id,email,first_name,last_name,status,organization.id,organization.name,organization.gewerk,organization.branding_label`,
+    `${DIRECTUS_URL}/users/me?fields=id,email,first_name,last_name,status,organization.id,organization.name,organization.gewerk,organization.branding_label,organization.organization_type`,
     {
       headers: { Authorization: `Bearer ${accessToken}` },
       cache: 'no-store',
