@@ -17,9 +17,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Sitzung ungültig.' }, { status: 401 });
   }
 
-  const { name, recipientName, recipientEmail, validityDays, autoDeleteOnExpiry } = await request
-    .json()
-    .catch(() => ({}));
+  const { name, recipientName, recipientEmail, recipientOrganizationId, validityDays, autoDeleteOnExpiry } =
+    await request.json().catch(() => ({}));
 
   if (!name || !String(name).trim()) {
     return NextResponse.json({ error: 'Bitte einen Namen angeben.' }, { status: 400 });
@@ -48,6 +47,10 @@ export async function POST(request: NextRequest) {
         name: String(name).trim(),
         recipient_name: recipientName ? String(recipientName).trim() : null,
         recipient_email: recipientEmail ? String(recipientEmail).trim() : null,
+        // Optional: direkte Zuordnung zu einem registrierten Presse-Konto --
+        // die Freigabe erscheint dann zusätzlich zum Link auch direkt in
+        // deren internem Bereich.
+        recipient_organization: recipientOrganizationId || null,
         token,
         active: true,
         expires_at: expiresAt,
