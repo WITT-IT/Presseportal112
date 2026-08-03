@@ -10,12 +10,15 @@ export const metadata: Metadata = {
   description:
     'Alle angeschlossenen BOS-Organisationen im Überblick — und wie deine Organisation dazukommt.',
 };
-organizations = organizations.filter((org) => org.organization_type !== 'press');
+
 export default async function OrganisationenPage() {
   let organizations: Awaited<ReturnType<typeof getAllOrganizations>> = [];
   let gewerke: Awaited<ReturnType<typeof getGewerke>> = [];
   try {
     [organizations, gewerke] = await Promise.all([getAllOrganizations(), getGewerke()]);
+    // Presse-"Organisationen" gehören nicht ins BOS-Verzeichnis -- das hier
+    // ist für Presseleute gedacht, die eine echte Organisation suchen.
+    organizations = organizations.filter((org) => org.organization_type !== 'press');
   } catch (error) {
     console.error('Organisationsverzeichnis: Laden fehlgeschlagen:', error);
   }
@@ -42,7 +45,6 @@ export default async function OrganisationenPage() {
             <i className="ti ti-arrow-right text-[16px]" aria-hidden="true" />
           </Link>
         </div>
-
         <OrganizationSearch organizations={organizations} gewerke={gewerke} />
       </div>
     </section>
