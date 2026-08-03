@@ -1,6 +1,5 @@
 import { cookies } from 'next/headers';
 import { redirect, notFound } from 'next/navigation';
-import Link from 'next/link';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
 import { DIRECTUS_URL } from '@/lib/directus';
 import { getAllOrganizations } from '@/lib/queries';
@@ -16,6 +15,7 @@ type Message = {
   createdAt: string;
   senderOrganizationId: string | null;
   senderOrganizationName: string | null;
+  senderUserName: string | null;
 };
 
 type Participant = {
@@ -68,7 +68,7 @@ async function loadConversation(conversationId: string, organizationId: string) 
     }));
 
   const messagesRes = await fetch(
-    `${DIRECTUS_URL}/items/conversation_messages?filter[conversation][_eq]=${conversationId}&sort=created_at&fields=id,body,message_type,created_at,sender_organization.id,sender_organization.name&limit=-1`,
+    `${DIRECTUS_URL}/items/conversation_messages?filter[conversation][_eq]=${conversationId}&sort=created_at&fields=id,body,message_type,created_at,sender_user_name,sender_organization.id,sender_organization.name&limit=-1`,
     { headers }
   );
   if (!messagesRes.ok) return null;
@@ -80,6 +80,7 @@ async function loadConversation(conversationId: string, organizationId: string) 
       body: string;
       message_type: string;
       created_at: string;
+      sender_user_name: string | null;
       sender_organization: { id: string; name: string } | null;
     }) => ({
       id: m.id,
@@ -88,6 +89,7 @@ async function loadConversation(conversationId: string, organizationId: string) 
       createdAt: m.created_at,
       senderOrganizationId: m.sender_organization?.id ?? null,
       senderOrganizationName: m.sender_organization?.name ?? null,
+      senderUserName: m.sender_user_name ?? null,
     })
   );
 
@@ -137,36 +139,32 @@ export default async function ConversationDetailPage({
 
   const participantIds = new Set(data.participants.map((p) => p.organizationId));
   const availableOrganizations = allOrganizations.filter((org) => !participantIds.has(org.id));
+  const ownUserName =
+    [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email || '';
 
   return (
-    <section className="px-8 py-14">
-      <div className="mx-auto max-w-[720px]">
-        <Link
-          href="/intern/nachrichten"
-          className="mb-6 inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-ink-2 hover:text-ink"
-        >
-          <i className="ti ti-arrow-left text-[14px]" aria-hidden="true" />
-          Alle Unterhaltungen
-        </Link>
+    <div className="flex h-full flex-1 flex-col">
+      <div className="mb-4 flex-none border-b border-line pb-4">
+        <h2 className="font-display text-[20px] font-bold">{data.subject}</h2>
+      </div>
 
-        <h1 className="mb-6 font-display text-[28px] font-bold">{data.subject}</h1>
-
-        {data.kind === 'group' && (
-          <GroupManagementPanel
-            conversationId={id}
-            participants={data.participants}
-            availableOrganizations={availableOrganizations}
-            isOwnModerator={data.isOwnModerator}
-            ownOrganizationId={user.organization.id}
-          />
-        )}
-
-        <ConversationThread
+      {data.kind === 'group' && (
+        <GroupManagementPanel
           conversationId={id}
-          initialMessages={data.messages}
+          participants={data.participants}
+          availableOrganizations={availableOrganizations}
+          isOwnModerator={data.isOwnModerator}
           ownOrganizationId={user.organization.id}
         />
-      </div>
-    </section>
+      )}
+
+      <ConversationThread
+        conversationId={id}
+        initialMessages={data.messages}
+        ownOrganizationId={user.organization.id}
+        ownOrganizationName={user.organization.name ?? ''}
+        ownUserName={ownUserName}
+      />
+    </div>
   );
 }
