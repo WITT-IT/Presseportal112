@@ -13,9 +13,10 @@ type Registration = {
   requested_gewerk: string | null;
   requested_website: string | null;
   requested_social_links: Record<string, string> | null;
+  requested_account_type: string | null;
 };
 
-type OrgOption = { id: string; name: string };
+type OrgOption = { id: string; name: string; organization_type?: string | null };
 
 export default function AdminRegistrationsList({
   registrations,
@@ -79,15 +80,22 @@ export default function AdminRegistrationsList({
       {error && <p className="text-[12.5px] text-signal-deep">{error}</p>}
       {registrations.map((reg) => (
         <div key={reg.id} className="rounded-[10px] border border-line bg-white p-4">
-          <div className="mb-1 text-[13.5px] font-medium">
+          <div className="mb-1 flex items-center gap-2 text-[13.5px] font-medium">
             {[reg.first_name, reg.last_name].filter(Boolean).join(' ') || reg.email}
+            {reg.requested_account_type === 'press' && (
+              <span className="rounded-[4px] bg-signal px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-[0.04em] text-white">
+                Presse
+              </span>
+            )}
           </div>
           <div className="mb-3 text-[12px] text-ink-2">
             {reg.email}
             {reg.requested_organization_name
-              ? ` · möchte für „${reg.requested_organization_name}" (${
-                  reg.requested_gewerk ?? 'unbekanntes Gewerk'
-                }) registriert werden`
+              ? reg.requested_account_type === 'press'
+                ? ` · Redaktion: „${reg.requested_organization_name}"`
+                : ` · möchte für „${reg.requested_organization_name}" (${
+                    reg.requested_gewerk ?? 'unbekanntes Gewerk'
+                  }) registriert werden`
               : ''}
           </div>
           {(reg.requested_website ||
@@ -130,6 +138,7 @@ export default function AdminRegistrationsList({
               {organizations.map((org) => (
                 <option key={org.id} value={org.id}>
                   {org.name}
+                  {org.organization_type === 'press' ? ' (Presse)' : ''}
                 </option>
               ))}
             </select>
