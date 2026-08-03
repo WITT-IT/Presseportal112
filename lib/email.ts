@@ -505,52 +505,50 @@ export async function sendNewRegistrationAdminNotification({
   });
 }
 
-// Geht an die Empfänger-Organisation, sobald eine andere Organisation eine
-// neue Unterhaltung im internen Nachrichtensystem startet.
-export async function sendNewConversationEmail({
+// Geht an die eingeladene Person, sobald ein bestehendes Organisationsmitglied
+// eine Einladung mit hinterlegter E-Mail-Adresse erstellt.
+export async function sendInviteEmail({
   to,
-  fromOrganizationName,
-  subject,
-  messagePreview,
+  organizationName,
+  invitedByName,
+  joinUrl,
 }: {
   to: string;
-  fromOrganizationName: string;
-  subject: string;
-  messagePreview: string;
+  organizationName: string;
+  invitedByName: string;
+  joinUrl: string;
 }) {
   const transport = getTransporter();
   const from = process.env.SMTP_FROM || process.env.SMTP_USER!;
-  const url = siteUrl();
-  const safeOrgName = escHtml(fromOrganizationName);
-  const safeSubject = escHtml(subject);
-  const safePreview = escHtml(messagePreview).replace(/\n/g, '<br>');
+  const safeOrgName = escHtml(organizationName);
+  const safeInvitedBy = escHtml(invitedByName);
 
   const bodyHtml = `
+    <p style="margin:0 0 16px;">Hallo,</p>
     <p style="margin:0 0 16px;">
-      <strong>${safeOrgName}</strong> hat eine neue Unterhaltung mit dir
-      gestartet: <strong>${safeSubject}</strong>.
+      <strong>${safeInvitedBy}</strong> hat dich eingeladen, dem Konto von
+      <strong>${safeOrgName}</strong> bei Presseportal112 beizutreten.
     </p>
-    <div style="margin:0; padding:16px; background-color:#ECEDEB; border-radius:8px; font-size:14px; line-height:1.6; color:#14161A;">
-      ${safePreview}
-    </div>
+    <p style="margin:0;">
+      Der Link ist 14 Tage gültig. Nach dem Beitreten kannst du direkt
+      loslegen, ganz ohne weitere Wartezeit oder Prüfung.
+    </p>
   `;
 
   await transport.sendMail({
     from,
     to,
-    subject: `Presseportal112 -- Neue Nachricht von ${fromOrganizationName}`,
+    subject: `Presseportal112 -- Einladung zu ${organizationName}`,
     text: [
-      `${fromOrganizationName} hat eine neue Unterhaltung mit dir gestartet: ${subject}`,
+      `${invitedByName} hat dich eingeladen, dem Konto von ${organizationName} bei Presseportal112 beizutreten.`,
       '',
-      messagePreview,
-      '',
-      `Antworten: ${url}/intern/nachrichten`,
+      `Link (14 Tage gültig): ${joinUrl}`,
     ].join('\n'),
     html: renderEmailLayout({
-      heading: 'Neue Nachricht',
+      heading: 'Du wurdest eingeladen',
       bodyHtml,
-      ctaLabel: 'Zur Unterhaltung',
-      ctaUrl: `${url}/intern/nachrichten`,
+      ctaLabel: 'Jetzt beitreten',
+      ctaUrl: joinUrl,
     }),
   });
 }
