@@ -35,6 +35,7 @@ export default function InternSidebar({
       badge: unreadCount,
     },
     { href: '/intern/kalender', label: 'Kalender', icon: 'ti-calendar' },
+    { href: '/intern/favoriten', label: 'Favoriten', icon: 'ti-star' },
   ];
 
   const footerItems: NavItem[] = [
