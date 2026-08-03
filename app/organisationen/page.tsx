@@ -10,7 +10,7 @@ export const metadata: Metadata = {
   description:
     'Alle angeschlossenen BOS-Organisationen im Überblick — und wie deine Organisation dazukommt.',
 };
-
+organizations = organizations.filter((org) => org.organization_type !== 'press');
 export default async function OrganisationenPage() {
   let organizations: Awaited<ReturnType<typeof getAllOrganizations>> = [];
   let gewerke: Awaited<ReturnType<typeof getGewerke>> = [];
