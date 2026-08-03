@@ -25,6 +25,9 @@ export default async function FoldersPage() {
   const user = await getCurrentUser(session.accessToken);
   if (!user) redirect('/login');
   if (!user.organization?.id) redirect('/intern');
+  // Presse-Konten haben keine eigenen Ordner -- diese Seite ist
+  // ausschließlich für BOS-Organisationen gedacht.
+  if (user.organization.organization_type === 'press') redirect('/intern');
 
   const folders = await getMyFolders(session.accessToken, user.organization.id);
 
