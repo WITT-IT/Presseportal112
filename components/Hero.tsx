@@ -60,6 +60,11 @@ export default function Hero({
           </div>
 
           <div className="flex flex-wrap items-center gap-3.5">
+            {/*
+              NEUAUSRICHTUNG (Kunde, August 2026): Beide Hero-Buttons
+              ausgeblendet, nur die Suchleiste bleibt aktiv. Code bleibt
+              erhalten -- zum Wiedereinblenden diesen Kommentarblock
+              entfernen.
             <Link
               href="/bildarchiv"
               className="inline-flex items-center gap-2 rounded-md bg-white px-6 py-3.5 text-[13.5px] font-semibold text-void transition-colors hover:bg-white/90 active:scale-[0.98]"
@@ -67,10 +72,6 @@ export default function Hero({
               Bildarchiv durchsuchen
               <i className="ti ti-arrow-right text-[16px]" aria-hidden="true" />
             </Link>
-            {/*
-              NEUAUSRICHTUNG (Kunde, August 2026): Presse-Alarm-Button
-              ausgeblendet, Code bleibt erhalten -- zum Wiedereinblenden
-              diesen Kommentarblock entfernen.
             <Link
               href="/presse-alarm"
               className="inline-flex items-center gap-1.5 rounded-md border border-white/20 px-6 py-3.5 text-[13.5px] font-semibold text-white transition-colors hover:border-white/40"
