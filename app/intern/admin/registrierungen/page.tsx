@@ -18,6 +18,8 @@ async function getPendingRegistrations() {
     'last_name',
     'requested_organization_name',
     'requested_gewerk',
+    'requested_website',
+    'requested_social_links',
   ].join(',');
   try {
     const res = await fetch(`${DIRECTUS_URL}/users?filter[status][_eq]=draft&fields=${fields}`, {
