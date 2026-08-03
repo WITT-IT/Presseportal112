@@ -27,6 +27,8 @@ export async function POST(request: NextRequest) {
     );
   }
   const ownOrgId = user.organization.id;
+  const senderUserName =
+    [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email || null;
 
   const { recipientOrganizationIds, subject, message } = await request.json().catch(() => ({}));
 
@@ -75,8 +77,6 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // Alle Empfänger-Organisationen müssen wirklich existieren -- gleich-
-    // zeitig holen wir uns hier die contact_email für die Benachrichtigung.
     const idsFilter = recipientIds
       .map((rid) => `filter[id][_in][]=${encodeURIComponent(rid)}`)
       .join('&');
@@ -115,9 +115,6 @@ export async function POST(request: NextRequest) {
       throw new Error(`Unterhaltung anlegen fehlgeschlagen: ${await convRes.text()}`);
     }
 
-    // Eigene Organisation wird bei einer Gruppe automatisch die erste
-    // Moderation -- lässt sich später jederzeit übertragen. Bei einer
-    // 1:1-Unterhaltung spielt die Moderation-Rolle keine praktische Rolle.
     const participantPayloads = [
       {
         id: randomUUID(),
@@ -159,6 +156,7 @@ export async function POST(request: NextRequest) {
         id: randomUUID(),
         conversation: conversationId,
         sender_organization: ownOrgId,
+        sender_user_name: senderUserName,
         body: messageTrimmed,
         message_type: 'message',
         created_at: now,
@@ -168,9 +166,6 @@ export async function POST(request: NextRequest) {
       throw new Error(`Nachricht anlegen fehlgeschlagen: ${await messageRes.text()}`);
     }
 
-    // Best-effort an alle Empfänger -- die Unterhaltung ist zu diesem
-    // Zeitpunkt schon sicher angelegt, ein Mail-Fehler soll das nicht
-    // rückgängig machen.
     await Promise.allSettled(
       (recipientOrgs as { name: string; contact_email: string | null }[]).map((org) =>
         org.contact_email
