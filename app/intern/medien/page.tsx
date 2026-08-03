@@ -7,7 +7,14 @@ import MediaLibraryView from '@/components/MediaLibraryView';
 
 export const dynamic = 'force-dynamic';
 
-export default async function MedienPage() {
+export default async function MedienPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ status?: string }>;
+}) {
+  const { status } = await searchParams;
+  const initialStatus = status === 'public' || status === 'draft' ? status : 'all';
+
   const cookieStore = await cookies();
   const raw = cookieStore.get(SESSION_COOKIE)?.value;
   if (!raw) redirect('/login');
@@ -33,7 +40,12 @@ export default async function MedienPage() {
     <div>
       <Breadcrumbs items={[{ label: 'Übersicht', href: '/intern' }, { label: 'Meine Medien' }]} />
       <h1 className="mb-6 font-display text-[28px] font-bold">Meine Medien</h1>
-      <MediaLibraryView posts={posts} folders={folders} mediaShares={mediaShares} />
+      <MediaLibraryView
+        posts={posts}
+        folders={folders}
+        mediaShares={mediaShares}
+        initialStatus={initialStatus}
+      />
     </div>
   );
 }
