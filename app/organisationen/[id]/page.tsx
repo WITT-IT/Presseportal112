@@ -12,11 +12,14 @@ import {
   getOrganizationById,
   getPublicImagesByOrganization,
 } from '@/lib/queries';
-import { GEWERK_COLORS, primaryImage } from '@/lib/types';
+import { GEWERK_COLORS, primaryImage, type Post } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
-type Props = { params: Promise<{ id: string }> };
+type Props = {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ page?: string }>;
+};
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params;
@@ -29,8 +32,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 }
 
-export default async function OrganizationProfilePage({ params }: Props) {
+export default async function OrganizationProfilePage({ params, searchParams }: Props) {
   const { id } = await params;
+  const { page: pageParam } = await searchParams;
+  const page = Math.max(1, Number(pageParam) || 1);
+
   const org = await getOrganizationById(id);
   if (!org) notFound();
 
@@ -50,13 +56,17 @@ export default async function OrganizationProfilePage({ params }: Props) {
     // Keine gültige Sitzung -- ganz normal als Besucher weiterlaufen.
   }
 
-  let images: Awaited<ReturnType<typeof getPublicImagesByOrganization>> = [];
+  let images: Post[] = [];
+  let hasNextPage = false;
   let gewerke: Awaited<ReturnType<typeof getGewerke>> = [];
   try {
-    [images, gewerke] = await Promise.all([
-      getPublicImagesByOrganization(id),
+    const [imagesResult, gewerkeResult] = await Promise.all([
+      getPublicImagesByOrganization(id, { page }),
       getGewerke(),
     ]);
+    images = imagesResult.images;
+    hasNextPage = imagesResult.hasNextPage;
+    gewerke = gewerkeResult;
   } catch (error) {
     console.error(`Organisationsseite ${id}: Fotos konnten nicht geladen werden:`, error);
   }
@@ -114,14 +124,43 @@ export default async function OrganizationProfilePage({ params }: Props) {
 
           {images.length === 0 ? (
             <div className="rounded-[10px] border border-dashed border-line-strong p-10 text-center text-[13px] text-ink-2">
-              Diese Organisation hat noch keine Fotos freigegeben.
+              {page > 1
+                ? 'Keine weiteren Beiträge auf dieser Seite.'
+                : 'Diese Organisation hat noch keine Fotos freigegeben.'}
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-[16px] nav:grid-cols-4">
-              {images.map((post) => (
-                <GalleryCard key={post.id} post={post} />
-              ))}
-            </div>
+            <>
+              <div className="grid grid-cols-2 gap-[16px] nav:grid-cols-4">
+                {images.map((post) => (
+                  <GalleryCard key={post.id} post={post} />
+                ))}
+              </div>
+
+              {(page > 1 || hasNextPage) && (
+                <div className="mt-8 flex items-center justify-between">
+                  {page > 1 ? (
+                    <Link
+                      href={`/organisationen/${id}${page - 1 > 1 ? `?page=${page - 1}` : ''}`}
+                      className="flex items-center gap-1.5 rounded-md border border-line-strong px-4 py-2.5 text-[12.5px] font-semibold text-ink transition-colors hover:border-ink"
+                    >
+                      <i className="ti ti-arrow-left text-[14px]" aria-hidden="true" />
+                      Neuere Beiträge
+                    </Link>
+                  ) : (
+                    <span />
+                  )}
+                  {hasNextPage && (
+                    <Link
+                      href={`/organisationen/${id}?page=${page + 1}`}
+                      className="flex items-center gap-1.5 rounded-md border border-line-strong px-4 py-2.5 text-[12.5px] font-semibold text-ink transition-colors hover:border-ink"
+                    >
+                      Ältere Beiträge
+                      <i className="ti ti-arrow-right text-[14px]" aria-hidden="true" />
+                    </Link>
+                  )}
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
