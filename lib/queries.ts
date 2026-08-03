@@ -408,15 +408,23 @@ export async function getAlarmcodes(): Promise<Alarmcode[]> {
   ) as Promise<Alarmcode[]>;
 }
 
-// Eigene Ordner der Organisation samt Beitragsanzahl -- für die Übersicht.
-// Jetzt ebenfalls mit explizitem organizationId-Filter, aus demselben
-// Sicherheitsgrund wie bei getMyOrganizationImages.
+// Eigene Ordner der Organisation samt Beitragsanzahl und einem
+// Vorschaubild -- für die Kachel-Ansicht. Nimmt das erste gefundene Foto
+// unter den zugeordneten Beiträgen als Titelbild, unabhängig von welchem
+// Beitrag genau.
 export async function getMyFolders(
   accessToken: string,
   organizationId: string
-): Promise<{ id: string; name: string; postCount: number }[]> {
+): Promise<{ id: string; name: string; postCount: number; coverImage: string | null }[]> {
+  const fields = [
+    'id',
+    'name',
+    'posts.posts_id.id',
+    'posts.posts_id.images.file_public_preview',
+    'posts.posts_id.images.sort',
+  ].join(',');
   const res = await fetch(
-    `${DIRECTUS_URL}/items/folders?filter[organization][_eq]=${organizationId}&fields=id,name,posts.id&sort=name`,
+    `${DIRECTUS_URL}/items/folders?filter[organization][_eq]=${organizationId}&fields=${fields}&sort=name`,
     {
       headers: { Authorization: `Bearer ${accessToken}` },
       cache: 'no-store',
@@ -427,11 +435,36 @@ export async function getMyFolders(
     return [];
   }
   const { data } = await res.json();
-  return (data as { id: string; name: string; posts?: unknown[] }[]).map((f) => ({
-    id: f.id,
-    name: f.name,
-    postCount: (f.posts || []).length,
-  }));
+  return (
+    data as {
+      id: string;
+      name: string;
+      posts?: {
+        posts_id: {
+          id: string;
+          images?: { file_public_preview: string | null; sort: number }[];
+        } | null;
+      }[];
+    }[]
+  ).map((f) => {
+    const posts = (f.posts || []).map((p) => p.posts_id).filter((p): p is NonNullable<typeof p> => !!p);
+    let coverImage: string | null = null;
+    for (const post of posts) {
+      const images = post.images || [];
+      if (images.length === 0) continue;
+      const sorted = [...images].sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0));
+      if (sorted[0]?.file_public_preview) {
+        coverImage = sorted[0].file_public_preview;
+        break;
+      }
+    }
+    return {
+      id: f.id,
+      name: f.name,
+      postCount: posts.length,
+      coverImage,
+    };
+  });
 }
 
 // Ein einzelner Ordner mit allen zugeordneten Beiträgen (inkl. Fotos), für
