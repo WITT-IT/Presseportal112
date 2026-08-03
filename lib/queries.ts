@@ -188,12 +188,16 @@ export async function getPublicImageById(id: string): Promise<Post | null> {
   }
 }
 
-// Alle Organisationen für das Organisationsverzeichnis, sortiert nach Name.
+// Alle Organisationen (BOS und Presse), sortiert nach Name. Bewusst ohne
+// Filterung nach Typ hier -- diese Funktion wird auch für die
+// Empfänger-Auswahl im Nachrichtensystem und die Admin-Freigabe genutzt,
+// wo Presse-"Organisationen" durchaus gebraucht werden. Die öffentliche
+// Verzeichnis-Seite filtert Presse-Einträge selbst heraus.
 export async function getAllOrganizations(): Promise<Organization[]> {
   return directus.request(
     readItems('organizations', {
       sort: ['name'],
-      fields: ['id', 'name', 'gewerk'],
+      fields: ['id', 'name', 'gewerk', 'organization_type'],
     })
   ) as Promise<Organization[]>;
 }
