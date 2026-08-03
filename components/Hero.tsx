@@ -45,7 +45,7 @@ export default function Hero({
 
           <p className="mb-10 max-w-[560px] text-[17px] leading-[1.68] text-white/60">
             Presseportal112 bündelt freigegebene Einsatzbilder deutscher
-            BOS-Organisationen an einem Ort — geprüft, verifiziert und sofort
+            BOS-Organisationen an einem Ort. Geprüft, verifiziert und sofort
             einsatzbereit für die Berichterstattung.
           </p>
 
@@ -71,7 +71,7 @@ export default function Hero({
               href="/presse-alarm"
               className="inline-flex items-center gap-1.5 rounded-md border border-white/20 px-6 py-3.5 text-[13.5px] font-semibold text-white transition-colors hover:border-white/40"
             >
-              Presse-Alarm aktivieren
+               Presse-Alarm aktivieren 
               <i className="ti ti-chevron-right text-[15px]" aria-hidden="true" />
             </Link>
           </div>
