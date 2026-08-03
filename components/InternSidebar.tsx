@@ -14,29 +14,46 @@ type NavItem = {
 export default function InternSidebar({
   organizationName,
   isAdmin,
+  isPress,
   unreadCount,
 }: {
   organizationName: string | null;
   isAdmin: boolean;
+  isPress: boolean;
   unreadCount: number;
 }) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const mainItems: NavItem[] = [
-    { href: '/intern', label: 'Übersicht', icon: 'ti-layout-dashboard' },
-    { href: '/intern/medien', label: 'Meine Medien', icon: 'ti-photo' },
-    { href: '/intern/ordner', label: 'Ordner', icon: 'ti-folder' },
-    { href: '/intern/freigaben', label: 'Freigaben', icon: 'ti-share' },
-    {
-      href: '/intern/nachrichten',
-      label: 'Nachrichten',
-      icon: 'ti-message-circle',
-      badge: unreadCount,
-    },
-    { href: '/intern/kalender', label: 'Kalender', icon: 'ti-calendar' },
-    { href: '/intern/favoriten', label: 'Favoriten', icon: 'ti-star' },
-  ];
+  // Presse-Konten bekommen bewusst nur das, was für sie relevant ist --
+  // kein Upload, keine eigene Medienverwaltung, keine Ordner. Die
+  // dazugehörigen Seiten selbst blocken zusätzlich auch direkten
+  // URL-Zugriff, dieses Ausblenden hier ist nur die Navigation.
+  const mainItems: NavItem[] = isPress
+    ? [
+        { href: '/intern', label: 'Übersicht', icon: 'ti-layout-dashboard' },
+        {
+          href: '/intern/nachrichten',
+          label: 'Nachrichten',
+          icon: 'ti-message-circle',
+          badge: unreadCount,
+        },
+        { href: '/intern/favoriten', label: 'Favoriten', icon: 'ti-star' },
+      ]
+    : [
+        { href: '/intern', label: 'Übersicht', icon: 'ti-layout-dashboard' },
+        { href: '/intern/medien', label: 'Meine Medien', icon: 'ti-photo' },
+        { href: '/intern/ordner', label: 'Ordner', icon: 'ti-folder' },
+        { href: '/intern/freigaben', label: 'Freigaben', icon: 'ti-share' },
+        {
+          href: '/intern/nachrichten',
+          label: 'Nachrichten',
+          icon: 'ti-message-circle',
+          badge: unreadCount,
+        },
+        { href: '/intern/kalender', label: 'Kalender', icon: 'ti-calendar' },
+        { href: '/intern/favoriten', label: 'Favoriten', icon: 'ti-star' },
+      ];
 
   const footerItems: NavItem[] = [
     { href: '/intern/konto', label: 'Konto & Datenschutz', icon: 'ti-user' },
@@ -162,6 +179,11 @@ export default function InternSidebar({
         {organizationName && (
           <div className="mt-4 truncate rounded-md bg-panel px-3 py-2 text-[11px] font-medium text-ink-2">
             {organizationName}
+            {isPress && (
+              <span className="ml-1.5 rounded-[4px] bg-signal px-1 py-0.5 text-[9px] font-bold uppercase text-white">
+                Presse
+              </span>
+            )}
           </div>
         )}
       </aside>
