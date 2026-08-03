@@ -10,16 +10,21 @@ type Message = {
   createdAt: string;
   senderOrganizationId: string | null;
   senderOrganizationName: string | null;
+  senderUserName: string | null;
 };
 
 export default function ConversationThread({
   conversationId,
   initialMessages,
   ownOrganizationId,
+  ownOrganizationName,
+  ownUserName,
 }: {
   conversationId: string;
   initialMessages: Message[];
   ownOrganizationId: string;
+  ownOrganizationName: string;
+  ownUserName: string;
 }) {
   const router = useRouter();
   const [messages, setMessages] = useState(initialMessages);
@@ -53,7 +58,8 @@ export default function ConversationThread({
           messageType: 'message',
           createdAt: new Date().toISOString(),
           senderOrganizationId: ownOrganizationId,
-          senderOrganizationName: null,
+          senderOrganizationName: ownOrganizationName,
+          senderUserName: ownUserName,
         },
       ]);
       router.refresh();
@@ -77,8 +83,8 @@ export default function ConversationThread({
   }
 
   return (
-    <div>
-      <div className="mb-4 flex flex-col gap-3">
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="mb-4 flex flex-1 flex-col gap-3 overflow-y-auto">
         {messages.length === 0 ? (
           <p className="text-[13px] text-ink-2">Noch keine Nachrichten.</p>
         ) : (
@@ -98,11 +104,16 @@ export default function ConversationThread({
                   isOwn ? 'ml-auto bg-ink text-white' : 'border border-line bg-white text-ink'
                 }`}
               >
-                {!isOwn && (
-                  <div className="mb-1 text-[10.5px] font-semibold uppercase tracking-[0.05em] text-ink-3">
+                <div className="mb-1 flex items-baseline gap-1.5">
+                  <span className={`text-[12px] font-bold ${isOwn ? 'text-white' : 'text-ink'}`}>
                     {msg.senderOrganizationName ?? 'Organisation'}
-                  </div>
-                )}
+                  </span>
+                  {msg.senderUserName && (
+                    <span className={`text-[10.5px] ${isOwn ? 'text-white/60' : 'text-ink-3'}`}>
+                      {msg.senderUserName}
+                    </span>
+                  )}
+                </div>
                 <div className="whitespace-pre-wrap">{msg.body}</div>
                 <div
                   className={`mt-1 font-mono text-[10px] ${isOwn ? 'text-white/50' : 'text-ink-3'}`}
@@ -115,7 +126,7 @@ export default function ConversationThread({
         )}
       </div>
 
-      <form onSubmit={handleSubmit} className="flex gap-2">
+      <form onSubmit={handleSubmit} className="flex flex-none gap-2">
         <textarea
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
