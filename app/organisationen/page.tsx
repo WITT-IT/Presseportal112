@@ -38,7 +38,7 @@ export default async function OrganisationenPage() {
             </p>
           </div>
           <Link
-            href="/organisationen/registrieren"
+            href="/registrieren?type=organisation"
             className="inline-flex flex-none items-center gap-2 rounded-md bg-ink px-6 py-3.5 text-[13.5px] font-semibold text-white transition-colors hover:bg-black"
           >
             Organisation registrieren
