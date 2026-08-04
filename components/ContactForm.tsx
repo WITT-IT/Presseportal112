@@ -14,9 +14,6 @@ declare global {
   }
 }
 
-// Nur gesetzt, wenn NEXT_PUBLIC_TURNSTILE_SITE_KEY beim Build vorhanden war --
-// fehlt die Variable (z. B. lokale Entwicklung), blendet sich die komplette
-// Sicherheitsprüfung sauber aus, statt kaputt zu rendern.
 const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
 
 export default function ContactForm({
@@ -31,10 +28,9 @@ export default function ContactForm({
   // Nur HiOrgs (keine Presse) in die Auswahl aufnehmen.
   const hiOrgs = organizations.filter((org) => org.organization_type !== 'press');
 
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
+  const [vorname, setVorname] = useState('');
 
-  // Für das Autofill-Feld: sichtbarer Text und die aufgelöste Organisations-ID.
+  // Autofill-Feld: sichtbarer Text + aufgelöste ID
   const defaultOrg = defaultOrganizationId
     ? hiOrgs.find((o) => o.id === defaultOrganizationId)
     : undefined;
@@ -52,8 +48,6 @@ export default function ContactForm({
   const [status, setStatus] = useState<'idle' | 'sending' | 'done' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
 
-  // Honeypot -- für Menschen unsichtbares Feld. Echte Besucher können es nie
-  // ausfüllen; simple Bots, die Formulare blind befüllen, tappen hinein.
   const [honeypot, setHoneypot] = useState('');
 
   const [turnstileScriptReady, setTurnstileScriptReady] = useState(false);
@@ -79,7 +73,7 @@ export default function ContactForm({
         try {
           window.turnstile.remove(turnstileWidgetIdRef.current);
         } catch {
-          // Widget war schon weg -- kann beim schnellen Seitenwechsel passieren.
+          // Widget war schon weg
         }
         turnstileWidgetIdRef.current = null;
       }
@@ -92,7 +86,6 @@ export default function ContactForm({
 
   function handleRecipientInput(value: string) {
     setRecipientText(value);
-    // Wenn der Text geändert wird, gilt die vorherige ID-Zuordnung als ungültig.
     setRecipientId('');
     setActiveSuggestionIndex(-1);
 
@@ -105,7 +98,7 @@ export default function ContactForm({
     const q = value.trim().toLowerCase();
     const matches = hiOrgs
       .filter((org) => org.name.toLowerCase().includes(q))
-      .slice(0, 8); // max 8 Vorschläge
+      .slice(0, 8);
 
     setSuggestions(matches);
     setShowSuggestions(matches.length > 0);
@@ -139,12 +132,8 @@ export default function ContactForm({
   }
 
   function handleRecipientBlur() {
-    // Kurze Verzögerung, damit ein Klick auf einen Vorschlag noch registriert
-    // werden kann, bevor das Dropdown verschwindet.
     setTimeout(() => {
       setShowSuggestions(false);
-      // Wenn der eingetippte Text keiner ausgewählten Organisation entspricht,
-      // das Feld leeren -- kein halb-eingetippter Name im Submit.
       if (!recipientId) {
         setRecipientText('');
       }
@@ -172,8 +161,7 @@ export default function ContactForm({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        name,
-        email,
+        vorname,
         recipient_organization: recipientId || null,
         subject,
         message,
@@ -195,18 +183,11 @@ export default function ContactForm({
     }
   }
 
-  // Zwei kleine, wiederverwendete Klassen-Sets statt in jedem Feld einzeln
-  // zu verzweigen -- hell (Standard, z. B. /kontakt) oder dunkel (eingebettet
-  // im Hero, verglast gegen den dunklen Hintergrund).
   const labelClass = dark ? 'text-white/70' : 'text-ink-2';
   const fieldClass = dark
     ? 'border-white/20 bg-white/[0.07] text-white placeholder:text-white/30 focus:border-white/40'
     : 'border-line-strong bg-white text-ink focus:border-ink';
   const errorClass = dark ? 'text-signal' : 'text-signal-deep';
-
-  // Nur die dunkle Hero-Variante bekommt kompaktere, fluid schrumpfende
-  // Abstände (clamp mit dvh) -- die helle /kontakt-Seite hat genug Platz
-  // und bleibt bei den bisherigen festen Werten unverändert.
   const labelMarginClass = dark ? 'mb-1' : 'mb-1.5';
   const formStyle = dark
     ? { gap: 'clamp(10px, 2dvh, 16px)', padding: 'clamp(16px, 3dvh, 24px)' }
@@ -253,8 +234,7 @@ export default function ContactForm({
         }`}
         style={formStyle}
       >
-        {/* Honeypot -- bewusst kein type="hidden": manche Bots überspringen
-            echte hidden-Felder, aber nicht per CSS versteckte. */}
+        {/* Honeypot */}
         <input
           type="text"
           name="website"
@@ -266,36 +246,21 @@ export default function ContactForm({
           style={{ position: 'absolute', left: '-9999px', width: '1px', height: '1px', opacity: 0 }}
         />
 
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className={`${labelMarginClass} block text-[12.5px] font-medium ${labelClass}`}>
-              Name *
-            </label>
-            <input
-              type="text"
-              required
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className={`w-full rounded-md border px-3 py-2 text-[14px] outline-none ${fieldClass}`}
-            />
-          </div>
-          <div>
-            <label className={`${labelMarginClass} block text-[12.5px] font-medium ${labelClass}`}>
-              E-Mail *
-            </label>
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className={`w-full rounded-md border px-3 py-2 text-[14px] outline-none ${fieldClass}`}
-            />
-          </div>
+        {/* Vorname */}
+        <div>
+          <label className={`${labelMarginClass} block text-[12.5px] font-medium ${labelClass}`}>
+            Vorname *
+          </label>
+          <input
+            type="text"
+            required
+            value={vorname}
+            onChange={(e) => setVorname(e.target.value)}
+            className={`w-full rounded-md border px-3 py-2 text-[14px] outline-none ${fieldClass}`}
+          />
         </div>
 
-        {/* Empfänger-Autofill -- Textfeld mit Live-Vorschlägen ab 3 Zeichen.
-            Nur HiOrgs (kein Presse-Typ) erscheinen in den Vorschlägen.
-            Leer lassen = allgemeine Anfrage an die Redaktion. */}
+        {/* Empfänger-Autofill -- nur HiOrgs, ab 3 Zeichen */}
         <div>
           <label className={`${labelMarginClass} block text-[12.5px] font-medium ${labelClass}`}>
             An welchen Empfänger?
@@ -311,7 +276,7 @@ export default function ContactForm({
               onFocus={() => {
                 if (suggestions.length > 0) setShowSuggestions(true);
               }}
-              placeholder="Organisation suchen … (leer lassen für allgemeine Anfrage)"
+              placeholder="Organisation suchen … (leer = allgemeine Anfrage)"
               autoComplete="off"
               className={`w-full rounded-md border px-3 py-2 text-[14px] outline-none ${fieldClass}`}
             />
@@ -355,6 +320,7 @@ export default function ContactForm({
           )}
         </div>
 
+        {/* Betreff */}
         <div>
           <label className={`${labelMarginClass} block text-[12.5px] font-medium ${labelClass}`}>
             Betreff *
@@ -368,6 +334,7 @@ export default function ContactForm({
           />
         </div>
 
+        {/* Nachricht */}
         <div>
           <label className={`${labelMarginClass} block text-[12.5px] font-medium ${labelClass}`}>
             Nachricht *
@@ -381,6 +348,7 @@ export default function ContactForm({
           />
         </div>
 
+        {/* Datenschutz */}
         <label className={`flex items-start gap-2 text-[11.5px] leading-[1.5] ${labelClass}`}>
           <input
             type="checkbox"
