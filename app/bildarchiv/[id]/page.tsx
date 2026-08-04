@@ -8,7 +8,7 @@ import { toJsonLd } from '@/lib/structuredData';
 import ArticleCartToggle from '@/components/ArticleCartToggle';
 import GalleryCard from '@/components/GalleryCard';
 import PostGallery from '@/components/PostGallery';
-import DarkMasthead from '@/components/DarkMasthead';
+//import DarkMasthead from '@/components/DarkMasthead';
 
 export const dynamic = 'force-dynamic';
 
