@@ -25,7 +25,7 @@ export default function Footer() {
           <Link href="/kontakt" className="hover:text-ink">
             Kontakt
           </Link>
-          <Link href="/presse/registrieren" className="hover:text-ink">
+          <Link href="/registrieren?type=presse" className="hover:text-ink">
             Presseregistrierung
           </Link>
         </div>
