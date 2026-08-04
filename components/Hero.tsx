@@ -27,13 +27,18 @@ export default function Hero({
       backgroundImageUrl={
         backdropImage ? directusAssetUrl(backdropImage, 'width=2000&quality=70') : null
       }
-      // "100vh" statt einer festen Pixel-/vh-Mischung: der Hero füllt damit
-      // immer genau die sichtbare Bildschirmhöhe, egal wie groß das
-      // Browserfenster gerade ist -- kein Abschneiden, keine Lücke am
-      // unteren Rand. min-height statt height, damit der Inhalt bei sehr
-      // kurzen/breiten Fenstern trotzdem noch Platz hat und nicht
-      // gequetscht wird.
-      minHeight="100vh"
+      // Container: min-height 100dvh (statt 100vh -- "dvh" reagiert auf
+      // ein-/ausblendende Adressleisten in mobilen Browsern korrekt).
+      // min-height statt height, damit der Inhalt bei viel Text/Formular
+      // trotzdem noch Platz hat und nicht gequetscht wird -- der Container
+      // darf hier also über eine Bildschirmhöhe hinauswachsen.
+      minHeight="100dvh"
+      // Bild dagegen bewusst auf genau eine Fensterhöhe gekappt --
+      // unabhängig davon, ob der Container durch viel Inhalt höher wird.
+      // So sitzt die Bild-Unterkante immer exakt an der Fensterkante,
+      // nie darunter; darunterliegender Platz wird einfach von der
+      // bg-void-Fläche aus DarkMasthead übernommen (nahtloser Übergang).
+      imageHeight="100dvh"
     >
       <div className="px-8 pb-16 pt-16 nav:pb-10 nav:pt-20">
         {/* Ab dem nav-Breakpoint zweispaltig: links Text + Suche, rechts
