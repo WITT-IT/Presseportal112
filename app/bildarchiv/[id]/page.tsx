@@ -97,13 +97,9 @@ export default async function PostArticlePage({ params }: Props) {
         dangerouslySetInnerHTML={{ __html: toJsonLd(newsArticleJsonLd) }}
       />
 
-      <DarkMasthead
-        backgroundImageUrl={
-          hero?.file_public_preview
-            ? directusAssetUrl(hero.file_public_preview, 'width=2000&quality=70')
-            : null
-        }
-      >
+      <DarkMasthead backgroundImageUrl={null}>
+
+        
         <div className="px-8 py-14">
           <div className="mx-auto max-w-[760px]">
             <Link
