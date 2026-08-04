@@ -28,9 +28,24 @@ export default function ContactForm({
   defaultOrganizationId?: string;
   dark?: boolean;
 }) {
+  // Nur HiOrgs (keine Presse) in die Auswahl aufnehmen.
+  const hiOrgs = organizations.filter((org) => org.organization_type !== 'press');
+
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [recipient, setRecipient] = useState(defaultOrganizationId ?? '');
+
+  // Für das Autofill-Feld: sichtbarer Text und die aufgelöste Organisations-ID.
+  const defaultOrg = defaultOrganizationId
+    ? hiOrgs.find((o) => o.id === defaultOrganizationId)
+    : undefined;
+  const [recipientText, setRecipientText] = useState(defaultOrg?.name ?? '');
+  const [recipientId, setRecipientId] = useState(defaultOrganizationId ?? '');
+  const [suggestions, setSuggestions] = useState<Organization[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1);
+  const suggestionsRef = useRef<HTMLUListElement>(null);
+  const recipientInputRef = useRef<HTMLInputElement>(null);
+
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
   const [privacyConfirmed, setPrivacyConfirmed] = useState(false);
@@ -71,6 +86,73 @@ export default function ContactForm({
     };
   }, [turnstileScriptReady, dark]);
 
+  // ---------------------------------------------------------------------------
+  // Autofill-Logik
+  // ---------------------------------------------------------------------------
+
+  function handleRecipientInput(value: string) {
+    setRecipientText(value);
+    // Wenn der Text geändert wird, gilt die vorherige ID-Zuordnung als ungültig.
+    setRecipientId('');
+    setActiveSuggestionIndex(-1);
+
+    if (value.trim().length < 3) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+
+    const q = value.trim().toLowerCase();
+    const matches = hiOrgs
+      .filter((org) => org.name.toLowerCase().includes(q))
+      .slice(0, 8); // max 8 Vorschläge
+
+    setSuggestions(matches);
+    setShowSuggestions(matches.length > 0);
+  }
+
+  function selectSuggestion(org: Organization) {
+    setRecipientText(org.name);
+    setRecipientId(org.id);
+    setSuggestions([]);
+    setShowSuggestions(false);
+    setActiveSuggestionIndex(-1);
+  }
+
+  function handleRecipientKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (!showSuggestions || suggestions.length === 0) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setActiveSuggestionIndex((i) => Math.min(i + 1, suggestions.length - 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setActiveSuggestionIndex((i) => Math.max(i - 1, -1));
+    } else if (e.key === 'Enter') {
+      if (activeSuggestionIndex >= 0 && suggestions[activeSuggestionIndex]) {
+        e.preventDefault();
+        selectSuggestion(suggestions[activeSuggestionIndex]);
+      }
+    } else if (e.key === 'Escape') {
+      setShowSuggestions(false);
+    }
+  }
+
+  function handleRecipientBlur() {
+    // Kurze Verzögerung, damit ein Klick auf einen Vorschlag noch registriert
+    // werden kann, bevor das Dropdown verschwindet.
+    setTimeout(() => {
+      setShowSuggestions(false);
+      // Wenn der eingetippte Text keiner ausgewählten Organisation entspricht,
+      // das Feld leeren -- kein halb-eingetippter Name im Submit.
+      if (!recipientId) {
+        setRecipientText('');
+      }
+    }, 150);
+  }
+
+  // ---------------------------------------------------------------------------
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
@@ -92,7 +174,7 @@ export default function ContactForm({
       body: JSON.stringify({
         name,
         email,
-        recipient_organization: recipient || null,
+        recipient_organization: recipientId || null,
         subject,
         message,
         turnstileToken,
@@ -211,24 +293,66 @@ export default function ContactForm({
           </div>
         </div>
 
+        {/* Empfänger-Autofill -- Textfeld mit Live-Vorschlägen ab 3 Zeichen.
+            Nur HiOrgs (kein Presse-Typ) erscheinen in den Vorschlägen.
+            Leer lassen = allgemeine Anfrage an die Redaktion. */}
         <div>
           <label className={`${labelMarginClass} block text-[12.5px] font-medium ${labelClass}`}>
             An welchen Empfänger?
           </label>
-          <select
-            value={recipient}
-            onChange={(e) => setRecipient(e.target.value)}
-            className={`w-full rounded-md border px-3 py-2 text-[14px] outline-none ${fieldClass}`}
-          >
-            <option value="" className="text-ink">
-              Allgemeine Anfrage an die Redaktion
-            </option>
-            {organizations.map((org) => (
-              <option key={org.id} value={org.id} className="text-ink">
-                {org.name}
-              </option>
-            ))}
-          </select>
+          <div className="relative">
+            <input
+              ref={recipientInputRef}
+              type="text"
+              value={recipientText}
+              onChange={(e) => handleRecipientInput(e.target.value)}
+              onKeyDown={handleRecipientKeyDown}
+              onBlur={handleRecipientBlur}
+              onFocus={() => {
+                if (suggestions.length > 0) setShowSuggestions(true);
+              }}
+              placeholder="Organisation suchen … (leer lassen für allgemeine Anfrage)"
+              autoComplete="off"
+              className={`w-full rounded-md border px-3 py-2 text-[14px] outline-none ${fieldClass}`}
+            />
+
+            {showSuggestions && suggestions.length > 0 && (
+              <ul
+                ref={suggestionsRef}
+                className={`absolute left-0 right-0 top-full z-50 mt-1 max-h-52 overflow-y-auto rounded-md border shadow-lg ${
+                  dark
+                    ? 'border-white/20 bg-[#1a1a2e]'
+                    : 'border-line-strong bg-white'
+                }`}
+              >
+                {suggestions.map((org, index) => (
+                  <li key={org.id}>
+                    <button
+                      type="button"
+                      onMouseDown={() => selectSuggestion(org)}
+                      className={`w-full px-3 py-2 text-left text-[13.5px] transition-colors ${
+                        index === activeSuggestionIndex
+                          ? dark
+                            ? 'bg-white/10 text-white'
+                            : 'bg-panel text-ink'
+                          : dark
+                          ? 'text-white/80 hover:bg-white/10'
+                          : 'text-ink hover:bg-panel'
+                      }`}
+                    >
+                      {org.name}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {recipientId && (
+            <p className={`mt-1 text-[11px] ${dark ? 'text-white/40' : 'text-ink-3'}`}>
+              Nachricht geht direkt an: {recipientText}
+            </p>
+          )}
         </div>
 
         <div>
