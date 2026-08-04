@@ -43,13 +43,13 @@ export default async function PressemappePage() {
           </p>
           <div className="flex flex-col gap-2.5 nav:flex-row nav:justify-center">
             <Link
-              href="/organisationen/registrieren"
+              href="/registrieren"
               className="rounded-md bg-ink px-5 py-3 text-[13.5px] font-semibold text-white transition-colors hover:bg-black"
             >
               Als Organisation registrieren
             </Link>
             <Link
-              href="/presse/registrieren"
+              href="/registrieren"
               className="rounded-md border border-line-strong px-5 py-3 text-[13.5px] font-semibold text-ink transition-colors hover:border-ink"
             >
               Als Presse registrieren
