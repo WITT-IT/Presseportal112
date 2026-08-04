@@ -317,135 +317,10 @@ export async function getAllUsedTags(): Promise<string[]> {
   }
 }
 
-// ---------------------------------------------------------------------
-// Datumssuche für searchPublicImages weiter unten.
-//
-// Erkennt deutsche Datumsschreibweisen in der Sucheingabe und liefert ein
-// Teil-Datum zurück (Tag/Monat/Jahr sind alle optional -- was angegeben
-// ist, muss passen, der Rest ist Wildcard). Unterstützt:
-//   "4.8.2026"   -- Tag.Monat.Jahr
-//   "04.08.26"   -- Tag.Monat.zweistelliges Jahr (=> 20xx)
-//   "4.8."       -- nur Tag.Monat, jedes Jahr
-//   "4.8"        -- dito, ohne Punkt am Ende
-//   "08.2026"    -- nur Monat.Jahr
-//   "2026"       -- nur Jahr
-//   "August"     -- nur Monat (Name)
-//   "4. August"  -- Tag + Monatsname
-//   "August 2026" / "4. August 2026" -- mit Jahr
-// ---------------------------------------------------------------------
-
-type DateQuery = { day?: number; month?: number; year?: number };
-
-const GERMAN_MONTHS: Record<string, number> = {
-  januar: 1,
-  jan: 1,
-  februar: 2,
-  feb: 2,
-  märz: 3,
-  maerz: 3,
-  mrz: 3,
-  april: 4,
-  apr: 4,
-  mai: 5,
-  juni: 6,
-  jun: 6,
-  juli: 7,
-  jul: 7,
-  august: 8,
-  aug: 8,
-  september: 9,
-  sep: 9,
-  sept: 9,
-  oktober: 10,
-  okt: 10,
-  november: 11,
-  nov: 11,
-  dezember: 12,
-  dez: 12,
-};
-
-function parseGermanDateQuery(raw: string): DateQuery | null {
-  const q = raw.trim().toLowerCase();
-  if (!q) return null;
-
-  // "4.8.2026" / "04.08.26" / "4.8." -- Tag.Monat.[Jahr], zwei Punkte,
-  // Jahr optional (auch leer nach dem zweiten Punkt).
-  const dayMonthYear = q.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2,4})?$/);
-  if (dayMonthYear) {
-    const day = Number(dayMonthYear[1]);
-    const month = Number(dayMonthYear[2]);
-    if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
-      let year: number | undefined;
-      if (dayMonthYear[3]) {
-        year =
-          dayMonthYear[3].length === 2 ? 2000 + Number(dayMonthYear[3]) : Number(dayMonthYear[3]);
-      }
-      return { day, month, year };
-    }
-  }
-
-  // "08.2026" -- Monat.Jahr, ein Punkt, Jahr vierstellig.
-  const monthYear = q.match(/^(\d{1,2})\.(\d{4})$/);
-  if (monthYear) {
-    const month = Number(monthYear[1]);
-    const year = Number(monthYear[2]);
-    if (month >= 1 && month <= 12) {
-      return { month, year };
-    }
-  }
-
-  // "4.8" -- Tag.Monat, ein Punkt, kein Jahr.
-  const dayMonth = q.match(/^(\d{1,2})\.(\d{1,2})$/);
-  if (dayMonth) {
-    const day = Number(dayMonth[1]);
-    const month = Number(dayMonth[2]);
-    if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
-      return { day, month };
-    }
-  }
-
-  // "2026" -- nur eine vierstellige Jahreszahl.
-  const yearOnly = q.match(/^(\d{4})$/);
-  if (yearOnly) {
-    return { year: Number(yearOnly[1]) };
-  }
-
-  // "august" / "4. august" / "4 august 2026" / "august 2026" --
-  // Monatsname, optional mit Tag davor und/oder Jahr danach.
-  const wordMatch = q.match(/^(?:(\d{1,2})\.?\s+)?([a-zä]+)\.?(?:\s+(\d{4}))?$/);
-  if (wordMatch) {
-    const [, dayStr, monthWord, yearStr] = wordMatch;
-    const month = GERMAN_MONTHS[monthWord];
-    if (month) {
-      return {
-        day: dayStr ? Number(dayStr) : undefined,
-        month,
-        year: yearStr ? Number(yearStr) : undefined,
-      };
-    }
-  }
-
-  return null;
-}
-
-function matchesDateQuery(eventDateIso: string, dq: DateQuery): boolean {
-  const d = new Date(eventDateIso);
-  if (Number.isNaN(d.getTime())) return false;
-  if (dq.day !== undefined && d.getDate() !== dq.day) return false;
-  if (dq.month !== undefined && d.getMonth() + 1 !== dq.month) return false;
-  if (dq.year !== undefined && d.getFullYear() !== dq.year) return false;
-  return true;
-}
-
 // Suche übers Bildarchiv. Holt bewusst eine größere Menge und filtert
 // in unserem eigenen Code, statt sich auf Directus' Filterverhalten bei
 // JSON-Feldern (tags) zu verlassen -- bei der aktuellen Größenordnung
 // kostet das praktisch nichts, garantiert aber korrektes Verhalten.
-//
-// Unterstützt zusätzlich zur Textsuche eine Datumssuche in deutschen
-// Formaten (siehe parseGermanDateQuery oben) -- läuft als eigenständiges
-// Score-Signal neben dem Textabgleich, verändert also nichts am
-// bisherigen Verhalten für normale Stichwortsuchen.
 export async function searchPublicImages({
   query,
   gewerkId,
@@ -472,8 +347,6 @@ export async function searchPublicImages({
   )) as Post[];
 
   const q = query.trim().toLowerCase();
-  const dateQuery = parseGermanDateQuery(query);
-
   const scored = candidates
     .map((post) => {
       const tagsText = normalizeTags(post.tags).join(' ').toLowerCase();
@@ -493,13 +366,6 @@ export async function searchPublicImages({
       if (location.includes(q)) score += 2;
       if (captions.includes(q)) score += 2;
       if (articleText.includes(q)) score += 1;
-
-      // Datumssuche -- eigenständiges Signal über das echte event_date,
-      // nicht über Textabgleich. Greift nur, wenn die Eingabe sich
-      // überhaupt als Datum interpretieren lässt.
-      if (dateQuery && post.event_date && matchesDateQuery(post.event_date, dateQuery)) {
-        score += 5;
-      }
 
       return { post, score };
     })
@@ -663,6 +529,8 @@ export async function getFolderWithPosts(
   return { id: data.id, name: data.name, posts };
 }
 
+// Eigene Medienfreigaben samt Beitragsanzahl -- für die Übersicht unter
+// /intern/freigaben. Ebenfalls mit explizitem organizationId-Filter.
 // Eigene Ordner samt der IDs ihrer Beiträge -- schlanker als
 // getFolderWithPosts (keine Bilder, keine Titel), gedacht für den
 // "ganzen Ordner in eine Freigabe ziehen"-Baustein, der nur wissen muss,
@@ -698,8 +566,6 @@ export async function getMyFoldersWithPostIds(
   }));
 }
 
-// Eigene Medienfreigaben samt Beitragsanzahl -- für die Übersicht unter
-// /intern/freigaben. Ebenfalls mit explizitem organizationId-Filter.
 export async function getMyMediaShares(
   accessToken: string,
   organizationId: string
@@ -794,6 +660,10 @@ export async function getMediaShareWithPosts(
   };
 }
 
+// Öffentlicher Zugriff auf eine Freigabe per Token -- läuft bewusst
+// ausschließlich über den Service-Token, nie über eine Public-Policy.
+// Prüft dabei gleich mit, ob die Freigabe noch gültig ist, und räumt
+// abgelaufene Freigaben mit aktivierter Auto-Löschung im Vorbeigehen auf.
 // Freigaben, die andere Organisationen gezielt an ein Presse-Konto
 // geschickt haben -- läuft über den Service-Token, weil das zwangsläufig
 // über Organisationsgrenzen hinweg gelesen werden muss (die empfangende
@@ -852,10 +722,6 @@ export async function getReceivedMediaShares(organizationId: string): Promise<
   }
 }
 
-// Öffentlicher Zugriff auf eine Freigabe per Token -- läuft bewusst
-// ausschließlich über den Service-Token, nie über eine Public-Policy.
-// Prüft dabei gleich mit, ob die Freigabe noch gültig ist, und räumt
-// abgelaufene Freigaben mit aktivierter Auto-Löschung im Vorbeigehen auf.
 export async function getMediaShareByToken(token: string): Promise<PublicMediaShare | null> {
   const serviceToken = process.env.DIRECTUS_SERVICE_TOKEN;
   if (!serviceToken) {
