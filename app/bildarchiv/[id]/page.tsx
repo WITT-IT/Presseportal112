@@ -8,7 +8,6 @@ import { toJsonLd } from '@/lib/structuredData';
 import ArticleCartToggle from '@/components/ArticleCartToggle';
 import GalleryCard from '@/components/GalleryCard';
 import PostGallery from '@/components/PostGallery';
-//import DarkMasthead from '@/components/DarkMasthead';
 
 export const dynamic = 'force-dynamic';
 
@@ -97,112 +96,114 @@ export default async function PostArticlePage({ params }: Props) {
         dangerouslySetInnerHTML={{ __html: toJsonLd(newsArticleJsonLd) }}
       />
 
-      <DarkMasthead backgroundImageUrl={null}>
+      {/* Kein DarkMasthead mehr -- nur die Textdaten, auf normalem hellem
+          Untergrund wie der Rest der Seite. border-b trennt den
+          Kopfbereich optisch leicht vom Inhalt darunter ab. */}
+      <div className="border-b border-line px-8 py-14">
+        <div className="mx-auto max-w-[760px]">
+          <Link
+            href="/bildarchiv"
+            className="mb-6 inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-ink-2 hover:text-ink"
+          >
+            <i className="ti ti-arrow-left text-[14px]" aria-hidden="true" />
+            Zurück zum Bildarchiv
+          </Link>
 
-        
-        <div className="px-8 py-14">
-          <div className="mx-auto max-w-[760px]">
-            <Link
-              href="/bildarchiv"
-              className="mb-6 inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-white/60 hover:text-white"
-            >
-              <i className="ti ti-arrow-left text-[14px]" aria-hidden="true" />
-              Zurück zum Bildarchiv
-            </Link>
+          <div className="mb-4 flex items-center gap-2.5 font-mono text-[11.5px] font-medium uppercase tracking-[0.04em] text-ink-2">
+            <span
+              className="h-1.5 w-1.5 rounded-[1.5px]"
+              style={{ backgroundColor: color, boxShadow: `0 0 6px ${color}` }}
+              aria-hidden="true"
+            />
+            {post.alarm_code ?? 'Pressefoto'} &middot; {dateLabel}
+            {images.length > 1 && (
+              <span className="text-ink-3">&middot; {images.length} Fotos</span>
+            )}
+          </div>
 
-            <div className="mb-4 flex items-center gap-2.5 font-mono text-[11.5px] font-medium uppercase tracking-[0.04em] text-amber">
-              <span
-                className="h-1.5 w-1.5 rounded-[1.5px]"
-                style={{ backgroundColor: color, boxShadow: `0 0 6px ${color}` }}
-                aria-hidden="true"
-              />
-              {post.alarm_code ?? 'Pressefoto'} &middot; {dateLabel}
-              {images.length > 1 && (
-                <span className="text-white/40">&middot; {images.length} Fotos</span>
-              )}
-            </div>
+          <h1 className="mb-4 font-display text-[clamp(30px,5vw,48px)] font-bold leading-[1.02] tracking-[-0.01em] text-ink">
+            {post.title || `Einsatz ${org?.name ?? ''}`}
+          </h1>
 
-            <h1 className="mb-4 font-display text-[clamp(30px,5vw,48px)] font-bold leading-[1.02] tracking-[-0.01em] text-white">
-              {post.title || `Einsatz ${org?.name ?? ''}`}
-            </h1>
-
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-white/55">
-              {org?.name && (
-                <Link href={`/organisationen/${org.id}`} className="font-medium text-white/80 hover:text-white">
-                  {org.name}
-                </Link>
-              )}
-              {post.location && <span>&middot; {post.location}</span>}
-            </div>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-ink-2">
+            {org?.name && (
+              <Link
+                href={`/organisationen/${org.id}`}
+                className="font-medium text-ink hover:text-signal-deep"
+              >
+                {org.name}
+              </Link>
+            )}
+            {post.location && <span>&middot; {post.location}</span>}
           </div>
         </div>
-      </DarkMasthead>
+      </div>
 
       <div className="px-8 py-12">
-      <div className="mx-auto max-w-[760px]">
-        <div className="mt-2">
-        <PostGallery images={images} />
-        </div>
-
-        <div className="mb-10 flex flex-wrap items-center gap-4">
-          {hero?.file_download && (
-            <a
-              href={`/api/download?id=${post.id}`}
-              className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-signal-deep hover:text-signal"
-            >
-              <i className="ti ti-download text-[14px]" aria-hidden="true" />
-              {images.length > 1
-                ? `Alle ${images.length} Fotos herunterladen (ZIP)`
-                : 'Originalgröße herunterladen (für Presseverwendung)'}
-            </a>
-          )}
-          <ArticleCartToggle imageId={post.id} />
-          {org?.id && (
-            <Link
-              href={`/kontakt?org=${org.id}`}
-              className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-line-strong px-3.5 py-2 text-[12px] font-semibold text-ink transition-colors hover:border-ink"
-            >
-              <i className="ti ti-mail text-[13px]" aria-hidden="true" />
-              Kontakt zu {org.name} aufnehmen
-            </Link>
-          )}
-        </div>
-
-        {post.article_body && (
-          <div
-            className="prose-article mb-10 text-[15.5px] text-ink"
-            // Inhalt wurde serverseitig beim Hochladen bereits auf eine
-            // kleine, sichere Tag-Liste beschränkt (siehe upload/route.ts).
-            dangerouslySetInnerHTML={{ __html: post.article_body }}
-          />
-        )}
-
-        {normalizeTags(post.tags).length > 0 && (
-          <div className="mb-10 flex flex-wrap gap-1.5 border-t border-line pt-6">
-            {normalizeTags(post.tags).map((tag) => (
-              <span
-                key={tag}
-                className="rounded-[4px] bg-panel px-2.5 py-1 text-[11px] text-ink-2"
-              >
-                {tag}
-              </span>
-            ))}
+        <div className="mx-auto max-w-[760px]">
+          <div className="mt-2">
+            <PostGallery images={images} />
           </div>
-        )}
 
-        {relatedPosts.length > 0 && (
-          <div className="border-t border-line pt-8">
-            <h2 className="mb-5 font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
-              Weitere Meldungen von {org?.name}
-            </h2>
-            <div className="grid grid-cols-2 gap-[16px] nav:grid-cols-4">
-              {relatedPosts.map((p) => (
-                <GalleryCard key={p.id} post={p} />
+          <div className="mb-10 flex flex-wrap items-center gap-4">
+            {hero?.file_download && (
+              <a
+                href={`/api/download?id=${post.id}`}
+                className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-signal-deep hover:text-signal"
+              >
+                <i className="ti ti-download text-[14px]" aria-hidden="true" />
+                {images.length > 1
+                  ? `Alle ${images.length} Fotos herunterladen (ZIP)`
+                  : 'Originalgröße herunterladen (für Presseverwendung)'}
+              </a>
+            )}
+            <ArticleCartToggle imageId={post.id} />
+            {org?.id && (
+              <Link
+                href={`/kontakt?org=${org.id}`}
+                className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-line-strong px-3.5 py-2 text-[12px] font-semibold text-ink transition-colors hover:border-ink"
+              >
+                <i className="ti ti-mail text-[13px]" aria-hidden="true" />
+                Kontakt zu {org.name} aufnehmen
+              </Link>
+            )}
+          </div>
+
+          {post.article_body && (
+            <div
+              className="prose-article mb-10 text-[15.5px] text-ink"
+              // Inhalt wurde serverseitig beim Hochladen bereits auf eine
+              // kleine, sichere Tag-Liste beschränkt (siehe upload/route.ts).
+              dangerouslySetInnerHTML={{ __html: post.article_body }}
+            />
+          )}
+
+          {normalizeTags(post.tags).length > 0 && (
+            <div className="mb-10 flex flex-wrap gap-1.5 border-t border-line pt-6">
+              {normalizeTags(post.tags).map((tag) => (
+                <span
+                  key={tag}
+                  className="rounded-[4px] bg-panel px-2.5 py-1 text-[11px] text-ink-2"
+                >
+                  {tag}
+                </span>
               ))}
             </div>
-          </div>
-        )}
-      </div>
+          )}
+
+          {relatedPosts.length > 0 && (
+            <div className="border-t border-line pt-8">
+              <h2 className="mb-5 font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
+                Weitere Meldungen von {org?.name}
+              </h2>
+              <div className="grid grid-cols-2 gap-[16px] nav:grid-cols-4">
+                {relatedPosts.map((p) => (
+                  <GalleryCard key={p.id} post={p} />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </article>
   );
