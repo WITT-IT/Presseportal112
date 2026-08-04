@@ -1,7 +1,6 @@
 import type { Metadata } from 'next';
 import { Barlow_Condensed, Inter, JetBrains_Mono } from 'next/font/google';
 import { cookies } from 'next/headers';
-import DateLine from '@/components/DateLine';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import { CartProvider } from '@/components/CartProvider';
@@ -116,7 +115,6 @@ export default async function RootLayout({
         />
         <DialogProvider>
           <CartProvider>
-            <DateLine />
             <Header loggedIn={loggedIn} />
             {children}
             <Footer />
