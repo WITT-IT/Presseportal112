@@ -27,15 +27,21 @@ export default function Hero({
       backgroundImageUrl={
         backdropImage ? directusAssetUrl(backdropImage, 'width=2000&quality=70') : null
       }
+      // "100vh" statt einer festen Pixel-/vh-Mischung: der Hero füllt damit
+      // immer genau die sichtbare Bildschirmhöhe, egal wie groß das
+      // Browserfenster gerade ist -- kein Abschneiden, keine Lücke am
+      // unteren Rand. min-height statt height, damit der Inhalt bei sehr
+      // kurzen/breiten Fenstern trotzdem noch Platz hat und nicht
+      // gequetscht wird.
+      minHeight="100vh"
     >
-      <div className="px-8 py-20 nav:py-28">
-        {/* Zweispaltig ab dem nav-Breakpoint: links der Hero-Text, rechts
-            das Kontaktformular als schwebende helle Karte gegen den
-            dunklen Hintergrund. Darunter (mobil) stapelt sich das Formular
-            einfach unter den Text. */}
-        <div className="mx-auto grid w-full max-w-[1180px] items-center gap-10 nav:grid-cols-[1.15fr_420px] nav:gap-14">
+      <div className="px-8 pb-16 pt-16 nav:pb-10 nav:pt-20">
+        {/* Ab dem nav-Breakpoint zweispaltig: links Text + Suche, rechts
+            das Formular. Darunter (mobil) stapelt sich alles einfach --
+            explizit "grid-cols-1" als Basis, nicht nur implizit. */}
+        <div className="mx-auto grid w-full max-w-[1180px] grid-cols-1 items-start gap-8 nav:grid-cols-[1.1fr_400px] nav:gap-12">
           <div>
-            <div className="mb-7 flex items-center gap-2.5">
+            <div className="mb-5 flex items-center gap-2.5">
               <span className="relative h-1.5 w-1.5 flex-none">
                 <span className="absolute inset-0 rounded-full bg-signal" />
                 <span className="animate-live-pulse absolute inset-0 rounded-full bg-signal" />
@@ -45,17 +51,17 @@ export default function Hero({
               </span>
             </div>
 
-            <h1 className="mb-7 font-display text-[clamp(34px,6.5vw,84px)] font-bold leading-[0.98] tracking-[-0.015em] text-white">
+            <h1 className="mb-5 font-display text-[clamp(32px,6vw,76px)] font-bold leading-[0.98] tracking-[-0.015em] text-white">
               Das Portal der Blaulichtfamilie.
             </h1>
 
-            <p className="mb-10 max-w-[520px] text-[16px] leading-[1.68] text-white/60">
+            <p className="mb-8 max-w-[500px] text-[15.5px] leading-[1.65] text-white/60">
               Presseportal112 bündelt freigegebene Einsatzbilder deutscher
               BOS-Organisationen an einem Ort. Geprüft, verifiziert und sofort
               einsatzbereit für die Berichterstattung.
             </p>
 
-            <div className="max-w-[460px]">
+            <div className="max-w-[440px]">
               <div className="mb-2.5 flex items-center gap-2">
                 <i className="ti ti-search text-[13px] text-white/40" aria-hidden="true" />
                 <span className="font-mono text-[11px] font-medium uppercase tracking-[0.1em] text-white/40">
@@ -64,6 +70,10 @@ export default function Hero({
               </div>
               <SearchBox dark />
             </div>
+
+            {/* Bewusst freier Platz hier -- Text/Suche sind absichtlich
+                kompakt nach oben gehalten, damit hier noch Raum für
+                weiteren Inhalt ist. */}
 
             {/*
               NEUAUSRICHTUNG (Kunde, August 2026): Beide Hero-Buttons
@@ -89,18 +99,19 @@ export default function Hero({
             */}
           </div>
 
-          {/* Schwebende Kontaktformular-Karte -- bewusst im hellen
-              "Papier"-Look, als klarer Kontrast zum dunklen Hero drumherum. */}
-          <div className="rounded-[14px] bg-white p-6 shadow-[0_25px_70px_rgba(0,0,0,0.45)] nav:p-7">
-            <h2 className="mb-2 font-display text-[19px] font-bold text-ink">
+          {/* Kein weißer Kasten mehr -- die Karte selbst ist jetzt verglast
+              (ContactForm mit dark-Prop), fügt sich in den Hero ein statt
+              als Fremdkörper draufzusitzen. */}
+          <div>
+            <h2 className="mb-1.5 font-display text-[18px] font-bold text-white">
               Anfrage stellen
             </h2>
-            <p className="mb-5 text-[12.5px] leading-[1.6] text-ink-2">
+            <p className="mb-4 text-[12.5px] leading-[1.6] text-white/55">
               Du suchst ein bestimmtes Bild, möchtest Bildmaterial anfragen
               oder mit einer Organisation in Kontakt treten? Schreib uns
               direkt.
             </p>
-            <ContactForm organizations={organizations} />
+            <ContactForm organizations={organizations} dark />
           </div>
         </div>
       </div>
