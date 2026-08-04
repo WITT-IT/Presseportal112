@@ -53,7 +53,7 @@ async function verifyTurnstile(token: string, remoteIp: string | null): Promise<
 
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null);
-  const { name, email, recipient_organization, subject, message, turnstileToken, website } =
+  const { vorname, recipient_organization, subject, message, turnstileToken, website } =
     body || {};
 
   // Honeypot-Feld gefüllt -- das kann kein echter Mensch sein (Feld ist
@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
-  if (!name || !email || !subject || !message) {
+  if (!vorname || !subject || !message) {
     return NextResponse.json({ error: 'Bitte alle Pflichtfelder ausfüllen.' }, { status: 400 });
   }
 
@@ -90,8 +90,8 @@ export async function POST(request: NextRequest) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      name,
-      email,
+      name: vorname,
+      email: null,
       recipient_organization: recipient_organization || null,
       subject,
       message,
@@ -130,8 +130,7 @@ export async function POST(request: NextRequest) {
     if (to) {
       await sendContactEmail({
         to,
-        replyTo: email,
-        senderName: name,
+        senderName: vorname,
         subject,
         message,
         organizationName,
