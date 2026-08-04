@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 export const metadata = {
   title: 'Bildarchiv — Presseportal112.de',
   description:
-    'Alle freigegebenen Einsatzfotos von Feuerwehr, DRK, Polizei und THW — nach Gewerk filterbar und durchsuchbar.',
+    'Alle freigegebenen Einsatzfotos, nach Gewerk filterbar und durchsuchbar.',
 };
 
 const PAGE_SIZE = 24;
