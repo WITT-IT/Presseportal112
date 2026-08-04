@@ -14,7 +14,7 @@ export default function SearchBox({
         type="search"
         name="q"
         defaultValue={defaultValue}
-        placeholder="Ort, Alarmcode, Stichwort oder Datum (z. B. 27.07.2026) …"
+        placeholder="Ort, Alarmcode, Stichwort oder Datum"
         className={
           dark
             ? 'w-full rounded-md border border-white/15 bg-white/[0.06] py-3 pl-4 pr-24 text-[14px] text-white outline-none placeholder:text-white/35 focus:border-white/35'
