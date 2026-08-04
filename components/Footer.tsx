@@ -10,9 +10,7 @@ export default function Footer() {
           Nutzungsbedingungen und unter Quellenangabe.
         </p>
         <div className="flex flex-wrap gap-[22px] text-[12.5px] text-ink-2">
-          <Link href="/presse-alarm" className="hover:text-ink">
-            Presse-Alarm
-          </Link>
+         
           <Link href="/nutzungsbedingungen" className="hover:text-ink">
             Nutzungsbedingungen
           </Link>
@@ -24,9 +22,6 @@ export default function Footer() {
           </Link>
           <Link href="/kontakt" className="hover:text-ink">
             Kontakt
-          </Link>
-          <Link href="/registrieren?type=presse" className="hover:text-ink">
-            Presseregistrierung
           </Link>
         </div>
       </div>
