@@ -122,6 +122,15 @@ export default function ContactForm({
     : 'border-line-strong bg-white text-ink focus:border-ink';
   const errorClass = dark ? 'text-signal' : 'text-signal-deep';
 
+  // Nur die dunkle Hero-Variante bekommt kompaktere, fluid schrumpfende
+  // Abstände (clamp mit dvh) -- die helle /kontakt-Seite hat genug Platz
+  // und bleibt bei den bisherigen festen Werten unverändert.
+  const labelMarginClass = dark ? 'mb-1' : 'mb-1.5';
+  const formStyle = dark
+    ? { gap: 'clamp(10px, 2dvh, 16px)', padding: 'clamp(16px, 3dvh, 24px)' }
+    : undefined;
+  const submitPaddingClass = dark ? 'py-2.5' : 'py-3';
+
   if (status === 'done') {
     return (
       <div
@@ -155,11 +164,12 @@ export default function ContactForm({
       )}
       <form
         onSubmit={handleSubmit}
-        className={`flex flex-col gap-4 rounded-[10px] border p-6 ${
+        className={`flex flex-col rounded-[10px] border ${dark ? '' : 'gap-4 p-6'} ${
           dark
             ? 'border-white/15 bg-white/[0.06] backdrop-blur-md'
             : 'border-line bg-white'
         }`}
+        style={formStyle}
       >
         {/* Honeypot -- bewusst kein type="hidden": manche Bots überspringen
             echte hidden-Felder, aber nicht per CSS versteckte. */}
@@ -176,7 +186,7 @@ export default function ContactForm({
 
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className={`mb-1.5 block text-[12.5px] font-medium ${labelClass}`}>
+            <label className={`${labelMarginClass} block text-[12.5px] font-medium ${labelClass}`}>
               Name *
             </label>
             <input
@@ -188,7 +198,7 @@ export default function ContactForm({
             />
           </div>
           <div>
-            <label className={`mb-1.5 block text-[12.5px] font-medium ${labelClass}`}>
+            <label className={`${labelMarginClass} block text-[12.5px] font-medium ${labelClass}`}>
               E-Mail *
             </label>
             <input
@@ -202,7 +212,7 @@ export default function ContactForm({
         </div>
 
         <div>
-          <label className={`mb-1.5 block text-[12.5px] font-medium ${labelClass}`}>
+          <label className={`${labelMarginClass} block text-[12.5px] font-medium ${labelClass}`}>
             An welche Organisation? (optional)
           </label>
           <select
@@ -222,7 +232,7 @@ export default function ContactForm({
         </div>
 
         <div>
-          <label className={`mb-1.5 block text-[12.5px] font-medium ${labelClass}`}>
+          <label className={`${labelMarginClass} block text-[12.5px] font-medium ${labelClass}`}>
             Betreff *
           </label>
           <input
@@ -235,7 +245,7 @@ export default function ContactForm({
         </div>
 
         <div>
-          <label className={`mb-1.5 block text-[12.5px] font-medium ${labelClass}`}>
+          <label className={`${labelMarginClass} block text-[12.5px] font-medium ${labelClass}`}>
             Nachricht *
           </label>
           <textarea
@@ -274,7 +284,7 @@ export default function ContactForm({
         <button
           type="submit"
           disabled={status === 'sending'}
-          className={`mt-2 rounded-md px-5 py-3 text-[13.5px] font-semibold transition-colors disabled:opacity-60 ${
+          className={`mt-2 rounded-md px-5 ${submitPaddingClass} text-[13.5px] font-semibold transition-colors disabled:opacity-60 ${
             dark
               ? 'bg-white text-void hover:bg-white/90'
               : 'bg-ink text-white hover:bg-black'
