@@ -317,10 +317,61 @@ export async function getAllUsedTags(): Promise<string[]> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Datumserkennung für die Suchleiste
+// ---------------------------------------------------------------------------
+// Unterstützte Formate:
+//   DD.MM.YYYY  oder  D.M.YYYY   → exakter Tag
+//   MM.YYYY     oder  M.YYYY     → ganzer Monat
+//   YYYY-MM-DD                   → exakter Tag (ISO)
+//   YYYY-MM                      → ganzer Monat (ISO)
+// ---------------------------------------------------------------------------
+type DateQueryDay   = { type: 'day';   date: string };            // YYYY-MM-DD
+type DateQueryMonth = { type: 'month'; year: string; month: string }; // YYYY-MM
+
+function parseDateQuery(raw: string): DateQueryDay | DateQueryMonth | null {
+  const q = raw.trim();
+
+  // DD.MM.YYYY  /  D.M.YYYY
+  const dayDe = q.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+  if (dayDe) {
+    const [, d, m, y] = dayDe;
+    return {
+      type: 'day',
+      date: `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`,
+    };
+  }
+
+  // MM.YYYY  /  M.YYYY  (Monatssuche)
+  const monthDe = q.match(/^(\d{1,2})\.(\d{4})$/);
+  if (monthDe) {
+    const [, m, y] = monthDe;
+    return { type: 'month', year: y, month: m.padStart(2, '0') };
+  }
+
+  // YYYY-MM-DD  (ISO-Tag)
+  const dayIso = q.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dayIso) {
+    return { type: 'day', date: q };
+  }
+
+  // YYYY-MM  (ISO-Monat)
+  const monthIso = q.match(/^(\d{4})-(\d{2})$/);
+  if (monthIso) {
+    return { type: 'month', year: monthIso[1], month: monthIso[2] };
+  }
+
+  return null;
+}
+
 // Suche übers Bildarchiv. Holt bewusst eine größere Menge und filtert
 // in unserem eigenen Code, statt sich auf Directus' Filterverhalten bei
 // JSON-Feldern (tags) zu verlassen -- bei der aktuellen Größenordnung
 // kostet das praktisch nichts, garantiert aber korrektes Verhalten.
+//
+// Erkennt automatisch Datumseingaben (z. B. "27.07.2026", "07.2026",
+// "2026-07-27") und filtert in diesem Fall nach dem Einsatzdatum
+// (event_date), nicht nach Freitext.
 export async function searchPublicImages({
   query,
   gewerkId,
@@ -346,9 +397,27 @@ export async function searchPublicImages({
     })
   )) as Post[];
 
+  const dateQuery = parseDateQuery(query);
   const q = query.trim().toLowerCase();
+
   const scored = candidates
     .map((post) => {
+      // --- Datumsuche nach event_date ---
+      if (dateQuery) {
+        // Directus liefert manchmal "2026-07-27T00:00:00", daher auf 10 Zeichen kürzen.
+        const eventDate = (post.event_date || '').slice(0, 10);
+
+        if (dateQuery.type === 'day') {
+          return { post, score: eventDate === dateQuery.date ? 5 : 0 };
+        }
+
+        if (dateQuery.type === 'month') {
+          const prefix = `${dateQuery.year}-${dateQuery.month}`;
+          return { post, score: eventDate.startsWith(prefix) ? 5 : 0 };
+        }
+      }
+
+      // --- normaler Freitext-Score ---
       const tagsText = normalizeTags(post.tags).join(' ').toLowerCase();
       const title = (post.title || '').toLowerCase();
       const location = (post.location || '').toLowerCase();
@@ -373,7 +442,10 @@ export async function searchPublicImages({
     .sort(
       (a, b) =>
         b.score - a.score ||
-        (b.post.published_at || '').localeCompare(a.post.published_at || '')
+        // Bei Datumssuche: nach event_date sortieren (neueste zuerst)
+        (dateQuery
+          ? (b.post.event_date || '').localeCompare(a.post.event_date || '')
+          : (b.post.published_at || '').localeCompare(a.post.published_at || ''))
     );
 
   const total = scored.length;
@@ -529,8 +601,6 @@ export async function getFolderWithPosts(
   return { id: data.id, name: data.name, posts };
 }
 
-// Eigene Medienfreigaben samt Beitragsanzahl -- für die Übersicht unter
-// /intern/freigaben. Ebenfalls mit explizitem organizationId-Filter.
 // Eigene Ordner samt der IDs ihrer Beiträge -- schlanker als
 // getFolderWithPosts (keine Bilder, keine Titel), gedacht für den
 // "ganzen Ordner in eine Freigabe ziehen"-Baustein, der nur wissen muss,
@@ -566,6 +636,8 @@ export async function getMyFoldersWithPostIds(
   }));
 }
 
+// Eigene Medienfreigaben samt Beitragsanzahl -- für die Übersicht unter
+// /intern/freigaben. Ebenfalls mit explizitem organizationId-Filter.
 export async function getMyMediaShares(
   accessToken: string,
   organizationId: string
