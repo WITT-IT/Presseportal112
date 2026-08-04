@@ -58,7 +58,7 @@ export default async function BildarchivPage({
     <section className="px-8 py-14">
       <div className="mx-auto max-w-[1180px]">
         <h1 className="mb-2 font-display text-[38px] font-bold leading-[1.02] tracking-[-0.01em]">
-          Bildarchiv
+          Fotos & Medien
         </h1>
         <p className="mb-8 max-w-[560px] text-[15px] leading-[1.6] text-ink-2">
           Alle freigegebenen Einsatzfotos an einem Ort. Nach Gewerk
