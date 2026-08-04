@@ -61,7 +61,7 @@ export default async function BildarchivPage({
           Bildarchiv
         </h1>
         <p className="mb-8 max-w-[560px] text-[15px] leading-[1.6] text-ink-2">
-          Alle freigegebenen Einsatzfotos an einem Ort — nach Gewerk
+          Alle freigegebenen Einsatzfotos an einem Ort. Nach Gewerk
           filterbar, mit Alarmcode, Ort und Stichwort durchsuchbar.
         </p>
 
