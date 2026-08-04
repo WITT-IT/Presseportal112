@@ -3,25 +3,29 @@ import type { ReactNode } from 'react';
 
 export default function DarkMasthead({
   backgroundImageUrl,
-  minHeight = 'auto',
-  imageHeight,
+  // Default jetzt "100dvh" statt "auto" -- gilt für JEDE Stelle, die
+  // DarkMasthead verwendet (Hero, Organisationsprofil, Artikelseite):
+  // der Container ist nie kürzer als eine Bildschirmhöhe, egal auf
+  // welchem Gerät. "dvh" statt "vh", weil das auf mobilen Browsern
+  // korrekt auf ein-/ausblendende Adressleisten reagiert.
+  minHeight = '100dvh',
   children,
 }: {
   backgroundImageUrl?: string | null;
   minHeight?: string;
-  // Optionale Kappung der Bildhöhe, unabhängig von der Container-Höhe.
-  // Ohne Angabe: Bild füllt weiterhin den Container komplett (bisheriges
-  // Verhalten für Artikel-/Org-Header, die keine feste Höhe brauchen).
-  imageHeight?: string;
   children: ReactNode;
 }) {
   return (
     <div className="relative overflow-hidden bg-void" style={{ minHeight }}>
       {backgroundImageUrl ? (
-        <div
-          className="absolute inset-x-0 top-0"
-          style={{ height: imageHeight ?? '100%' }}
-        >
+        // Bild füllt den Container immer zu 100% -- kein festes Cap mehr.
+        // Da der Container selbst nie kürzer als eine Bildschirmhöhe ist
+        // (siehe minHeight oben), kann die Bild-Unterkante die Display-
+        // Unterkante nie unterschreiten. Wächst der Container durch viel
+        // Inhalt (z. B. gestapeltes Formular auf Mobile) über eine
+        // Bildschirmhöhe hinaus, wächst das Bild automatisch mit -- kein
+        // Abriss, kein Void-Loch unter dem Inhalt mehr.
+        <div className="absolute inset-0">
           <Image
             src={backgroundImageUrl}
             alt=""
