@@ -123,16 +123,17 @@ function renderEmailLayout({
 </html>`;
 }
 
+// Kontaktformular-Mail -- geht direkt an die hinterlegte contact_email der
+// Organisation (oder den Fallback). Kein replyTo mehr, da der Absender
+// keine E-Mail-Adresse angibt -- nur Vorname, Betreff und Nachricht.
 export async function sendContactEmail({
   to,
-  replyTo,
   senderName,
   subject,
   message,
   organizationName,
 }: {
   to: string;
-  replyTo: string;
   senderName: string;
   subject: string;
   message: string;
@@ -141,7 +142,6 @@ export async function sendContactEmail({
   const transport = getTransporter();
   const from = process.env.SMTP_FROM || process.env.SMTP_USER!;
   const safeSenderName = escHtml(senderName);
-  const safeReplyTo = escHtml(replyTo);
   const safeSubject = escHtml(subject);
   const safeMessage = escHtml(message).replace(/\n/g, '<br>');
   const safeOrgName = organizationName ? escHtml(organizationName) : null;
@@ -155,7 +155,7 @@ export async function sendContactEmail({
     <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 18px; width:100%; border-collapse:collapse;">
       <tr>
         <td style="padding:3px 0; font-size:11px; color:#93969B; width:70px; vertical-align:top;">Von</td>
-        <td style="padding:3px 0; font-size:14px; color:#14161A;">${safeSenderName} &lt;${safeReplyTo}&gt;</td>
+        <td style="padding:3px 0; font-size:14px; color:#14161A;">${safeSenderName}</td>
       </tr>
       <tr>
         <td style="padding:3px 0; font-size:11px; color:#93969B; vertical-align:top;">Betreff</td>
@@ -170,22 +170,19 @@ export async function sendContactEmail({
   await transport.sendMail({
     from,
     to,
-    replyTo,
     subject: `[Presseportal112] ${subject}`,
     text: [
       `Neue Anfrage über Presseportal112${
         organizationName ? ` für ${organizationName}` : ''
       }.`,
       '',
-      `Von: ${senderName} <${replyTo}>`,
+      `Von: ${senderName}`,
       '',
       message,
     ].join('\n'),
     html: renderEmailLayout({
       heading: 'Neue Presseanfrage',
       bodyHtml,
-      ctaLabel: 'Direkt antworten',
-      ctaUrl: `mailto:${replyTo}`,
     }),
   });
 }
@@ -245,8 +242,7 @@ export async function sendNewImageAlert({
 
 // Geht an die registrierende Person direkt nach dem Absenden des
 // Registrierungsformulars -- bevor irgendjemand geprüft hat, rein als
-// Eingangsbestätigung. Jetzt im schönen HTML-Layout, mit Klartext-Fallback
-// für Mail-Clients, die kein HTML anzeigen.
+// Eingangsbestätigung.
 export async function sendRegistrationReceivedEmail({
   to,
   name,
@@ -271,8 +267,7 @@ export async function sendRegistrationReceivedEmail({
       und kannst dich direkt einloggen und Beiträge hochladen.
     </p>
     <p style="margin:0;">
-      Bis dahin kannst du dir schon einen Überblick über die aktuellen
-      Pressefotos im Bildarchiv verschaffen:
+      Wir freuen uns auf die Zusammenarbeit!
     </p>
   `;
 
@@ -283,26 +278,19 @@ export async function sendRegistrationReceivedEmail({
     text: [
       `Hallo ${name}`.trim() + ',',
       '',
-      'vielen Dank für deine Registrierung bei Presseportal112. Deine Anfrage ist bei uns eingegangen und wird schnellstmöglich von unserem Team geprüft.',
-      '',
-      'Sobald dein Konto freigeschaltet ist, erhältst du eine weitere E-Mail und kannst dich einloggen.',
-      '',
-      `Bis dahin: ${url}/bildarchiv`,
+      'vielen Dank für deine Registrierung bei Presseportal112.',
+      'Deine Anfrage wird schnellstmöglich geprüft.',
       '',
       `Datenschutzerklärung: ${url}/datenschutz`,
       `Impressum: ${url}/impressum`,
     ].join('\n'),
     html: renderEmailLayout({
-      heading: 'Deine Registrierung ist bei uns eingegangen',
+      heading: 'Registrierung eingegangen',
       bodyHtml,
-      ctaLabel: 'Zum Bildarchiv',
-      ctaUrl: `${url}/bildarchiv`,
     }),
   });
 }
 
-// Geht an die registrierende Person, sobald ein Admin die Registrierung
-// freigegeben hat. Ebenfalls im schönen HTML-Layout, mit Klartext-Fallback.
 export async function sendRegistrationApprovedEmail({
   to,
   name,
@@ -316,13 +304,12 @@ export async function sendRegistrationApprovedEmail({
   const from = process.env.SMTP_FROM || process.env.SMTP_USER!;
   const url = siteUrl();
   const safeName = escHtml(name || '');
-  const safeOrg = escHtml(organizationName);
+  const safeOrgName = escHtml(organizationName);
 
   const bodyHtml = `
     <p style="margin:0 0 16px;">Hallo${safeName ? ` ${safeName}` : ''},</p>
     <p style="margin:0 0 16px;">
-      gute Nachrichten: dein Konto für <strong>${safeOrg}</strong> wurde
-      soeben freigeschaltet.
+      dein Konto für <strong>${safeOrgName}</strong> wurde freigeschaltet.
     </p>
     <p style="margin:0;">
       Du kannst dich ab sofort einloggen und eure Pressefotos direkt
@@ -355,8 +342,7 @@ export async function sendRegistrationApprovedEmail({
   });
 }
 
-// Geht an eine Person, die "Passwort vergessen" ausgelöst hat -- enthält
-// den signierten Reset-Link. Ebenfalls im schönen HTML-Layout.
+// Geht an eine Person, die "Passwort vergessen" ausgelöst hat.
 export async function sendPasswordResetEmail({
   to,
   name,
@@ -409,8 +395,7 @@ export async function sendPasswordResetEmail({
 }
 
 // Geht direkt an den hinterlegten Medienvertreter, ausgelöst über den
-// "Direkt senden"-Button auf der Freigabe-Seite -- Alternative zum
-// mailto:-Link, läuft komplett über unser eigenes Brevo-Setup.
+// "Direkt senden"-Button auf der Freigabe-Seite.
 export async function sendMediaShareEmail({
   to,
   recipientName,
@@ -468,9 +453,7 @@ export async function sendMediaShareEmail({
   });
 }
 
-// Geht an die Portalverwaltung, sobald sich jemand neu registriert hat --
-// damit eine Freigabe nicht erst auffällt, wenn zufällig jemand in Directus
-// nachschaut.
+// Geht an die Portalverwaltung, sobald sich jemand neu registriert hat.
 export async function sendNewRegistrationAdminNotification({
   to,
   registrantName,
