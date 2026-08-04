@@ -23,9 +23,6 @@ async function getOrganizationContact(
   return data;
 }
 
-// Prüft das Turnstile-Token serverseitig gegen Cloudflare. Fehlt der Secret
-// Key (z. B. lokale Entwicklung ohne Cloudflare-Zugang), wird die Prüfung
-// bewusst übersprungen statt das Formular komplett zu blockieren.
 async function verifyTurnstile(token: string, remoteIp: string | null): Promise<boolean> {
   const secret = process.env.TURNSTILE_SECRET_KEY;
   if (!secret) {
@@ -53,17 +50,15 @@ async function verifyTurnstile(token: string, remoteIp: string | null): Promise<
 
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null);
-  const { vorname, recipient_organization, subject, message, turnstileToken, website } =
+  const { vorname, nachname, recipient_organization, subject, message, turnstileToken, website } =
     body || {};
 
-  // Honeypot-Feld gefüllt -- das kann kein echter Mensch sein (Feld ist
-  // unsichtbar). Bewusst "erfolgreich" antworten, ohne irgendwas zu tun --
-  // das Formular wirkt für den Bot funktionierend, wird aber ignoriert.
+  // Honeypot-Feld gefüllt -- Bewusst "erfolgreich" antworten, ohne irgendwas zu tun.
   if (website) {
     return NextResponse.json({ ok: true });
   }
 
-  if (!vorname || !subject || !message) {
+  if (!vorname || !nachname || !subject || !message) {
     return NextResponse.json({ error: 'Bitte alle Pflichtfelder ausfüllen.' }, { status: 400 });
   }
 
@@ -84,13 +79,14 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Immer zuerst in Directus ablegen -- verlässliches Archiv, unabhängig
-  // davon, ob der direkte Mailversand gleich klappt.
+  const fullName = `${String(vorname).trim()} ${String(nachname).trim()}`;
+
+  // Immer zuerst in Directus ablegen -- verlässliches Archiv.
   const storeRes = await fetch(`${DIRECTUS_URL}/items/contact_messages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      name: vorname,
+      name: fullName,
       email: null,
       recipient_organization: recipient_organization || null,
       subject,
@@ -107,10 +103,6 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Danach best-effort direkt zustellen -- an die hinterlegte Organisations-
-  // Mail, oder ohne Auswahl an die allgemeine Redaktionsadresse. Schlägt das
-  // fehl, ist durch die Speicherung oben trotzdem nichts verloren; ihr seht
-  // die Nachricht dann einfach in Directus statt im Postfach.
   try {
     let to = process.env.CONTACT_FALLBACK_EMAIL || null;
     let organizationName: string | undefined;
@@ -130,7 +122,7 @@ export async function POST(request: NextRequest) {
     if (to) {
       await sendContactEmail({
         to,
-        senderName: vorname,
+        senderName: fullName,
         subject,
         message,
         organizationName,
@@ -140,8 +132,6 @@ export async function POST(request: NextRequest) {
     }
   } catch (error) {
     console.error('Kontaktformular: E-Mail-Versand fehlgeschlagen:', error);
-    // Bewusst kein Fehler an den Absender zurückgeben -- die Nachricht ist
-    // ja sicher gespeichert, nur die sofortige Zustellung hat nicht geklappt.
   }
 
   return NextResponse.json({ ok: true });
