@@ -4,16 +4,24 @@ import type { ReactNode } from 'react';
 export default function DarkMasthead({
   backgroundImageUrl,
   minHeight = 'auto',
+  imageHeight,
   children,
 }: {
   backgroundImageUrl?: string | null;
   minHeight?: string;
+  // Optionale Kappung der Bildhöhe, unabhängig von der Container-Höhe.
+  // Ohne Angabe: Bild füllt weiterhin den Container komplett (bisheriges
+  // Verhalten für Artikel-/Org-Header, die keine feste Höhe brauchen).
+  imageHeight?: string;
   children: ReactNode;
 }) {
   return (
     <div className="relative overflow-hidden bg-void" style={{ minHeight }}>
       {backgroundImageUrl ? (
-        <div className="absolute inset-0">
+        <div
+          className="absolute inset-x-0 top-0"
+          style={{ height: imageHeight ?? '100%' }}
+        >
           <Image
             src={backgroundImageUrl}
             alt=""
