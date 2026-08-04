@@ -27,19 +27,35 @@ export default function Hero({
       backgroundImageUrl={
         backdropImage ? directusAssetUrl(backdropImage, 'width=2000&quality=70') : null
       }
-      // "100dvh" ist inzwischen der Default in DarkMasthead selbst -- hier
-      // trotzdem explizit gesetzt, damit beim Lesen sofort klar ist: der
-      // Hero ist nie kürzer als eine Bildschirmhöhe. Wächst der Inhalt
-      // (Text + Suche + Kontaktformular gestapelt auf Mobile) darüber
-      // hinaus, wächst der Container mit -- und das Hintergrundbild in
-      // DarkMasthead füllt ihn dabei immer vollständig aus.
+      // "100dvh" ist der Default in DarkMasthead selbst -- hier trotzdem
+      // explizit gesetzt: der Hero ist nie kürzer als eine Bildschirmhöhe.
+      // Reicht die Höhe für den Inhalt nicht, wächst der Container mit,
+      // das Hintergrundbild füllt ihn dabei immer vollständig aus (siehe
+      // DarkMasthead.tsx). Wie stark der Container überhaupt wachsen muss,
+      // wird unten über clamp()-Abstände so klein wie möglich gehalten.
       minHeight="100dvh"
     >
-      <div className="px-8 pb-16 pt-16 nav:pb-10 nav:pt-20">
+      {/* Außenabstände fluid statt fest: clamp(Minimum, X% der aktuellen
+          Fensterhöhe, Maximum). Bei viel Platz (großes/maximiertes Fenster)
+          greift das Maximum -- sieht aus wie vorher. Bei wenig Platz
+          (kleines Fenster) schrumpft der Abstand automatisch Richtung
+          Minimum, statt stur auf 64/80px zu bestehen und den Rest nach
+          unten aus dem Fenster zu drücken. */}
+      <div
+        className="px-8"
+        style={{
+          paddingTop: 'clamp(28px, 6dvh, 80px)',
+          paddingBottom: 'clamp(24px, 5dvh, 64px)',
+        }}
+      >
         {/* Ab dem nav-Breakpoint zweispaltig: links Text + Suche, rechts
             das Formular. Darunter (mobil) stapelt sich alles einfach --
-            explizit "grid-cols-1" als Basis, nicht nur implizit. */}
-        <div className="mx-auto grid w-full max-w-[1180px] grid-cols-1 items-start gap-8 nav:grid-cols-[1.1fr_400px] nav:gap-12">
+            explizit "grid-cols-1" als Basis, nicht nur implizit. Der Gap
+            zwischen den Spalten ist aus demselben Grund fluid wie oben. */}
+        <div
+          className="mx-auto grid w-full max-w-[1180px] grid-cols-1 items-start nav:grid-cols-[1.1fr_400px]"
+          style={{ gap: 'clamp(20px, 4dvh, 48px)' }}
+        >
           <div>
             <div className="mb-5 flex items-center gap-2.5">
               <span className="relative h-1.5 w-1.5 flex-none">
