@@ -213,7 +213,7 @@ export default function ContactForm({
 
         <div>
           <label className={`${labelMarginClass} block text-[12.5px] font-medium ${labelClass}`}>
-            An welche Organisation? (optional)
+            An welchen Empfänger?
           </label>
           <select
             value={recipient}
