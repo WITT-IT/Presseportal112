@@ -64,7 +64,8 @@ export default function Header({ loggedIn }: { loggedIn: boolean }) {
     } catch {
       // Netzwerkfehler beim Abmelden -- Cookie könnte serverseitig trotzdem
       // schon weg sein oder gleich ablaufen, wir navigieren trotzdem los.
-    } finally {
+    }
+    finally {
       setLoggingOut(false);
     }
     setMenuOpen(false);
@@ -127,12 +128,23 @@ export default function Header({ loggedIn }: { loggedIn: boolean }) {
               </button>
             </>
           ) : (
-            <Link
-              href="/login"
-              className="rounded-md bg-ink px-[18px] py-[10px] text-[13px] font-semibold text-white transition-colors hover:bg-black"
-            >
-              Anmelden
-            </Link>
+            // Anmelden-Button + Registrieren-Link darunter, deshalb hier
+            // in eine eigene Spalte gepackt statt direkt als Nav-Item --
+            // die restlichen Nav-Items bleiben eine Zeile hoch.
+            <div className="flex flex-col items-center gap-1">
+              <Link
+                href="/login"
+                className="rounded-md bg-ink px-[18px] py-[10px] text-[13px] font-semibold text-white transition-colors hover:bg-black"
+              >
+                Anmelden
+              </Link>
+              <Link
+                href="/registrieren"
+                className="text-[11.5px] font-semibold text-signal-deep transition-colors hover:underline"
+              >
+                oder Registrieren
+              </Link>
+            </div>
           )}
         </nav>
 
@@ -190,13 +202,22 @@ export default function Header({ loggedIn }: { loggedIn: boolean }) {
                 </button>
               </>
             ) : (
-              <Link
-                href="/login"
-                onClick={() => setMenuOpen(false)}
-                className="mt-2 rounded-md bg-ink px-4 py-3 text-center text-[13.5px] font-semibold text-white"
-              >
-                Anmelden
-              </Link>
+              <>
+                <Link
+                  href="/login"
+                  onClick={() => setMenuOpen(false)}
+                  className="mt-2 rounded-md bg-ink px-4 py-3 text-center text-[13.5px] font-semibold text-white"
+                >
+                  Anmelden
+                </Link>
+                <Link
+                  href="/registrieren"
+                  onClick={() => setMenuOpen(false)}
+                  className="mt-2 text-center text-[12.5px] font-semibold text-signal-deep"
+                >
+                  oder Registrieren
+                </Link>
+              </>
             )}
           </nav>
         </div>
