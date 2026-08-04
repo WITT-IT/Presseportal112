@@ -25,12 +25,11 @@ export default function ContactForm({
   defaultOrganizationId?: string;
   dark?: boolean;
 }) {
-  // Nur HiOrgs (keine Presse) in die Auswahl aufnehmen.
   const hiOrgs = organizations.filter((org) => org.organization_type !== 'press');
 
   const [vorname, setVorname] = useState('');
+  const [nachname, setNachname] = useState('');
 
-  // Autofill-Feld: sichtbarer Text + aufgelöste ID
   const defaultOrg = defaultOrganizationId
     ? hiOrgs.find((o) => o.id === defaultOrganizationId)
     : undefined;
@@ -162,6 +161,7 @@ export default function ContactForm({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         vorname,
+        nachname,
         recipient_organization: recipientId || null,
         subject,
         message,
@@ -246,18 +246,32 @@ export default function ContactForm({
           style={{ position: 'absolute', left: '-9999px', width: '1px', height: '1px', opacity: 0 }}
         />
 
-        {/* Vorname */}
-        <div>
-          <label className={`${labelMarginClass} block text-[12.5px] font-medium ${labelClass}`}>
-            Vorname *
-          </label>
-          <input
-            type="text"
-            required
-            value={vorname}
-            onChange={(e) => setVorname(e.target.value)}
-            className={`w-full rounded-md border px-3 py-2 text-[14px] outline-none ${fieldClass}`}
-          />
+        {/* Vorname + Nachname nebeneinander */}
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className={`${labelMarginClass} block text-[12.5px] font-medium ${labelClass}`}>
+              Vorname *
+            </label>
+            <input
+              type="text"
+              required
+              value={vorname}
+              onChange={(e) => setVorname(e.target.value)}
+              className={`w-full rounded-md border px-3 py-2 text-[14px] outline-none ${fieldClass}`}
+            />
+          </div>
+          <div>
+            <label className={`${labelMarginClass} block text-[12.5px] font-medium ${labelClass}`}>
+              Nachname *
+            </label>
+            <input
+              type="text"
+              required
+              value={nachname}
+              onChange={(e) => setNachname(e.target.value)}
+              className={`w-full rounded-md border px-3 py-2 text-[14px] outline-none ${fieldClass}`}
+            />
+          </div>
         </div>
 
         {/* Empfänger-Autofill -- nur HiOrgs, ab 3 Zeichen */}
