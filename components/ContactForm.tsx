@@ -22,9 +22,11 @@ const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
 export default function ContactForm({
   organizations,
   defaultOrganizationId,
+  dark = false,
 }: {
   organizations: Organization[];
   defaultOrganizationId?: string;
+  dark?: boolean;
 }) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -51,7 +53,7 @@ export default function ContactForm({
 
     turnstileWidgetIdRef.current = window.turnstile.render(turnstileContainerRef.current, {
       sitekey: TURNSTILE_SITE_KEY,
-      theme: 'light',
+      theme: dark ? 'dark' : 'light',
       callback: (token: string) => setTurnstileToken(token),
       'expired-callback': () => setTurnstileToken(''),
       'error-callback': () => setTurnstileToken(''),
@@ -67,7 +69,7 @@ export default function ContactForm({
         turnstileWidgetIdRef.current = null;
       }
     };
-  }, [turnstileScriptReady]);
+  }, [turnstileScriptReady, dark]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -111,12 +113,30 @@ export default function ContactForm({
     }
   }
 
+  // Zwei kleine, wiederverwendete Klassen-Sets statt in jedem Feld einzeln
+  // zu verzweigen -- hell (Standard, z. B. /kontakt) oder dunkel (eingebettet
+  // im Hero, verglast gegen den dunklen Hintergrund).
+  const labelClass = dark ? 'text-white/70' : 'text-ink-2';
+  const fieldClass = dark
+    ? 'border-white/20 bg-white/[0.07] text-white placeholder:text-white/30 focus:border-white/40'
+    : 'border-line-strong bg-white text-ink focus:border-ink';
+  const errorClass = dark ? 'text-signal' : 'text-signal-deep';
+
   if (status === 'done') {
     return (
-      <div className="rounded-[10px] border border-line bg-white p-8 text-center">
-        <i className="ti ti-circle-check mb-3 block text-[32px] text-ink" aria-hidden="true" />
-        <h2 className="mb-2 font-display text-[22px] font-bold">Nachricht gesendet</h2>
-        <p className="text-[13.5px] text-ink-2">
+      <div
+        className={`rounded-[10px] border p-8 text-center ${
+          dark ? 'border-white/15 bg-white/[0.06] backdrop-blur-md' : 'border-line bg-white'
+        }`}
+      >
+        <i
+          className={`ti ti-circle-check mb-3 block text-[32px] ${dark ? 'text-white' : 'text-ink'}`}
+          aria-hidden="true"
+        />
+        <h2 className={`mb-2 font-display text-[22px] font-bold ${dark ? 'text-white' : 'text-ink'}`}>
+          Nachricht gesendet
+        </h2>
+        <p className={`text-[13.5px] ${dark ? 'text-white/70' : 'text-ink-2'}`}>
           Deine Anfrage ist direkt an die zuständige Stelle unterwegs. Wir
           melden uns so schnell wie möglich zurück.
         </p>
@@ -135,7 +155,11 @@ export default function ContactForm({
       )}
       <form
         onSubmit={handleSubmit}
-        className="flex flex-col gap-4 rounded-[10px] border border-line bg-white p-6"
+        className={`flex flex-col gap-4 rounded-[10px] border p-6 ${
+          dark
+            ? 'border-white/15 bg-white/[0.06] backdrop-blur-md'
+            : 'border-line bg-white'
+        }`}
       >
         {/* Honeypot -- bewusst kein type="hidden": manche Bots überspringen
             echte hidden-Felder, aber nicht per CSS versteckte. */}
@@ -152,7 +176,7 @@ export default function ContactForm({
 
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">
+            <label className={`mb-1.5 block text-[12.5px] font-medium ${labelClass}`}>
               Name *
             </label>
             <input
@@ -160,11 +184,11 @@ export default function ContactForm({
               required
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full rounded-md border border-line-strong px-3 py-2 text-[14px] outline-none focus:border-ink"
+              className={`w-full rounded-md border px-3 py-2 text-[14px] outline-none ${fieldClass}`}
             />
           </div>
           <div>
-            <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">
+            <label className={`mb-1.5 block text-[12.5px] font-medium ${labelClass}`}>
               E-Mail *
             </label>
             <input
@@ -172,23 +196,25 @@ export default function ContactForm({
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-md border border-line-strong px-3 py-2 text-[14px] outline-none focus:border-ink"
+              className={`w-full rounded-md border px-3 py-2 text-[14px] outline-none ${fieldClass}`}
             />
           </div>
         </div>
 
         <div>
-          <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">
+          <label className={`mb-1.5 block text-[12.5px] font-medium ${labelClass}`}>
             An welche Organisation? (optional)
           </label>
           <select
             value={recipient}
             onChange={(e) => setRecipient(e.target.value)}
-            className="w-full rounded-md border border-line-strong bg-white px-3 py-2 text-[14px] outline-none focus:border-ink"
+            className={`w-full rounded-md border px-3 py-2 text-[14px] outline-none ${fieldClass}`}
           >
-            <option value="">Allgemeine Anfrage an die Redaktion</option>
+            <option value="" className="text-ink">
+              Allgemeine Anfrage an die Redaktion
+            </option>
             {organizations.map((org) => (
-              <option key={org.id} value={org.id}>
+              <option key={org.id} value={org.id} className="text-ink">
                 {org.name}
               </option>
             ))}
@@ -196,7 +222,7 @@ export default function ContactForm({
         </div>
 
         <div>
-          <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">
+          <label className={`mb-1.5 block text-[12.5px] font-medium ${labelClass}`}>
             Betreff *
           </label>
           <input
@@ -204,24 +230,24 @@ export default function ContactForm({
             required
             value={subject}
             onChange={(e) => setSubject(e.target.value)}
-            className="w-full rounded-md border border-line-strong px-3 py-2 text-[14px] outline-none focus:border-ink"
+            className={`w-full rounded-md border px-3 py-2 text-[14px] outline-none ${fieldClass}`}
           />
         </div>
 
         <div>
-          <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">
+          <label className={`mb-1.5 block text-[12.5px] font-medium ${labelClass}`}>
             Nachricht *
           </label>
           <textarea
             required
-            rows={5}
+            rows={dark ? 3 : 5}
             value={message}
             onChange={(e) => setMessage(e.target.value)}
-            className="w-full rounded-md border border-line-strong px-3 py-2 text-[14px] outline-none focus:border-ink"
+            className={`w-full rounded-md border px-3 py-2 text-[14px] outline-none ${fieldClass}`}
           />
         </div>
 
-        <label className="flex items-start gap-2 text-[11.5px] leading-[1.5] text-ink-2">
+        <label className={`flex items-start gap-2 text-[11.5px] leading-[1.5] ${labelClass}`}>
           <input
             type="checkbox"
             checked={privacyConfirmed}
@@ -230,7 +256,11 @@ export default function ContactForm({
           />
           <span>
             Ich habe die{' '}
-            <a href="/datenschutz" target="_blank" className="font-semibold text-ink underline">
+            <a
+              href="/datenschutz"
+              target="_blank"
+              className={`font-semibold underline ${dark ? 'text-white' : 'text-ink'}`}
+            >
               Datenschutzerklärung
             </a>{' '}
             gelesen und stimme der Verarbeitung meiner Angaben zur Bearbeitung dieser Anfrage zu. *
@@ -239,12 +269,16 @@ export default function ContactForm({
 
         {TURNSTILE_SITE_KEY && <div ref={turnstileContainerRef} />}
 
-        {error && <p className="text-[12.5px] text-signal-deep">{error}</p>}
+        {error && <p className={`text-[12.5px] ${errorClass}`}>{error}</p>}
 
         <button
           type="submit"
           disabled={status === 'sending'}
-          className="mt-2 rounded-md bg-ink px-5 py-3 text-[13.5px] font-semibold text-white transition-colors hover:bg-black disabled:opacity-60"
+          className={`mt-2 rounded-md px-5 py-3 text-[13.5px] font-semibold transition-colors disabled:opacity-60 ${
+            dark
+              ? 'bg-white text-void hover:bg-white/90'
+              : 'bg-ink text-white hover:bg-black'
+          }`}
         >
           {status === 'sending' ? 'Wird gesendet …' : 'Nachricht senden'}
         </button>
