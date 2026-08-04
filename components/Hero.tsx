@@ -27,18 +27,13 @@ export default function Hero({
       backgroundImageUrl={
         backdropImage ? directusAssetUrl(backdropImage, 'width=2000&quality=70') : null
       }
-      // Container: min-height 100dvh (statt 100vh -- "dvh" reagiert auf
-      // ein-/ausblendende Adressleisten in mobilen Browsern korrekt).
-      // min-height statt height, damit der Inhalt bei viel Text/Formular
-      // trotzdem noch Platz hat und nicht gequetscht wird -- der Container
-      // darf hier also über eine Bildschirmhöhe hinauswachsen.
+      // "100dvh" ist inzwischen der Default in DarkMasthead selbst -- hier
+      // trotzdem explizit gesetzt, damit beim Lesen sofort klar ist: der
+      // Hero ist nie kürzer als eine Bildschirmhöhe. Wächst der Inhalt
+      // (Text + Suche + Kontaktformular gestapelt auf Mobile) darüber
+      // hinaus, wächst der Container mit -- und das Hintergrundbild in
+      // DarkMasthead füllt ihn dabei immer vollständig aus.
       minHeight="100dvh"
-      // Bild dagegen bewusst auf genau eine Fensterhöhe gekappt --
-      // unabhängig davon, ob der Container durch viel Inhalt höher wird.
-      // So sitzt die Bild-Unterkante immer exakt an der Fensterkante,
-      // nie darunter; darunterliegender Platz wird einfach von der
-      // bg-void-Fläche aus DarkMasthead übernommen (nahtloser Übergang).
-      imageHeight="100dvh"
     >
       <div className="px-8 pb-16 pt-16 nav:pb-10 nav:pt-20">
         {/* Ab dem nav-Breakpoint zweispaltig: links Text + Suche, rechts
