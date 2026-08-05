@@ -40,15 +40,17 @@ export default async function OrganizationProfilePage({ params, searchParams }: 
   const org = await getOrganizationById(id);
   if (!org) notFound();
 
-  // Eingeloggt und genau diese eigene Organisation? Dann darf bearbeitet
-  // werden -- serverseitig geprüft, nicht nur versteckt im Frontend
-  // (die Schreibzugriffe selbst prüfen das in der Route zusätzlich nochmal).
+  // Eingeloggt und genau diese eigene Organisation? Dann darf bearbeitet werden.
+  // Gleichzeitig loggedIn für den GalleryCard-Plus-Button ermitteln --
+  // kein zweiter Cookie-Aufruf nötig, beides läuft hier zusammen.
   let canEdit = false;
+  let loggedIn = false;
   try {
     const cookieStore = await cookies();
     const raw = cookieStore.get(SESSION_COOKIE)?.value;
     if (raw) {
       const session = JSON.parse(raw) as { accessToken: string };
+      loggedIn = typeof session?.accessToken === 'string';
       const user = await getCurrentUser(session.accessToken);
       canEdit = user?.organization?.id === id;
     }
@@ -72,8 +74,6 @@ export default async function OrganizationProfilePage({ params, searchParams }: 
   }
   const gewerk = gewerke.find((g) => g.id === org.gewerk);
 
-  // Eigenes Titelbild hat Vorrang -- ohne eins fällt's automatisch auf das
-  // erste freigegebene Foto zurück, wie bisher.
   const backdropImage =
     org.banner_image ||
     images.map((p) => primaryImage(p)).find((img) => img?.file_public_preview)
@@ -132,7 +132,7 @@ export default async function OrganizationProfilePage({ params, searchParams }: 
             <>
               <div className="grid grid-cols-2 gap-[16px] nav:grid-cols-4">
                 {images.map((post) => (
-                  <GalleryCard key={post.id} post={post} />
+                  <GalleryCard key={post.id} post={post} loggedIn={loggedIn} />
                 ))}
               </div>
 
