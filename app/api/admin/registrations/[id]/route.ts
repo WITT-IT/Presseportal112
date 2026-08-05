@@ -3,7 +3,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser, isAdministrator, SESSION_COOKIE } from '@/lib/auth';
 import { DIRECTUS_URL } from '@/lib/directus';
 import { sendRegistrationApprovedEmail } from '@/lib/email';
-import { createSystemFoldersForOrg } from './create-system-folders';
 
 async function requireAdmin(request: NextRequest) {
   const raw = request.cookies.get(SESSION_COOKIE)?.value;
@@ -18,6 +17,34 @@ async function requireAdmin(request: NextRequest) {
   if (!caller) return null;
   if (!(await isAdministrator(caller.id))) return null;
   return caller;
+}
+
+// Legt "Öffentlich" und "Unsortiert" als Systemordner für eine neue Org an.
+// Inline statt separater Datei -- kein extra Import nötig.
+async function createSystemFolders(serviceToken: string, organizationId: string): Promise<void> {
+  const headers = {
+    Authorization: `Bearer ${serviceToken}`,
+    'Content-Type': 'application/json',
+  };
+  const folders = [
+    { name: 'Öffentlich', system_role: 'public' },
+    { name: 'Unsortiert', system_role: 'unsorted' },
+  ] as const;
+  await Promise.allSettled(
+    folders.map((f) =>
+      fetch(`${DIRECTUS_URL}/items/folders`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          id: randomUUID(),
+          name: f.name,
+          organization: organizationId,
+          is_system_folder: true,
+          system_role: f.system_role,
+        }),
+      })
+    )
+  );
 }
 
 export async function POST(
@@ -102,12 +129,11 @@ export async function POST(
     return NextResponse.json({ error: 'Freigabe fehlgeschlagen.' }, { status: 500 });
   }
 
-  // Systemordner anlegen -- nur bei neuen Organisationen nötig.
-  // Bei bestehenden Orgs sind die Ordner bereits vorhanden.
-  // Best-effort: schlägt das fehl, ist die Freigabe trotzdem durch.
+  // Systemordner für neue Organisationen automatisch anlegen.
+  // Best-effort: schlägt das fehl, bleibt die Freigabe trotzdem gültig.
   if (isNewOrganization) {
     try {
-      await createSystemFoldersForOrg(serviceToken, finalOrganizationId);
+      await createSystemFolders(serviceToken, finalOrganizationId);
     } catch (error) {
       console.error('Systemordner anlegen fehlgeschlagen (nicht kritisch):', error);
     }
