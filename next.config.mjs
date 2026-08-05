@@ -6,7 +6,7 @@ const nextConfig = {
   experimental: {
     // Max Upload-Größe: 3 Fotos à 80 MB + Preview/Download-Varianten
     // = locker 500 MB möglich, 256 MB als sicherer Puffer
-    middlewareClientMaxBodySize: 256 * 1024 * 1024,
+    middlewareClientMaxBodySize: 100 * 1024 * 1024, // 100MB pro Request (ein Bild)
   },
   images: {
     remotePatterns: [
