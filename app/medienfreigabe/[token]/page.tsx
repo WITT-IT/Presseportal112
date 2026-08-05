@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 import { getMediaShareByToken } from '@/lib/queries';
+import type { Post, PostImage } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,8 +13,8 @@ export default async function MediaSharePage({
   const share = await getMediaShareByToken(token);
   if (!share) notFound();
 
-  const allImages = share.posts.flatMap((post) =>
-    (post.images ?? []).map((img) => ({ ...img, post }))
+  const allImages = share.posts.flatMap((post: Post) =>
+    ((post.images ?? []) as PostImage[]).map((img: PostImage) => ({ ...img, post }))
   );
 
   return (
@@ -60,7 +61,7 @@ export default async function MediaSharePage({
               >
                 <div className="relative h-[165px] bg-panel">
                   {img.file_public_preview && (
-                    // eslint-disable-next-line @next/next/no-img-element -- proxied per Route, keine Directus-Domain direkt
+                    // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={`/api/medienfreigabe/${token}/preview?imageId=${img.id}`}
                       alt={img.caption ?? img.post.title ?? 'Pressefoto'}
@@ -70,7 +71,9 @@ export default async function MediaSharePage({
                 </div>
                 <div className="p-3">
                   <div className="mb-2 font-mono text-[10px] text-ink-3">
-                    {new Date(img.post.event_date).toLocaleDateString('de-DE')}
+                    {img.post.event_date
+                      ? new Date(img.post.event_date).toLocaleDateString('de-DE')
+                      : ''}
                     {img.post.location ? ` · ${img.post.location}` : ''}
                   </div>
                   <a
