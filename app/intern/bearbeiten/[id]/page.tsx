@@ -1,7 +1,7 @@
 import { redirect, notFound } from 'next/navigation';
 import { cookies } from 'next/headers';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
-import { getPostForEdit, getAllUsedTags, getAlarmcodes } from '@/lib/queries';
+import { getPostForEdit, getAllUsedTags, getAlarmcodes, getMyFoldersWithPostIds } from '@/lib/queries';
 import EditPostForm from '@/components/EditPostForm';
 
 export const dynamic = 'force-dynamic';
@@ -24,17 +24,28 @@ export default async function EditPostPage({
     redirect('/login');
   }
 
-  const [post, existingTags, user, alarmcodes] = await Promise.all([
+  const user = await getCurrentUser(session.accessToken);
+  if (!user) redirect('/login');
+
+  const [post, existingTags, alarmcodes, foldersWithPosts] = await Promise.all([
     getPostForEdit(session.accessToken, id),
     getAllUsedTags(),
-    getCurrentUser(session.accessToken),
     getAlarmcodes(),
+    user.organization?.id
+      ? getMyFoldersWithPostIds(session.accessToken, user.organization.id)
+      : Promise.resolve([]),
   ]);
 
   if (!post) notFound();
 
   const watermarkText =
     user?.organization?.branding_label || `Foto: ${user?.organization?.name ?? ''}`;
+
+  // Prüfen ob der Beitrag in einem echten (nicht-System-)Ordner liegt.
+  // Systemordner (Öffentlich, Unsortiert) zählen nicht als "echter" Ordner.
+  const hasFolder = foldersWithPosts
+    .filter((f) => f.name !== 'Öffentlich' && f.name !== 'Unsortiert')
+    .some((f) => f.postIds.includes(id));
 
   return (
     <section className="px-8 py-14">
@@ -43,13 +54,14 @@ export default async function EditPostPage({
           Beitrag bearbeiten
         </h1>
         <p className="mb-8 text-[13.5px] leading-[1.6] text-ink-2">
-          {post.title || post.alarm_code || 'Ohne Titel'}
+          {post.title || post.alarm_code || 'Stockfoto'}
         </p>
         <EditPostForm
           post={post}
           existingTags={existingTags}
           watermarkText={watermarkText}
           alarmcodes={alarmcodes}
+          hasFolder={hasFolder}
         />
       </div>
     </section>
