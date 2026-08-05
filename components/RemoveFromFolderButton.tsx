@@ -16,18 +16,19 @@ export default function RemoveFromFolderButton({
   const [busy, setBusy] = useState(false);
 
   async function handleClick() {
+    console.log('[RemoveFromFolderButton] click', { folderId, postId, isPublicFolder });
     setBusy(true);
 
     if (isPublicFolder) {
-      // Im Öffentlich-Ordner: Beitrag zurückziehen + Bilder privat setzen
-      // + in Unsortiert/Ursprungsordner verschieben
-      await fetch('/api/intern/posts/remove-from-public', {
+      console.log('[RemoveFromFolderButton] → remove-from-public');
+      const res = await fetch('/api/intern/posts/remove-from-public', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ postId, folderId }),
       });
+      console.log('[RemoveFromFolderButton] response status:', res.status);
     } else {
-      // Normaler Ordner: nur M2M-Verknüpfung entfernen
+      console.log('[RemoveFromFolderButton] → folders/assign remove');
       await fetch('/api/intern/folders/assign', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
