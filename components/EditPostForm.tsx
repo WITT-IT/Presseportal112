@@ -22,12 +22,16 @@ export default function EditPostForm({
   watermarkText,
   alarmcodes,
   hasFolder = false,
+  folders = [],
+  assignedFolderIds = [],
 }: {
   post: Post;
   existingTags: string[];
   watermarkText: string;
   alarmcodes: Alarmcode[];
-  hasFolder?: boolean; // true wenn der Beitrag in mind. einem echten Ordner liegt
+  hasFolder?: boolean;
+  folders?: { id: string; name: string }[];
+  assignedFolderIds?: string[];
 }) {
   const router = useRouter();
   const [title, setTitle] = useState(post.title ?? '');
@@ -56,6 +60,8 @@ export default function EditPostForm({
   const [error, setError] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [retiring, setRetiring] = useState(false);
+  const [folderIds, setFolderIds] = useState<string[]>(assignedFolderIds);
+  const [folderBusy, setFolderBusy] = useState(false);
 
   function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
@@ -105,6 +111,21 @@ export default function EditPostForm({
     setEntries((prev) =>
       prev.map((e, i) => (i === index && e.kind === 'existing' ? { ...e, noWatermark } : e))
     );
+  }
+
+  // ── Ordner-Zuordnung togglen ─────────────────────────────────────────────
+  async function toggleFolder(folderId: string) {
+    setFolderBusy(true);
+    const isAssigned = folderIds.includes(folderId);
+    await fetch('/api/intern/folders/assign', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folderId, postId: post.id, action: isAssigned ? 'remove' : 'add' }),
+    });
+    setFolderIds((prev) =>
+      isAssigned ? prev.filter((id) => id !== folderId) : [...prev, folderId]
+    );
+    setFolderBusy(false);
   }
 
   // ── Beitrag zurückziehen (nicht löschen, in Unsortiert) ─────────────────
@@ -357,6 +378,37 @@ export default function EditPostForm({
             {existingTags.map((tag) => (<option key={tag} value={tag} />))}
           </datalist>
         </div>
+
+        {/* ── Ordner-Zuordnung ── */}
+        {folders.length > 0 && (
+          <div>
+            <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">Ordner-Zuordnung</label>
+            <div className="flex flex-wrap gap-2">
+              {folders.map((folder) => {
+                const assigned = folderIds.includes(folder.id);
+                return (
+                  <button
+                    key={folder.id}
+                    type="button"
+                    onClick={() => toggleFolder(folder.id)}
+                    disabled={folderBusy}
+                    className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-[12px] font-semibold transition-colors disabled:opacity-50 ${
+                      assigned
+                        ? 'border-ink bg-ink text-white'
+                        : 'border-line-strong bg-white text-ink-2 hover:border-ink hover:text-ink'
+                    }`}
+                  >
+                    <i className={`ti ${assigned ? 'ti-folder-filled' : 'ti-folder'} text-[13px]`} aria-hidden="true" />
+                    {folder.name}
+                    {assigned && (
+                      <i className="ti ti-x text-[11px] ml-0.5" aria-hidden="true" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {error && <p className="text-[12.5px] text-signal-deep">{error}</p>}
         {progress && <p className="text-[12.5px] text-ink-2">{progress}</p>}
