@@ -21,10 +21,13 @@ async function uploadFileToDirectus(
   folderId?: string
 ): Promise<string> {
   const fileId = randomUUID();
+  // Buffer aus arrayBuffer -- verhindert "Body already read" bei Node.js FormData
+  const buffer = Buffer.from(await blob.arrayBuffer());
+  const freshBlob = new Blob([buffer], { type: blob.type || 'application/octet-stream' });
   const fd = new FormData();
   fd.append('id', fileId);
   if (folderId) fd.append('folder', folderId);
-  fd.append('file', blob, filename);
+  fd.append('file', freshBlob, filename);
   const res = await fetch(`${DIRECTUS_URL}/files`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
