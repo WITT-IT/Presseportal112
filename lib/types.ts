@@ -47,28 +47,38 @@ export type Organization = {
 export type PostImage = {
   id: string;
   post: Post | string | null;
-  file_original: string | null; // unwatermarkt, nie öffentlich -- nur intern und für Medienfreigaben
-  file_public_preview: string | null; // "aktive" Vorschau -- zeigt je nach no_watermark auf watermarkt oder Original
-  file_download: string | null; // "aktiver" Download -- zeigt je nach no_watermark auf watermarkt oder Original
-  no_watermark: boolean; // true = Organisation hat für dieses Foto bewusst auf Wasserzeichen verzichtet
+  file_original: string | null;
+  file_public_preview: string | null;
+  file_download: string | null;
+  no_watermark: boolean;
   caption: string | null;
   sort: number;
 };
 
 // Ein Beitrag bündelt Titel, Text und Metadaten -- und dazu ein oder
 // mehrere Fotos.
+//
+// post_type = 'einsatz'  → Pflichtfelder: title, event_date, alarm_code, location
+// post_type = 'stockfoto' → nur tags + images, alles andere optional/null
+//
+// origin_folder_id merkt sich aus welchem Ordner ein Beitrag stammt,
+// bevor er öffentlich gemacht wurde -- damit kann beim Zurückziehen
+// entschieden werden ob er in "Unsortiert" landet oder im Ursprungsordner
+// verbleibt.
 export type Post = {
   id: string;
   organization: Organization | string | null;
+  post_type: 'einsatz' | 'stockfoto';
   title: string | null;
   article_body: string | null;
-  event_date: string;
+  event_date: string | null;
   event_kind?: string | null;
   alarm_code: string | null;
   location: string | null;
   tags: string[] | null;
   is_public: boolean;
   published_at: string | null;
+  origin_folder_id: string | null;
   images?: PostImage[];
 };
 
@@ -83,76 +93,57 @@ export function primaryImage(post: Post): PostImage | null {
 // tatsächlich vorliegen -- schützt vor Abstürzen, falls z. B. beim manuellen
 // Anlegen/Migrieren eines Beitrags aus Versehen ein Text statt eines
 // JSON-Arrays im Feld gelandet ist.
-export function normalizeTags(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value.filter((v): v is string => typeof v === 'string');
-  }
-  if (typeof value === 'string') {
+export function normalizeTags(raw: unknown): string[] {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw.filter((t) => typeof t === 'string');
+  if (typeof raw === 'string') {
     try {
-      const parsed = JSON.parse(value);
-      if (Array.isArray(parsed)) {
-        return parsed.filter((v): v is string => typeof v === 'string');
-      }
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed.filter((t) => typeof t === 'string');
     } catch {
-      // Kein gültiges JSON -- als Komma-Liste interpretieren.
+      return raw
+        .split(',')
+        .map((t) => t.trim())
+        .filter(Boolean);
     }
-    return value
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
   }
   return [];
 }
 
+// Ordner -- jetzt mit Systemordner-Feldern.
+// is_system_folder = true  → Lösch-Button im UI ausblenden, API verweigert DELETE
+// system_role              → 'public' = Öffentlich-Ordner, 'unsorted' = Unsortiert
 export type Folder = {
   id: string;
   name: string;
+  organization: string | null;
+  is_system_folder: boolean;
+  system_role: 'public' | 'unsorted' | null;
+  postCount?: number;
+  coverImage?: string | null;
 };
 
-// Kurzfassung einer Medienfreigabe -- für die Übersichtsliste unter
-// /intern/freigaben, ohne die vollen Beitragsdaten mitzuladen.
-export type MediaShareSummary = {
+// Ein Eintrag in der Medienbibliothek -- jedes hochgeladene Bild landet
+// hier, unabhängig davon ob es bereits in einem Beitrag verwendet wird.
+// Das erlaubt den "Aus Bibliothek wählen"-Flow im Upload Studio.
+export type MediaLibraryItem = {
   id: string;
-  name: string;
-  recipientName: string | null;
-  active: boolean;
-  expiresAt: string;
-  postCount: number;
+  organization: string;
+  file: string;             // Directus file UUID -- Original
+  file_preview: string | null; // Wasserzeichen-Vorschau
+  file_download: string | null;
+  original_filename: string | null;
+  tags: string[] | null;
+  uploaded_at: string;
+  used_in_posts: string[];  // post-IDs die dieses Bild nutzen
 };
 
-// Vollständige Freigabe inkl. zugeordneter Beiträge -- für die interne
-// Detailseite (Beiträge verwalten, Link anzeigen, umbenennen).
-export type MediaShareDetail = {
-  id: string;
-  name: string;
-  recipientName: string | null;
-  recipientEmail: string | null;
-  token: string;
-  active: boolean;
-  expiresAt: string;
-  autoDeleteOnExpiry: boolean;
-  posts: Post[];
-};
-
-// Öffentliche Sicht auf eine Freigabe -- absichtlich schlanker als
-// MediaShareDetail (kein token/autoDeleteOnExpiry etc. an die Öffentlichkeit).
-export type PublicMediaShare = {
-  id: string;
-  name: string;
-  recipientName: string | null;
-  organizationName: string | null;
-  expiresAt: string;
-  posts: Post[];
-};
-
-// Zuordnung Gewerk -> Tailwind-Farbklasse, spiegelt gewerke.color aus Directus.
-// Falls du eine Farbe in Directus änderst, hier synchron halten (oder später
-// dynamisch aus der API übernehmen statt hart zu codieren).
+// Hilfskonstanten für die Gewerk-Farben und -Icons.
 export const GEWERK_COLORS: Record<string, string> = {
-  feuerwehr: '#C31F2B',
-  drk: '#B87A0A',
-  polizei: '#245C9C',
-  thw: '#1D7A4C',
+  feuerwehr: '#E4483C',
+  drk: '#C81E2C',
+  polizei: '#1E3A5F',
+  thw: '#003087',
 };
 
 export const GEWERK_ICONS: Record<string, string> = {
