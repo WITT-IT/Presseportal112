@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
 import { getAllUsedTags, getAlarmcodes, getMyFolders } from '@/lib/queries';
 import Breadcrumbs from '@/components/Breadcrumbs';
-import UploadForm from '@/components/UploadForm';
+import UploadStudio from '@/components/UploadStudio';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,8 +28,6 @@ export default async function UploadPage({
   const user = await getCurrentUser(session.accessToken);
   if (!user) redirect('/login');
   if (!user.organization?.id) redirect('/intern');
-  // Presse-Konten laden keine eigenen Beiträge hoch -- diese Seite ist
-  // ausschließlich für BOS-Organisationen gedacht.
   if (user.organization.organization_type === 'press') redirect('/intern');
 
   const [existingTags, alarmcodes, folders] = await Promise.all([
@@ -38,11 +36,7 @@ export default async function UploadPage({
     getMyFolders(session.accessToken, user.organization.id),
   ]);
 
-  // Ordner-Kontext nur übernehmen, wenn er wirklich existiert und der
-  // eigenen Organisation gehört -- verhindert, dass eine erfundene oder
-  // fremde ID im Link zu Verwirrung führt.
   const targetFolder = folderId ? folders.find((f) => f.id === folderId) ?? null : null;
-
   const watermarkText =
     user.organization.branding_label || `Foto: ${user.organization.name ?? ''}`;
 
@@ -61,7 +55,7 @@ export default async function UploadPage({
         }
       />
 
-      <h1 className="mb-2 font-display text-[28px] font-bold">Neues Foto hochladen</h1>
+      <h1 className="mb-2 font-display text-[28px] font-bold">Neuer Beitrag</h1>
       {targetFolder && (
         <p className="mb-6 flex items-center gap-1.5 text-[13px] text-ink-2">
           <i className="ti ti-folder text-[15px]" aria-hidden="true" />
@@ -69,15 +63,13 @@ export default async function UploadPage({
         </p>
       )}
 
-      <div className="max-w-[720px]">
-        <UploadForm
-          watermarkText={watermarkText}
-          existingTags={existingTags}
-          alarmcodes={alarmcodes}
-          folders={folders}
-          preselectedFolderId={targetFolder?.id ?? null}
-        />
-      </div>
+      <UploadStudio
+        watermarkText={watermarkText}
+        existingTags={existingTags}
+        alarmcodes={alarmcodes}
+        folders={folders}
+        preselectedFolderId={targetFolder?.id ?? null}
+      />
     </div>
   );
 }
