@@ -12,20 +12,19 @@ const ARTICLE_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
 
 const PUBLIC_FOLDER_ID = process.env.DIRECTUS_PUBLIC_FOLDER_ID;
 
+// Datei zu Directus hochladen. ID selbst vergeben damit wir unabhängig
+// von der Directus-Antwort (200 oder 204) sind.
 async function uploadFileToDirectus(
   token: string,
-  file: File,
+  blob: Blob,
   filename: string,
   folderId?: string
 ): Promise<string> {
-  // ID selbst vergeben -- Directus akzeptiert eine vorgegebene UUID im
-  // FormData-Feld "id". So sind wir unabhängig davon ob Directus 200 oder
-  // 204 zurückgibt: die ID steht immer fest.
   const fileId = randomUUID();
   const fd = new FormData();
   fd.append('id', fileId);
   if (folderId) fd.append('folder', folderId);
-  fd.append('file', file, filename);
+  fd.append('file', blob, filename);
   const res = await fetch(`${DIRECTUS_URL}/files`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
@@ -35,25 +34,25 @@ async function uploadFileToDirectus(
     const body = await res.text();
     throw new Error(`Datei-Upload fehlgeschlagen (${res.status}): ${body}`);
   }
-  // 200 oder 204 -- egal, wir kennen die ID bereits.
   return fileId;
 }
 
+// Systemordner der Org per system_role oder Name finden.
 async function getSystemFolders(
   token: string,
   orgId: string
 ): Promise<{ publicFolderId: string | null; unsortedFolderId: string | null }> {
   const res = await fetch(
-    `${DIRECTUS_URL}/items/folders?filter[organization][_eq]=${orgId}&fields=id,name,system_role&limit=50`,
+    `${DIRECTUS_URL}/items/folders?filter[organization][_eq]=${orgId}&fields=id,name,system_role&limit=100`,
     { headers: { Authorization: `Bearer ${token}` } }
   );
   if (!res.ok) return { publicFolderId: null, unsortedFolderId: null };
   const { data } = await res.json();
   const rows = data as { id: string; name: string; system_role?: string | null }[];
-  const publicFolder = rows.find((r) => r.system_role === 'public') ??
-    rows.find((r) => r.name === 'Öffentlich');
-  const unsortedFolder = rows.find((r) => r.system_role === 'unsorted') ??
-    rows.find((r) => r.name === 'Unsortiert');
+  const publicFolder =
+    rows.find((r) => r.system_role === 'public') ?? rows.find((r) => r.name === 'Öffentlich');
+  const unsortedFolder =
+    rows.find((r) => r.system_role === 'unsorted') ?? rows.find((r) => r.name === 'Unsortiert');
   return {
     publicFolderId: publicFolder?.id ?? null,
     unsortedFolderId: unsortedFolder?.id ?? null,
@@ -65,7 +64,7 @@ async function assignToFolder(token: string, folderId: string, postId: string): 
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ folders_id: folderId, posts_id: postId }),
-  });
+  }).catch(() => {});
 }
 
 export async function POST(request: NextRequest) {
@@ -81,7 +80,10 @@ export async function POST(request: NextRequest) {
 
   const user = await getCurrentUser(session.accessToken);
   if (!user || !user.organization?.id) {
-    return NextResponse.json({ error: 'Deinem Konto ist keine Organisation zugeordnet.' }, { status: 403 });
+    return NextResponse.json(
+      { error: 'Deinem Konto ist keine Organisation zugeordnet.' },
+      { status: 403 }
+    );
   }
 
   const formData = await request.formData();
@@ -104,16 +106,22 @@ export async function POST(request: NextRequest) {
   const imageCount = Number(formData.get('image_count') || 0);
 
   if (!contentConfirmed) {
-    return NextResponse.json({ error: 'Bitte die Bestätigung ankreuzen.' }, { status: 400 });
+    return NextResponse.json(
+      { error: 'Bitte die Bestätigung ankreuzen.' },
+      { status: 400 }
+    );
   }
   if (!isStock && (!title?.trim() || !location?.trim() || !alarmCode?.trim() || !eventDate)) {
-    return NextResponse.json({ error: 'Bitte Titel, Ort, Alarmcode und Datum ausfüllen.' }, { status: 400 });
+    return NextResponse.json(
+      { error: 'Bitte Titel, Ort, Alarmcode und Datum ausfüllen.' },
+      { status: 400 }
+    );
   }
   if (imageCount < 1) {
     return NextResponse.json({ error: 'Mindestens ein Foto nötig.' }, { status: 400 });
   }
 
-  const headers = {
+  const authHeaders = {
     Authorization: `Bearer ${session.accessToken}`,
     'Content-Type': 'application/json',
   };
@@ -126,15 +134,21 @@ export async function POST(request: NextRequest) {
       user.organization.id
     );
 
+    // Zielordner bestimmen:
+    // makePublic=true  → Öffentlich-Ordner (Pflicht)
+    // expliziter Ordner gewählt → dieser Ordner
+    // sonst → Unsortiert (immer als Fallback)
     let finalFolderId: string | null = null;
     let originFolderId: string | null = null;
 
     if (makePublic && publicFolderId) {
       finalFolderId = publicFolderId;
+      // Falls ein manueller Ordner gewählt war, als Ursprung merken
       if (targetFolderIdRaw) originFolderId = targetFolderIdRaw;
     } else if (targetFolderIdRaw) {
       finalFolderId = targetFolderIdRaw;
-    } else if (unsortedFolderId) {
+    } else {
+      // Kein Ordner gewählt → immer Unsortiert
       finalFolderId = unsortedFolderId;
     }
 
@@ -156,13 +170,12 @@ export async function POST(request: NextRequest) {
     };
     if (originFolderId) postBody.origin_folder_id = originFolderId;
 
+    // Beitrag anlegen — Fallback ohne neue Felder wenn 403
     let postRes = await fetch(`${DIRECTUS_URL}/items/posts`, {
       method: 'POST',
-      headers,
+      headers: authHeaders,
       body: JSON.stringify(postBody),
     });
-
-    // Fallback: neue Felder weglassen wenn 403
     if (!postRes.ok) {
       const errText = await postRes.text();
       if (postRes.status === 403 && errText.includes('post_type')) {
@@ -170,38 +183,60 @@ export async function POST(request: NextRequest) {
         delete postBody.origin_folder_id;
         postRes = await fetch(`${DIRECTUS_URL}/items/posts`, {
           method: 'POST',
-          headers,
+          headers: authHeaders,
           body: JSON.stringify(postBody),
         });
       }
       if (!postRes.ok) {
-        const body = await postRes.text();
-        throw new Error(`Beitrag anlegen fehlgeschlagen: ${body}`);
+        throw new Error(`Beitrag anlegen fehlgeschlagen: ${await postRes.text()}`);
       }
     }
 
-    // Fotos sequenziell hochladen -- parallel führt zu 204-Antworten
+    // Fotos sequenziell hochladen.
+    // WICHTIG: File-Objekte aus dem Browser können nur einmal gelesen werden.
+    // Das UploadStudio sendet original, preview und download bereits als
+    // separate Blobs — wir lesen sie hier nur noch einmal via formData.get().
     for (let i = 0; i < imageCount; i++) {
-      const originalFile = formData.get(`original_${i}`) as File | null;
-      const previewFile = formData.get(`preview_${i}`) as File | null;
-      const downloadFile = formData.get(`download_${i}`) as File | null;
+      const originalBlob = formData.get(`original_${i}`) as File | null;
+      const previewBlob = formData.get(`preview_${i}`) as File | null;
+      const downloadBlob = formData.get(`download_${i}`) as File | null;
       const caption = (formData.get(`caption_${i}`) as string) || null;
-      if (!originalFile || !previewFile || !downloadFile) continue;
+
+      if (!originalBlob || !previewBlob || !downloadBlob) continue;
 
       const uid = randomUUID().slice(0, 8);
-      const originalId = await uploadFileToDirectus(session.accessToken, originalFile, `${uid}-orig-${originalFile.name}`);
-      const previewId = await uploadFileToDirectus(session.accessToken, previewFile, `${uid}-prev-${originalFile.name}.jpg`, PUBLIC_FOLDER_ID);
-      const downloadId = await uploadFileToDirectus(session.accessToken, downloadFile, `${uid}-dl-${originalFile.name}.jpg`, PUBLIC_FOLDER_ID);
+      const baseName = originalBlob.name.replace(/\.[^.]+$/, '');
+
+      // Sequenziell statt parallel — verhindert 204-Duplikat-Antworten
+      const originalId = await uploadFileToDirectus(
+        session.accessToken,
+        originalBlob,
+        `${uid}-orig-${baseName}`
+      );
+      const previewId = await uploadFileToDirectus(
+        session.accessToken,
+        previewBlob,
+        `${uid}-prev-${baseName}.jpg`,
+        PUBLIC_FOLDER_ID
+      );
+      const downloadId = await uploadFileToDirectus(
+        session.accessToken,
+        downloadBlob,
+        `${uid}-dl-${baseName}.jpg`,
+        PUBLIC_FOLDER_ID
+      );
 
       await fetch(`${DIRECTUS_URL}/items/images`, {
         method: 'POST',
-        headers,
+        headers: authHeaders,
         body: JSON.stringify({
           id: randomUUID(),
           post: postId,
           file_original: originalId,
+          // Nur öffentlich zugänglich machen wenn Beitrag auch öffentlich ist
           file_public_preview: makePublic ? previewId : null,
           file_download: makePublic ? downloadId : null,
+          // Wasserzeichen-Kopien immer sichern für spätere Freigabe
           file_public_preview_watermarked: previewId,
           file_download_watermarked: downloadId,
           no_watermark: false,
@@ -215,6 +250,8 @@ export async function POST(request: NextRequest) {
     if (finalFolderId) {
       await assignToFolder(session.accessToken, finalFolderId, postId);
     }
+    // Falls Ursprungsordner vorhanden und verschieden vom Zielordner →
+    // auch dort eintragen damit der Kontext erhalten bleibt
     if (originFolderId && originFolderId !== finalFolderId) {
       await assignToFolder(session.accessToken, originFolderId, postId);
     }
@@ -222,6 +259,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, id: postId });
   } catch (error) {
     console.error('Upload fehlgeschlagen:', error);
-    return NextResponse.json({ error: 'Upload fehlgeschlagen. Bitte erneut versuchen.' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Upload fehlgeschlagen. Bitte erneut versuchen.' },
+      { status: 500 }
+    );
   }
 }
