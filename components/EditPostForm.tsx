@@ -12,20 +12,8 @@ import AlarmCodeInput from './AlarmCodeInput';
 const MAX_FILE_SIZE = 80 * 1024 * 1024;
 const MAX_IMAGES = 12;
 
-// Eine vereinheitlichte Liste für bestehende UND neu hinzugefügte Fotos --
-// beide lassen sich dadurch gemeinsam sortieren, statt zwei getrennte
-// Listen im Kopf abgleichen zu müssen. Die Wasserzeichen-Umschaltung gibt's
-// nur für bestehende Fotos -- ein neues Foto hat noch keine gespeicherte
-// Sicherungskopie der watermarkten Variante, gegen die zurückgeschaltet
-// werden könnte.
 type ImageEntry =
-  | {
-      kind: 'existing';
-      id: string;
-      previewUrl: string;
-      caption: string;
-      noWatermark: boolean;
-    }
+  | { kind: 'existing'; id: string; previewUrl: string; caption: string; noWatermark: boolean }
   | { kind: 'new'; key: string; file: File; previewUrl: string; caption: string };
 
 export default function EditPostForm({
@@ -61,20 +49,16 @@ export default function EditPostForm({
   const [entries, setEntries] = useState<ImageEntry[]>(initialEntries);
   const [deletedIds, setDeletedIds] = useState<string[]>([]);
 
-  const [status, setStatus] = useState<'idle' | 'saving' | 'error'>('idle');
+  const [status, setStatus] = useState<'idle' | 'saving' | 'deleting' | 'error'>('idle');
   const [progress, setProgress] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
     if (files.length === 0) return;
-
     const tooBig = files.find((f) => f.size > MAX_FILE_SIZE);
-    if (tooBig) {
-      setError(`"${tooBig.name}" ist größer als 80 MB.`);
-      return;
-    }
-
+    if (tooBig) { setError(`"${tooBig.name}" ist größer als 80 MB.`); return; }
     const newEntries: ImageEntry[] = files.map((file) => ({
       kind: 'new',
       key: `${file.name}-${file.lastModified}-${Math.random()}`,
@@ -82,13 +66,8 @@ export default function EditPostForm({
       previewUrl: URL.createObjectURL(file),
       caption: '',
     }));
-
     const combined = [...entries, ...newEntries].slice(0, MAX_IMAGES);
-    setError(
-      entries.length + files.length > MAX_IMAGES
-        ? `Maximal ${MAX_IMAGES} Fotos pro Beitrag.`
-        : null
-    );
+    setError(entries.length + files.length > MAX_IMAGES ? `Maximal ${MAX_IMAGES} Fotos pro Beitrag.` : null);
     setEntries(combined);
     e.target.value = '';
   }
@@ -125,12 +104,33 @@ export default function EditPostForm({
     );
   }
 
+  // ── Beitrag löschen ─────────────────────────────────────────────────────
+  async function handleDelete() {
+    setStatus('deleting');
+    setError(null);
+    try {
+      const res = await fetch('/api/intern/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: post.id }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? 'Löschen fehlgeschlagen.');
+      }
+      router.push('/intern/medien');
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Löschen fehlgeschlagen.');
+      setStatus('error');
+      setShowDeleteConfirm(false);
+    }
+  }
+
+  // ── Beitrag speichern ────────────────────────────────────────────────────
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (entries.length === 0) {
-      setError('Ein Beitrag braucht mindestens ein Foto.');
-      return;
-    }
+    if (entries.length === 0) { setError('Ein Beitrag braucht mindestens ein Foto.'); return; }
 
     setStatus('saving');
     setError(null);
@@ -146,30 +146,19 @@ export default function EditPostForm({
       formData.append('tags', tags);
       formData.append('delete_image_ids', JSON.stringify(deletedIds));
 
-      const existingOrder: {
-        id: string;
-        caption: string;
-        sort: number;
-        noWatermark: boolean;
-      }[] = [];
+      const existingOrder: { id: string; caption: string; sort: number; noWatermark: boolean }[] = [];
       let newCount = 0;
 
       for (let i = 0; i < entries.length; i++) {
         const entry = entries[i];
         if (entry.kind === 'existing') {
-          existingOrder.push({
-            id: entry.id,
-            caption: entry.caption,
-            sort: i,
-            noWatermark: entry.noWatermark,
-          });
+          existingOrder.push({ id: entry.id, caption: entry.caption, sort: i, noWatermark: entry.noWatermark });
         } else {
           setProgress(`Wasserzeichen für neues Foto wird erstellt … (${newCount + 1})`);
-          const { preview, download } = await createWatermarkedVariants(
-            entry.file,
-            watermarkText
-          );
-          formData.append(`new_original_${newCount}`, entry.file);
+          const originalBuffer = await entry.file.arrayBuffer();
+          const originalBlob = new Blob([originalBuffer], { type: entry.file.type });
+          const { preview, download } = await createWatermarkedVariants(entry.file, watermarkText);
+          formData.append(`new_original_${newCount}`, originalBlob, entry.file.name);
           formData.append(`new_preview_${newCount}`, preview);
           formData.append(`new_download_${newCount}`, download);
           formData.append(`new_caption_${newCount}`, entry.caption);
@@ -183,13 +172,12 @@ export default function EditPostForm({
 
       setProgress('Wird gespeichert …');
       const res = await fetch('/api/intern/update', { method: 'POST', body: formData });
-
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error ?? 'Speichern fehlgeschlagen.');
       }
 
-      router.push('/intern');
+      router.push('/intern/medien');
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Speichern fehlgeschlagen.');
@@ -198,212 +186,169 @@ export default function EditPostForm({
     }
   }
 
+  const busy = status === 'saving' || status === 'deleting';
+
   return (
-    <form
-      onSubmit={handleSubmit}
-      className="flex flex-col gap-4 rounded-[10px] border border-line bg-white p-6"
-    >
-      {post.is_public && (
-        <div className="rounded-md border border-line bg-panel p-3 text-[12px] text-ink-2">
-          Dieser Beitrag ist bereits öffentlich sichtbar — Änderungen wirken
-          sich sofort auf die veröffentlichte Seite aus.
+    <div className="flex flex-col gap-4">
+      {/* ── Lösch-Bestätigung ── */}
+      {showDeleteConfirm && (
+        <div className="rounded-[10px] border border-signal-deep bg-white p-5">
+          <p className="mb-4 text-[13.5px] font-semibold text-ink">
+            Beitrag wirklich löschen?
+          </p>
+          <p className="mb-5 text-[12.5px] text-ink-2">
+            Das entfernt den Beitrag samt allen {entries.length} Foto{entries.length === 1 ? '' : 's'} und allen Dateivarianten unwiderruflich.
+            {post.is_public && ' Der Beitrag ist aktuell öffentlich — er verschwindet sofort aus dem Bildarchiv.'}
+          </p>
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={handleDelete}
+              disabled={busy}
+              className="rounded-md bg-signal-deep px-4 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-signal disabled:opacity-60"
+            >
+              {status === 'deleting' ? 'Wird gelöscht …' : 'Ja, löschen'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowDeleteConfirm(false)}
+              disabled={busy}
+              className="rounded-md border border-line-strong px-4 py-2.5 text-[13px] font-semibold text-ink transition-colors hover:border-ink disabled:opacity-60"
+            >
+              Abbrechen
+            </button>
+          </div>
         </div>
       )}
 
-      <div>
-        <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">
-          Fotos ({entries.length}/{MAX_IMAGES})
-        </label>
-
-        {entries.length > 0 && (
-          <div className="mb-2.5 flex flex-col gap-2">
-            {entries.map((entry, i) => (
-              <div
-                key={entry.kind === 'existing' ? entry.id : entry.key}
-                className="flex gap-3 rounded-md border border-line bg-panel p-2.5"
-              >
-                <div className="relative h-16 w-16 flex-none overflow-hidden rounded bg-white">
-                  {entry.previewUrl && (
-                    <Image
-                      src={entry.previewUrl}
-                      alt=""
-                      fill
-                      unoptimized={entry.kind === 'new'}
-                      className="object-cover"
-                    />
-                  )}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="mb-1.5 flex items-center gap-2">
-                    <span className="font-mono text-[10px] text-ink-3">
-                      {i === 0 ? 'TITELBILD' : `BILD ${i + 1}`}
-                    </span>
-                    {entry.kind === 'new' && (
-                      <span className="rounded-[3px] bg-ink px-1.5 py-0.5 text-[9px] font-semibold text-white">
-                        NEU
-                      </span>
-                    )}
-                    {entry.kind === 'existing' && entry.noWatermark && (
-                      <span className="rounded-[3px] bg-signal-deep px-1.5 py-0.5 text-[9px] font-semibold text-white">
-                        OHNE WASSERZEICHEN
-                      </span>
-                    )}
-                  </div>
-                  <input
-                    type="text"
-                    value={entry.caption}
-                    onChange={(e) => updateCaption(i, e.target.value)}
-                    placeholder="Bildunterschrift (optional)"
-                    className="mb-1.5 w-full rounded border border-line-strong px-2 py-1 text-[12px] outline-none focus:border-ink"
-                  />
-                  {entry.kind === 'existing' && (
-                    <label className="flex items-center gap-1.5 text-[11px] text-ink-2">
-                      <input
-                        type="checkbox"
-                        checked={entry.noWatermark}
-                        onChange={(e) => toggleNoWatermark(i, e.target.checked)}
-                      />
-                      Kein Wasserzeichen (öffentlich frei nutzbar)
-                    </label>
-                  )}
-                </div>
-                <div className="flex flex-none flex-col gap-1">
-                  <button
-                    type="button"
-                    onClick={() => moveEntry(i, -1)}
-                    disabled={i === 0}
-                    aria-label="Nach oben"
-                    className="rounded border border-line-strong px-1.5 text-[11px] text-ink-2 disabled:opacity-30"
-                  >
-                    ↑
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => moveEntry(i, 1)}
-                    disabled={i === entries.length - 1}
-                    aria-label="Nach unten"
-                    className="rounded border border-line-strong px-1.5 text-[11px] text-ink-2 disabled:opacity-30"
-                  >
-                    ↓
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => removeEntry(i)}
-                    aria-label="Entfernen"
-                    className="rounded border border-line-strong px-1.5 text-[11px] text-signal-deep"
-                  >
-                    ✕
-                  </button>
-                </div>
-              </div>
-            ))}
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4 rounded-[10px] border border-line bg-white p-6">
+        {post.is_public && (
+          <div className="rounded-md border border-line bg-panel p-3 text-[12px] text-ink-2">
+            Dieser Beitrag ist bereits öffentlich sichtbar — Änderungen wirken sich sofort aus.
           </div>
         )}
 
-        <input
-          type="file"
-          accept="image/jpeg,image/png,image/webp,image/gif"
-          multiple
-          onChange={handleFileChange}
-          className="w-full text-[13px]"
-        />
-        <p className="mt-1 text-[11px] text-ink-3">
-          Weitere Fotos hinzufügen, bestehende entfernen oder mit ↑↓ neu
-          anordnen. Entfernte Originaldateien werden beim Speichern
-          unwiderruflich gelöscht. Standardmäßig haben veröffentlichte Fotos
-          ein Wasserzeichen — bei bestehenden Fotos lässt sich das über die
-          Checkbox einzeln deaktivieren, das Foto wird dann öffentlich ohne
-          Wasserzeichen angezeigt und heruntergeladen. Neu hinzugefügte
-          Fotos starten immer mit Wasserzeichen; die Option dafür steht nach
-          dem Speichern beim erneuten Bearbeiten zur Verfügung.
-        </p>
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
+        {/* Fotos */}
         <div>
-          <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">
-            Einsatzdatum *
-          </label>
-          <input
-            type="date"
-            required
-            value={eventDate}
-            onChange={(e) => setEventDate(e.target.value)}
-            className="w-full rounded-md border border-line-strong px-3 py-2 text-[14px] outline-none focus:border-ink"
-          />
+          <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">Fotos</label>
+          {entries.length > 0 && (
+            <div className="mb-3 flex flex-col gap-2">
+              {entries.map((entry, i) => (
+                <div key={entry.kind === 'existing' ? entry.id : entry.key}
+                  className="flex items-start gap-3 rounded-md border border-line bg-panel p-2">
+                  <div className="relative h-16 w-16 flex-none overflow-hidden rounded bg-white">
+                    {entry.previewUrl ? (
+                      <Image src={entry.previewUrl} alt="" fill className="object-cover" />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-ink-3">
+                        <i className="ti ti-photo text-[20px]" aria-hidden="true" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex flex-1 flex-col gap-1.5">
+                    <input
+                      type="text"
+                      value={entry.caption}
+                      onChange={(e) => updateCaption(i, e.target.value)}
+                      placeholder="Bildunterschrift (optional)"
+                      className="w-full rounded border border-line-strong bg-white px-2 py-1 text-[12px] outline-none focus:border-ink"
+                    />
+                    {entry.kind === 'existing' && (
+                      <label className="flex items-center gap-1.5 text-[11px] text-ink-2">
+                        <input type="checkbox" checked={entry.noWatermark}
+                          onChange={(e) => toggleNoWatermark(i, e.target.checked)} />
+                        Kein Wasserzeichen
+                      </label>
+                    )}
+                  </div>
+                  <div className="flex flex-none flex-col gap-1">
+                    <button type="button" onClick={() => moveEntry(i, -1)} disabled={i === 0}
+                      aria-label="Nach oben"
+                      className="rounded border border-line-strong px-1.5 text-[11px] text-ink-2 disabled:opacity-30">↑</button>
+                    <button type="button" onClick={() => moveEntry(i, 1)} disabled={i === entries.length - 1}
+                      aria-label="Nach unten"
+                      className="rounded border border-line-strong px-1.5 text-[11px] text-ink-2 disabled:opacity-30">↓</button>
+                    <button type="button" onClick={() => removeEntry(i)}
+                      aria-label="Entfernen"
+                      className="rounded border border-line-strong px-1.5 text-[11px] text-signal-deep">✕</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <input type="file" accept="image/jpeg,image/png,image/webp,image/gif"
+            multiple onChange={handleFileChange} className="w-full text-[13px]" />
         </div>
+
+        {/* Einsatzdaten */}
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">Einsatzdatum</label>
+            <input type="date" value={eventDate} onChange={(e) => setEventDate(e.target.value)}
+              className="w-full rounded-md border border-line-strong px-3 py-2 text-[14px] outline-none focus:border-ink" />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">Alarmcode</label>
+            <AlarmCodeInput value={alarmCode} onChange={setAlarmCode} alarmcodes={alarmcodes} />
+          </div>
+        </div>
+
         <div>
-          <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">
-            Alarmcode
-          </label>
-          <AlarmCodeInput value={alarmCode} onChange={setAlarmCode} alarmcodes={alarmcodes} />
+          <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">Titel</label>
+          <input type="text" value={title} onChange={(e) => setTitle(e.target.value)}
+            className="w-full rounded-md border border-line-strong px-3 py-2 text-[14px] outline-none focus:border-ink" />
         </div>
-      </div>
 
-      <div>
-        <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">Titel</label>
-        <input
-          type="text"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          className="w-full rounded-md border border-line-strong px-3 py-2 text-[14px] outline-none focus:border-ink"
-        />
-      </div>
+        <div>
+          <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">Ort</label>
+          <input type="text" value={location} onChange={(e) => setLocation(e.target.value)}
+            className="w-full rounded-md border border-line-strong px-3 py-2 text-[14px] outline-none focus:border-ink" />
+        </div>
 
-      <div>
-        <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">Ort</label>
-        <input
-          type="text"
-          value={location}
-          onChange={(e) => setLocation(e.target.value)}
-          className="w-full rounded-md border border-line-strong px-3 py-2 text-[14px] outline-none focus:border-ink"
-        />
-      </div>
+        <div>
+          <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">Artikeltext</label>
+          <RichTextEditor value={articleBody} onChange={setArticleBody} />
+        </div>
 
-      <div>
-        <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">
-          Artikeltext
-        </label>
-        <RichTextEditor value={articleBody} onChange={setArticleBody} />
-      </div>
+        <div>
+          <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">Tags (Komma-getrennt)</label>
+          <input type="text" value={tags} onChange={(e) => setTags(e.target.value)}
+            list="tag-suggestions"
+            className="w-full rounded-md border border-line-strong px-3 py-2 text-[14px] outline-none focus:border-ink" />
+          <datalist id="tag-suggestions">
+            {existingTags.map((tag) => (<option key={tag} value={tag} />))}
+          </datalist>
+        </div>
 
-      <div>
-        <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">
-          Tags (Komma-getrennt)
-        </label>
-        <input
-          type="text"
-          value={tags}
-          onChange={(e) => setTags(e.target.value)}
-          list="tag-suggestions"
-          className="w-full rounded-md border border-line-strong px-3 py-2 text-[14px] outline-none focus:border-ink"
-        />
-        <datalist id="tag-suggestions">
-          {existingTags.map((tag) => (
-            <option key={tag} value={tag} />
-          ))}
-        </datalist>
-      </div>
+        {error && <p className="text-[12.5px] text-signal-deep">{error}</p>}
+        {progress && <p className="text-[12.5px] text-ink-2">{progress}</p>}
 
-      {error && <p className="text-[12.5px] text-signal-deep">{error}</p>}
-      {progress && <p className="text-[12.5px] text-ink-2">{progress}</p>}
+        <div className="mt-2 flex items-center justify-between gap-3">
+          <div className="flex gap-3">
+            <button type="submit" disabled={busy}
+              className="rounded-md bg-ink px-5 py-3 text-[13.5px] font-semibold text-white transition-colors hover:bg-black disabled:opacity-60">
+              {status === 'saving' ? 'Wird gespeichert …' : 'Speichern'}
+            </button>
+            <button type="button" onClick={() => router.back()} disabled={busy}
+              className="rounded-md border border-line-strong px-5 py-3 text-[13.5px] font-semibold text-ink transition-colors hover:border-ink disabled:opacity-60">
+              Abbrechen
+            </button>
+          </div>
 
-      <div className="mt-2 flex items-center gap-3">
-        <button
-          type="submit"
-          disabled={status === 'saving'}
-          className="rounded-md bg-ink px-5 py-3 text-[13.5px] font-semibold text-white transition-colors hover:bg-black disabled:opacity-60"
-        >
-          {status === 'saving' ? 'Wird gespeichert …' : 'Änderungen speichern'}
-        </button>
-        <button
-          type="button"
-          onClick={() => router.push('/intern')}
-          className="text-[13px] font-semibold text-ink-2 hover:text-ink"
-        >
-          Abbrechen
-        </button>
-      </div>
-    </form>
+          {/* Beitrag löschen */}
+          {!showDeleteConfirm && (
+            <button
+              type="button"
+              onClick={() => setShowDeleteConfirm(true)}
+              disabled={busy}
+              className="flex items-center gap-1.5 rounded-md border border-line-strong px-4 py-3 text-[13px] font-semibold text-signal-deep transition-colors hover:border-signal-deep disabled:opacity-60"
+            >
+              <i className="ti ti-trash text-[14px]" aria-hidden="true" />
+              Beitrag löschen
+            </button>
+          )}
+        </div>
+      </form>
+    </div>
   );
 }
