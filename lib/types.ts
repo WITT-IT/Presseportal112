@@ -2,7 +2,7 @@
 // Wenn du später weitere Felder in Directus ergänzt, hier nachziehen.
 
 export type Gewerk = {
-  id: string; // 'feuerwehr' | 'drk' | 'polizei' | 'thw'
+  id: string;
   name: string;
   icon: string;
   color: string;
@@ -41,9 +41,6 @@ export type Organization = {
   banner_image?: string | null;
 };
 
-// Ein Foto innerhalb eines Beitrags. Enthält bewusst eine eigene
-// Bildunterschrift pro Foto -- damit lässt sich jedes Bild einzeln erklären,
-// statt nur eine Beschreibung für den ganzen Beitrag zu haben.
 export type PostImage = {
   id: string;
   post: Post | string | null;
@@ -55,16 +52,10 @@ export type PostImage = {
   sort: number;
 };
 
-// Ein Beitrag bündelt Titel, Text und Metadaten -- und dazu ein oder
-// mehrere Fotos.
-//
-// post_type = 'einsatz'  → Pflichtfelder: title, event_date, alarm_code, location
+// post_type = 'einsatz'   → Pflichtfelder: title, event_date, alarm_code, location
 // post_type = 'stockfoto' → nur tags + images, alles andere optional/null
-//
 // origin_folder_id merkt sich aus welchem Ordner ein Beitrag stammt,
-// bevor er öffentlich gemacht wurde -- damit kann beim Zurückziehen
-// entschieden werden ob er in "Unsortiert" landet oder im Ursprungsordner
-// verbleibt.
+// bevor er öffentlich gemacht wurde.
 export type Post = {
   id: string;
   organization: Organization | string | null;
@@ -82,17 +73,11 @@ export type Post = {
   images?: PostImage[];
 };
 
-// Hilfsfunktion: das erste Foto eines Beitrags (nach sort), z. B. für
-// Übersichtskarten und Vorschaubilder.
 export function primaryImage(post: Post): PostImage | null {
   if (!post.images || post.images.length === 0) return null;
   return [...post.images].sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0))[0];
 }
 
-// Verwandelt tags robust in ein echtes String-Array, egal wie die Daten
-// tatsächlich vorliegen -- schützt vor Abstürzen, falls z. B. beim manuellen
-// Anlegen/Migrieren eines Beitrags aus Versehen ein Text statt eines
-// JSON-Arrays im Feld gelandet ist.
 export function normalizeTags(raw: unknown): string[] {
   if (!raw) return [];
   if (Array.isArray(raw)) return raw.filter((t) => typeof t === 'string');
@@ -110,9 +95,7 @@ export function normalizeTags(raw: unknown): string[] {
   return [];
 }
 
-// Ordner -- jetzt mit Systemordner-Feldern.
-// is_system_folder = true  → Lösch-Button im UI ausblenden, API verweigert DELETE
-// system_role              → 'public' = Öffentlich-Ordner, 'unsorted' = Unsortiert
+// Ordner -- mit Systemordner-Feldern.
 export type Folder = {
   id: string;
   name: string;
@@ -123,22 +106,52 @@ export type Folder = {
   coverImage?: string | null;
 };
 
-// Ein Eintrag in der Medienbibliothek -- jedes hochgeladene Bild landet
-// hier, unabhängig davon ob es bereits in einem Beitrag verwendet wird.
-// Das erlaubt den "Aus Bibliothek wählen"-Flow im Upload Studio.
+// Medienbibliothek -- jedes hochgeladene Bild landet hier.
 export type MediaLibraryItem = {
   id: string;
   organization: string;
-  file: string;             // Directus file UUID -- Original
-  file_preview: string | null; // Wasserzeichen-Vorschau
+  file: string;
+  file_preview: string | null;
   file_download: string | null;
   original_filename: string | null;
   tags: string[] | null;
   uploaded_at: string;
-  used_in_posts: string[];  // post-IDs die dieses Bild nutzen
+  used_in_posts: string[];
 };
 
-// Hilfskonstanten für die Gewerk-Farben und -Icons.
+// Medienfreigabe-Zusammenfassung für die Übersichtsliste.
+export type MediaShareSummary = {
+  id: string;
+  name: string;
+  recipientName: string | null;
+  active: boolean;
+  expiresAt: string;
+  postCount: number;
+};
+
+// Medienfreigabe mit allen Beiträgen für die Detailseite.
+export type MediaShareDetail = {
+  id: string;
+  name: string;
+  recipientName: string | null;
+  recipientEmail: string | null;
+  token: string;
+  active: boolean;
+  expiresAt: string;
+  autoDeleteOnExpiry: boolean;
+  posts: Post[];
+};
+
+// Öffentliche Medienfreigabe für den Token-Zugriff.
+export type PublicMediaShare = {
+  id: string;
+  name: string;
+  recipientName: string | null;
+  organizationName: string | null;
+  expiresAt: string;
+  posts: Post[];
+};
+
 export const GEWERK_COLORS: Record<string, string> = {
   feuerwehr: '#E4483C',
   drk: '#C81E2C',
