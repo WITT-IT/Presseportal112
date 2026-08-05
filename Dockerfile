@@ -13,8 +13,8 @@ ARG NEXT_PUBLIC_DIRECTUS_URL
 ENV NEXT_PUBLIC_DIRECTUS_URL=${NEXT_PUBLIC_DIRECTUS_URL}
 ARG NEXT_PUBLIC_SITE_URL
 ENV NEXT_PUBLIC_SITE_URL=${NEXT_PUBLIC_SITE_URL}
-ENV NODE_OPTIONS="--max-old-space-size=4096"
-RUN npm run build
+# Mehr RAM für Build UND Trace-Schritt
+RUN NODE_OPTIONS="--max-old-space-size=8192" npm run build
 
 FROM node:20-alpine AS runner
 WORKDIR /app
