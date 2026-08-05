@@ -8,7 +8,6 @@ import { directusAssetUrl } from '@/lib/directus';
 import { primaryImage } from '@/lib/types';
 import Breadcrumbs from '@/components/Breadcrumbs';
 import FolderActions from '@/components/FolderActions';
-import RemoveFromFolderButton from '@/components/RemoveFromFolderButton';
 import AddToMediaShareControl from '@/components/AddToMediaShareControl';
 import FolderPostPicker from '@/components/FolderPostPicker';
 
@@ -45,14 +44,10 @@ export default async function FolderDetailPage({
   ]);
   if (!folder) notFound();
 
-  // Prüfen ob dieser Ordner der Öffentlich-Systemordner ist
   const folderMeta = allFolders.find((f) => f.id === id);
-  const isPublicFolder =
-    folderMeta?.system_role === 'public' || folder.name === 'Öffentlich';
-  const isSystemFolder =
-    folderMeta?.is_system_folder === true ||
-    folder.name === 'Öffentlich' ||
-    folder.name === 'Unsortiert';
+  const isPublicFolder = folderMeta?.system_role === 'public' || folder.name === 'Öffentlich';
+  const isSystemFolder = folderMeta?.is_system_folder === true ||
+    folder.name === 'Öffentlich' || folder.name === 'Unsortiert';
 
   const includedIds = new Set(folder.posts.map((p) => p.id));
   const availablePosts = allOwnPosts.filter((p) => !includedIds.has(p.id));
@@ -70,7 +65,6 @@ export default async function FolderDetailPage({
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <h1 className="font-display text-[28px] font-bold">{folder.name}</h1>
         <div className="flex flex-wrap gap-2">
-          {/* Systemordner können nicht umbenannt oder gelöscht werden */}
           {!isSystemFolder && (
             <FolderActions folderId={folder.id} name={folder.name} />
           )}
@@ -79,7 +73,7 @@ export default async function FolderDetailPage({
             className="flex items-center gap-2 rounded-md bg-ink px-4 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-black"
           >
             <i className="ti ti-plus text-[14px]" aria-hidden="true" />
-            Foto in diesen Ordner hochladen
+            Foto hochladen
           </Link>
         </div>
       </div>
@@ -87,41 +81,28 @@ export default async function FolderDetailPage({
       {isPublicFolder && (
         <div className="mb-6 rounded-md border border-line bg-panel px-4 py-3 text-[12.5px] text-ink-2">
           <i className="ti ti-info-circle mr-1.5 text-[13px]" aria-hidden="true" />
-          Das X an einem Beitrag zieht ihn zurück — er wird privat und landet je nach Ursprung in Unsortiert oder im Ursprungsordner.
+          Klick auf einen Beitrag öffnet die Bearbeiten-Seite — dort kannst du einzelne Fotos entfernen oder den Beitrag ganz löschen.
         </div>
-      )}
-
-      {!isPublicFolder && !isSystemFolder && (
-        <p className="mb-6 max-w-[560px] text-[12.5px] leading-[1.6] text-ink-2">
-          Öffentliche und noch nicht veröffentlichte Beiträge können
-          problemlos gemeinsam in diesem Ordner liegen.
-          Über „Zu Freigabe hinzufügen" lässt sich ein Beitrag direkt
-          von hier aus einer Freigabe zuordnen.
-        </p>
       )}
 
       <h2 className="mb-4 font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
         Enthaltene Beiträge ({folder.posts.length})
       </h2>
+
       {folder.posts.length === 0 ? (
         <p className="mb-10 text-[13px] text-ink-2">
-          Noch keine Beiträge in diesem Ordner — oben direkt hochladen, oder
-          unten einen bestehenden Beitrag auswählen.
+          Noch keine Beiträge in diesem Ordner.
         </p>
       ) : (
         <div className="mb-10 grid grid-cols-2 gap-4 nav:grid-cols-4">
           {folder.posts.map((post) => {
             const hero = primaryImage(post);
             return (
-              <div
+              <Link
                 key={post.id}
-                className="relative overflow-hidden rounded-[10px] border border-line bg-white"
+                href={`/intern/bearbeiten/${post.id}`}
+                className="relative overflow-hidden rounded-[10px] border border-line bg-white transition-colors hover:border-line-strong"
               >
-                <RemoveFromFolderButton
-                  folderId={folder.id}
-                  postId={post.id}
-                  isPublicFolder={isPublicFolder}
-                />
                 <div className="relative h-[110px] bg-panel">
                   {hero?.file_public_preview && (
                     <Image
@@ -138,16 +119,21 @@ export default async function FolderDetailPage({
                   >
                     {post.is_public ? 'Öffentlich' : 'Entwurf'}
                   </span>
+                  <span className="absolute inset-0 flex items-center justify-center bg-black/0 transition-colors hover:bg-black/20">
+                    <i className="ti ti-edit text-[22px] text-white opacity-0 transition-opacity hover:opacity-100" aria-hidden="true" />
+                  </span>
                 </div>
                 <div className="p-2.5">
-                  <span className="mb-2 block truncate text-[12px] font-medium">
+                  <span className="block truncate text-[12px] font-medium">
                     {post.title || post.alarm_code || 'Ohne Titel'}
                   </span>
                   {!isPublicFolder && (
-                    <AddToMediaShareControl postId={post.id} mediaShares={mediaShares} />
+                    <div onClick={(e) => e.preventDefault()}>
+                      <AddToMediaShareControl postId={post.id} mediaShares={mediaShares} />
+                    </div>
                   )}
                 </div>
-              </div>
+              </Link>
             );
           })}
         </div>
