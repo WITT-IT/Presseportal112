@@ -7,7 +7,7 @@ export default function Footer() {
         <p className="max-w-[520px] text-[11.5px] leading-[1.65] text-ink-3">
           Alle Bilder mit eingebettetem Wasserzeichen der jeweiligen
           Organisation, presserechtlich nutzbar gemäß unseren
-          Nutzungsbedingungen und unter Quellenangabe.
+          Nutzungsbedingungen und unter Quellenangaben.
         </p>
         <div className="flex flex-wrap gap-[22px] text-[12.5px] text-ink-2">
          
@@ -19,9 +19,6 @@ export default function Footer() {
           </Link>
           <Link href="/datenschutz" className="hover:text-ink">
             Datenschutz
-          </Link>
-          <Link href="/kontakt" className="hover:text-ink">
-            Kontakt
           </Link>
         </div>
       </div>
