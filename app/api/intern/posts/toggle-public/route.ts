@@ -4,7 +4,11 @@ import { DIRECTUS_URL } from '@/lib/directus';
 
 // POST /api/intern/posts/toggle-public
 // Body: { postId: string, makePublic: boolean }
-// KOmmentar zum Kompilieren
+//        ODER
+// Body: { postId: string, removeFromPublic: true, folderId: string }
+//
+// removeFromPublic=true: Beitrag aus Öffentlich-Ordner entfernen,
+// privat setzen, in Unsortiert oder Ursprungsordner verschieben.
 
 export async function POST(request: NextRequest) {
   const raw = request.cookies.get(SESSION_COOKIE)?.value;
@@ -22,8 +26,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Keine Organisation.' }, { status: 403 });
   }
 
-  const { postId, makePublic } = await request.json().catch(() => ({}));
-  if (!postId || typeof makePublic !== 'boolean') {
+  const body = await request.json().catch(() => ({}));
+  const { postId } = body;
+
+  if (!postId) {
     return NextResponse.json({ error: 'Ungültige Parameter.' }, { status: 400 });
   }
 
@@ -32,9 +38,9 @@ export async function POST(request: NextRequest) {
     'Content-Type': 'application/json',
   };
 
-  // Aktuellen Beitrag laden.
+  // Aktuellen Beitrag laden
   const postRes = await fetch(
-    `${DIRECTUS_URL}/items/posts/${postId}?fields=id,is_public,origin_folder_id,organization`,
+    `${DIRECTUS_URL}/items/posts/${postId}?fields=id,is_public,origin_folder_id,organization,images.id,images.file_public_preview,images.file_download`,
     { headers }
   );
   if (!postRes.ok) {
@@ -42,14 +48,12 @@ export async function POST(request: NextRequest) {
   }
   const { data: post } = await postRes.json();
 
-  // Sicherheit: nur eigene Beiträge.
   const postOrgId = typeof post.organization === 'string' ? post.organization : post.organization?.id;
   if (postOrgId !== user.organization.id) {
     return NextResponse.json({ error: 'Keine Berechtigung.' }, { status: 403 });
   }
 
-  // Alle Ordner der Org laden -- per Name + system_role finden.
-  // Kein Filter auf is_system_folder da das Feld evtl. keine Update-Permission hat.
+  // Alle Ordner der Org laden
   const allFoldersRes = await fetch(
     `${DIRECTUS_URL}/items/folders?filter[organization][_eq]=${user.organization.id}&fields=id,name,system_role&limit=100`,
     { headers }
@@ -60,76 +64,62 @@ export async function POST(request: NextRequest) {
     const { data: allFolders } = await allFoldersRes.json();
     const rows = allFolders as { id: string; name: string; system_role?: string | null }[];
     publicFolderId = rows.find((r) => r.system_role === 'public')?.id
-      ?? rows.find((r) => r.name === 'Öffentlich')?.id
-      ?? null;
+      ?? rows.find((r) => r.name === 'Öffentlich')?.id ?? null;
     unsortedFolderId = rows.find((r) => r.system_role === 'unsorted')?.id
-      ?? rows.find((r) => r.name === 'Unsortiert')?.id
-      ?? null;
+      ?? rows.find((r) => r.name === 'Unsortiert')?.id ?? null;
   }
 
-  // Aktuelle Ordner-Zuordnungen des Beitrags laden.
+  // Aktuelle Ordner-Zuordnungen laden
   const assignRes = await fetch(
     `${DIRECTUS_URL}/items/folders_posts?filter[posts_id][_eq]=${postId}&fields=id,folders_id&limit=50`,
     { headers }
   );
-  let currentAssignments: { id: string; folders_id: string }[] = [];
+  let assignments: { id: string; folders_id: string }[] = [];
   if (assignRes.ok) {
     const { data } = await assignRes.json();
-    currentAssignments = data || [];
+    assignments = data || [];
   }
 
-  if (makePublic) {
-    // Ursprungsordner merken: erster Ordner der kein Systemordner ist.
-    let originFolderId: string | null = post.origin_folder_id ?? null;
-    if (!originFolderId && currentAssignments.length > 0) {
-      const systemIds = [publicFolderId, unsortedFolderId].filter(Boolean);
-      const nonSystemAssignment = currentAssignments.find(
-        (a) => !systemIds.includes(a.folders_id)
-      );
-      if (nonSystemAssignment) originFolderId = nonSystemAssignment.folders_id;
+  // ── MODUS: removeFromPublic ─────────────────────────────────────────────
+  // Wird vom X-Button im Öffentlich-Ordner aufgerufen.
+  if (body.removeFromPublic === true) {
+    const folderId = body.folderId as string;
+
+    // Aus Öffentlich-Ordner entfernen
+    const publicAssignment = assignments.find((a) => a.folders_id === folderId);
+    if (publicAssignment) {
+      await fetch(`${DIRECTUS_URL}/items/folders_posts/${publicAssignment.id}`, {
+        method: 'DELETE',
+        headers,
+      });
     }
 
-    // Beitrag auf öffentlich setzen.
-    const patchBody: Record<string, unknown> = {
-      is_public: true,
-      published_at: new Date().toISOString(),
-    };
-    // origin_folder_id nur setzen wenn Feld existiert (kein 403 riskieren).
-    if (originFolderId) patchBody.origin_folder_id = originFolderId;
+    const hadOrigin = !!post.origin_folder_id;
 
+    // Beitrag auf privat setzen
     await fetch(`${DIRECTUS_URL}/items/posts/${postId}`, {
       method: 'PATCH',
       headers,
-      body: JSON.stringify(patchBody),
+      body: JSON.stringify({
+        is_public: false,
+        published_at: null,
+        origin_folder_id: null,
+      }),
     });
 
-    // In Öffentlich-Ordner aufnehmen.
-    if (publicFolderId) {
-      const alreadyInPublic = currentAssignments.some((a) => a.folders_id === publicFolderId);
-      if (!alreadyInPublic) {
-        await fetch(`${DIRECTUS_URL}/items/folders_posts`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ folders_id: publicFolderId, posts_id: postId }),
-        });
-      }
-    }
-  } else {
-    // Aus Öffentlich-Ordner entfernen.
-    if (publicFolderId) {
-      const publicAssignment = currentAssignments.find((a) => a.folders_id === publicFolderId);
-      if (publicAssignment) {
-        await fetch(`${DIRECTUS_URL}/items/folders_posts/${publicAssignment.id}`, {
-          method: 'DELETE',
-          headers,
-        });
-      }
+    // Bilder nicht mehr öffentlich zugänglich
+    const images = (post.images || []) as { id: string }[];
+    for (const img of images) {
+      await fetch(`${DIRECTUS_URL}/items/images/${img.id}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ file_public_preview: null, file_download: null }),
+      });
     }
 
-    // Kein Ursprungsordner → in Unsortiert verschieben.
-    const hadOrigin = !!post.origin_folder_id;
+    // Kein Ursprungsordner → in Unsortiert
     if (!hadOrigin && unsortedFolderId) {
-      const alreadyUnsorted = currentAssignments.some((a) => a.folders_id === unsortedFolderId);
+      const alreadyUnsorted = assignments.some((a) => a.folders_id === unsortedFolderId);
       if (!alreadyUnsorted) {
         await fetch(`${DIRECTUS_URL}/items/folders_posts`, {
           method: 'POST',
@@ -139,17 +129,75 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Beitrag auf privat setzen.
+    return NextResponse.json({ ok: true });
+  }
+
+  // ── MODUS: makePublic toggle ────────────────────────────────────────────
+  const makePublic = body.makePublic as boolean;
+  if (typeof makePublic !== 'boolean') {
+    return NextResponse.json({ error: 'Ungültige Parameter.' }, { status: 400 });
+  }
+
+  if (makePublic) {
+    // Ursprungsordner merken
+    let originFolderId: string | null = post.origin_folder_id ?? null;
+    if (!originFolderId && assignments.length > 0) {
+      const systemIds = [publicFolderId, unsortedFolderId].filter(Boolean);
+      const nonSystem = assignments.find((a) => !systemIds.includes(a.folders_id));
+      if (nonSystem) originFolderId = nonSystem.folders_id;
+    }
+
     const patchBody: Record<string, unknown> = {
-      is_public: false,
-      published_at: null,
+      is_public: true,
+      published_at: new Date().toISOString(),
     };
-    patchBody.origin_folder_id = null;
+    if (originFolderId) patchBody.origin_folder_id = originFolderId;
 
     await fetch(`${DIRECTUS_URL}/items/posts/${postId}`, {
       method: 'PATCH',
       headers,
       body: JSON.stringify(patchBody),
+    });
+
+    // In Öffentlich-Ordner
+    if (publicFolderId) {
+      const alreadyIn = assignments.some((a) => a.folders_id === publicFolderId);
+      if (!alreadyIn) {
+        await fetch(`${DIRECTUS_URL}/items/folders_posts`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ folders_id: publicFolderId, posts_id: postId }),
+        });
+      }
+    }
+  } else {
+    // Aus Öffentlich entfernen
+    if (publicFolderId) {
+      const pubAssign = assignments.find((a) => a.folders_id === publicFolderId);
+      if (pubAssign) {
+        await fetch(`${DIRECTUS_URL}/items/folders_posts/${pubAssign.id}`, {
+          method: 'DELETE',
+          headers,
+        });
+      }
+    }
+
+    const hadOrigin = !!post.origin_folder_id;
+    if (!hadOrigin && unsortedFolderId) {
+      const alreadyUnsorted = assignments.some((a) => a.folders_id === unsortedFolderId);
+      if (!alreadyUnsorted) {
+        await fetch(`${DIRECTUS_URL}/items/folders_posts`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ folders_id: unsortedFolderId, posts_id: postId }),
+        });
+      }
+    }
+
+    await fetch(`${DIRECTUS_URL}/items/posts/${postId}`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify({ is_public: false, published_at: null, origin_folder_id: null }),
     });
   }
 
