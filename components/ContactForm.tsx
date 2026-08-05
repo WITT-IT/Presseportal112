@@ -277,7 +277,7 @@ export default function ContactForm({
         {/* Empfänger-Autofill -- nur HiOrgs, ab 3 Zeichen */}
         <div>
           <label className={`${labelMarginClass} block text-[12.5px] font-medium ${labelClass}`}>
-            An welchen Empfänger?
+            An welchen Empfänger? (Leer = Redaktion Presseportal112.de)
           </label>
           <div className="relative">
             <input
@@ -290,7 +290,7 @@ export default function ContactForm({
               onFocus={() => {
                 if (suggestions.length > 0) setShowSuggestions(true);
               }}
-              placeholder="Organisation suchen … (leer = allgemeine Anfrage)"
+              placeholder="Organisation suchen"
               autoComplete="off"
               className={`w-full rounded-md border px-3 py-2 text-[14px] outline-none ${fieldClass}`}
             />
