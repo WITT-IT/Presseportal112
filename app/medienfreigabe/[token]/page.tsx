@@ -4,6 +4,8 @@ import type { Post, PostImage } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
+type ImageWithPost = PostImage & { post: Post };
+
 export default async function MediaSharePage({
   params,
 }: {
@@ -13,7 +15,7 @@ export default async function MediaSharePage({
   const share = await getMediaShareByToken(token);
   if (!share) notFound();
 
-  const allImages = share.posts.flatMap((post: Post) =>
+  const allImages: ImageWithPost[] = share.posts.flatMap((post: Post) =>
     ((post.images ?? []) as PostImage[]).map((img: PostImage) => ({ ...img, post }))
   );
 
@@ -54,7 +56,7 @@ export default async function MediaSharePage({
           <p className="text-[13px] text-ink-2">Diese Freigabe enthält aktuell keine Bilder.</p>
         ) : (
           <div className="grid grid-cols-2 gap-4 nav:grid-cols-3">
-            {allImages.map((img) => (
+            {allImages.map((img: ImageWithPost) => (
               <div
                 key={img.id}
                 className="overflow-hidden rounded-[10px] border border-line bg-white"
