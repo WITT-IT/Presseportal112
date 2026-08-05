@@ -1,63 +1,71 @@
 import { randomUUID } from 'node:crypto';
-import sanitizeHtml from 'sanitize-html';
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
 import { DIRECTUS_URL } from '@/lib/directus';
+import sanitizeHtml from 'sanitize-html';
 
-// UUID des Datei-Bibliothek-Ordners "Öffentlich" -- ohne diese Variable
-// landen watermarked Dateien im Root und sind für die Public-Policy später
-// nicht abrufbar (die filtert dort exakt auf diesen Ordner).
-const PUBLIC_FOLDER_ID = process.env.DIRECTUS_PUBLIC_FOLDER_ID;
-
-// Der Artikeltext landet später als HTML auf einer öffentlichen Seite --
-// deshalb hier serverseitig auf eine bewusst kleine Liste erlaubter Tags
-// einschränken. Schützt vor gespeichertem Cross-Site-Scripting, auch wenn
-// jemand direkt die API statt unseres Editors anspricht.
 const ARTICLE_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
-  allowedTags: ['p', 'br', 'b', 'strong', 'i', 'em', 'h2', 'ul', 'ol', 'li', 'a'],
+  allowedTags: ['p', 'br', 'strong', 'em', 'ul', 'ol', 'li', 'a', 'h2', 'h3'],
   allowedAttributes: { a: ['href', 'target', 'rel'] },
-  allowedSchemes: ['http', 'https', 'mailto'],
-  transformTags: {
-    a: sanitizeHtml.simpleTransform('a', { rel: 'noopener noreferrer', target: '_blank' }),
-  },
+  allowedSchemes: ['https', 'mailto'],
 };
 
-// Directus antwortet nach dem Anlegen einer Datei manchmal mit 204 statt 200,
-// wenn die eigene Rolle die gerade erstellte Datei laut Lese-Filter nicht
-// sofort zurücklesen kann (bekanntes Verhalten, siehe
-// github.com/directus/directus/issues/22649). Deshalb vergeben wir die ID
-// selbst im Voraus, statt sie aus der Antwort auszulesen.
+const PUBLIC_FOLDER_ID = process.env.DIRECTUS_PUBLIC_FOLDER_ID;
+
+// Hilfsfunktion: Datei zu Directus hochladen, gibt die File-UUID zurück.
 async function uploadFileToDirectus(
-  accessToken: string,
-  blob: Blob,
+  token: string,
+  file: File,
   filename: string,
   folderId?: string
 ): Promise<string> {
-  const id = randomUUID();
-  const form = new FormData();
-  form.append('id', id);
-  if (folderId) form.append('folder', folderId);
-  form.append('file', blob, filename);
+  const fd = new FormData();
+  if (folderId) fd.append('folder', folderId);
+  fd.append('file', file, filename);
 
   const res = await fetch(`${DIRECTUS_URL}/files`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${accessToken}` },
-    body: form,
+    headers: { Authorization: `Bearer ${token}` },
+    body: fd,
   });
-
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`Datei-Upload fehlgeschlagen (${filename}): ${body}`);
+    throw new Error(`Datei-Upload fehlgeschlagen: ${body}`);
   }
+  const { data } = await res.json();
+  return data.id;
+}
 
-  return id;
+// Systemordner der Organisation laden (Öffentlich + Unsortiert).
+async function getSystemFolders(
+  token: string,
+  orgId: string
+): Promise<{ publicFolderId: string | null; unsortedFolderId: string | null }> {
+  const res = await fetch(
+    `${DIRECTUS_URL}/items/folders?filter[organization][_eq]=${orgId}&filter[is_system_folder][_eq]=true&fields=id,system_role&limit=10`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (!res.ok) return { publicFolderId: null, unsortedFolderId: null };
+  const { data } = await res.json();
+  const rows = data as { id: string; system_role: string }[];
+  return {
+    publicFolderId: rows.find((r) => r.system_role === 'public')?.id ?? null,
+    unsortedFolderId: rows.find((r) => r.system_role === 'unsorted')?.id ?? null,
+  };
+}
+
+// Beitrag einem Ordner zuordnen (M2M-Verknüpfung).
+async function assignToFolder(token: string, folderId: string, postId: string): Promise<void> {
+  await fetch(`${DIRECTUS_URL}/items/folders_posts`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ folders_id: folderId, posts_id: postId }),
+  });
 }
 
 export async function POST(request: NextRequest) {
   const raw = request.cookies.get(SESSION_COOKIE)?.value;
-  if (!raw) {
-    return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
-  }
+  if (!raw) return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
 
   let session: { accessToken: string };
   try {
@@ -75,46 +83,48 @@ export async function POST(request: NextRequest) {
   }
 
   const formData = await request.formData();
-  const title = (formData.get('title') as string) || null;
-  const eventDate = formData.get('event_date') as string | null;
-  const alarmCode = (formData.get('alarm_code') as string) || null;
-  const location = (formData.get('location') as string) || null;
+
+  // post_type bestimmt welche Validierungen greifen.
+  const postType = (formData.get('post_type') as string) || 'einsatz';
+  const isStock = postType === 'stockfoto';
+
+  const title = isStock ? null : ((formData.get('title') as string) || null);
+  const eventDate = isStock ? null : ((formData.get('event_date') as string) || null);
+  const alarmCode = isStock ? null : ((formData.get('alarm_code') as string) || null);
+  const location = isStock ? null : ((formData.get('location') as string) || null);
   const tagsRaw = (formData.get('tags') as string) || '';
-  const articleBodyRaw = (formData.get('article_body') as string) || '';
+  const articleBodyRaw = isStock ? '' : ((formData.get('article_body') as string) || '');
   const articleBody = articleBodyRaw.trim()
     ? sanitizeHtml(articleBodyRaw, ARTICLE_SANITIZE_OPTIONS)
     : null;
-
-  if (!title?.trim() || !location?.trim() || !alarmCode?.trim()) {
-    return NextResponse.json(
-      { error: 'Bitte Titel, Ort und Alarmcode ausfüllen.' },
-      { status: 400 }
-    );
-  }
-
-  // Inhalts-Bestätigung: Pflicht, unabhängig vom Frontend nochmal geprüft --
-  // der Haken im Formular blockt zwar schon clientseitig, aber wer die API
-  // direkt anspricht, soll das nicht umgehen können.
+  const makePublic = formData.get('make_public') === 'true';
+  const targetFolderIdRaw = (formData.get('folder_id') as string) || '';
   const contentConfirmed = formData.get('content_confirmed') === 'true';
+  const imageCount = Number(formData.get('image_count') || 0);
+
+  // Pflichtfelder prüfen.
   if (!contentConfirmed) {
     return NextResponse.json(
       { error: 'Bitte die Bestätigung zum Bildinhalt ankreuzen.' },
       { status: 400 }
     );
   }
-  // Zeitstempel bewusst serverseitig gesetzt, nie vom Client übernommen --
-  // sonst könnte sich jemand einen beliebigen Bestätigungszeitpunkt selbst
-  // ausdenken.
-  const contentConfirmedAt = new Date().toISOString();
-
-  // Fotos kommen als indizierte Felder: original_0/preview_0/download_0,
-  // original_1/... -- so bleibt die Zuordnung der drei Varianten pro Foto
-  // eindeutig, auch wenn mehrere Bilder gleichzeitig hochgeladen werden.
-  const imageCount = Number(formData.get('image_count') || 0);
-
-  if (!eventDate || imageCount < 1) {
-    return NextResponse.json({ error: 'Pflichtfelder fehlen.' }, { status: 400 });
+  if (!isStock && (!title?.trim() || !location?.trim() || !alarmCode?.trim() || !eventDate)) {
+    return NextResponse.json(
+      { error: 'Bitte Titel, Ort, Alarmcode und Datum ausfüllen.' },
+      { status: 400 }
+    );
   }
+  if (imageCount < 1) {
+    return NextResponse.json({ error: 'Mindestens ein Foto nötig.' }, { status: 400 });
+  }
+
+  const headers = {
+    Authorization: `Bearer ${session.accessToken}`,
+    'Content-Type': 'application/json',
+  };
+  const watermarkText =
+    user.organization.branding_label || `Foto: ${user.organization.name ?? ''}`;
 
   try {
     const tags = tagsRaw
@@ -122,28 +132,51 @@ export async function POST(request: NextRequest) {
       .map((t) => t.trim())
       .filter(Boolean);
 
-    // Erst den Beitrag anlegen -- ohne ihn hätten die Fotos keine Zuordnung.
-    // Eigene ID vergeben, damit eine mögliche 204-Antwort nicht stört.
-    const postId = randomUUID();
+    // Systemordner laden -- brauchen wir für die Ordner-Zuweisung.
+    const { publicFolderId, unsortedFolderId } = await getSystemFolders(
+      session.accessToken,
+      user.organization.id
+    );
 
+    // Ziel-Ordner bestimmen:
+    // 1. Wenn makePublic=true → Öffentlich-Ordner
+    // 2. Wenn expliziter Ordner gewählt → dieser Ordner
+    // 3. Sonst → Unsortiert-Ordner
+    let finalFolderId: string | null = null;
+    let originFolderId: string | null = null;
+
+    if (makePublic && publicFolderId) {
+      finalFolderId = publicFolderId;
+      // Falls zusätzlich ein Ursprungsordner gesetzt war, merken wir ihn.
+      if (targetFolderIdRaw) {
+        originFolderId = targetFolderIdRaw;
+      }
+    } else if (targetFolderIdRaw) {
+      finalFolderId = targetFolderIdRaw;
+    } else if (unsortedFolderId) {
+      finalFolderId = unsortedFolderId;
+    }
+
+    const postId = randomUUID();
+    const now = new Date().toISOString();
+
+    // Beitrag anlegen.
     const postRes = await fetch(`${DIRECTUS_URL}/items/posts`, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${session.accessToken}`,
-        'Content-Type': 'application/json',
-      },
+      headers,
       body: JSON.stringify({
         id: postId,
+        organization: user.organization.id,
+        post_type: postType,
         title,
         article_body: articleBody,
-        event_date: eventDate,
-        alarm_code: alarmCode,
-        location,
+        event_date: eventDate || null,
+        alarm_code: alarmCode || null,
+        location: location || null,
         tags,
-        uploaded_by: user.id,
-        is_public: false,
-        content_confirmed: true,
-        content_confirmed_at: contentConfirmedAt,
+        is_public: makePublic,
+        published_at: makePublic ? now : null,
+        origin_folder_id: originFolderId,
       }),
     });
 
@@ -152,8 +185,7 @@ export async function POST(request: NextRequest) {
       throw new Error(`Beitrag anlegen fehlgeschlagen: ${body}`);
     }
 
-    // Dann die Fotos, nacheinander statt parallel -- zuverlässiger, und die
-    // Reihenfolge bleibt exakt so, wie der Nutzer sie ausgewählt hat.
+    // Fotos hochladen und mit Beitrag verknüpfen.
     for (let i = 0; i < imageCount; i++) {
       const originalFile = formData.get(`original_${i}`) as File | null;
       const previewFile = formData.get(`preview_${i}`) as File | null;
@@ -162,42 +194,32 @@ export async function POST(request: NextRequest) {
 
       if (!originalFile || !previewFile || !downloadFile) continue;
 
-      const originalId = await uploadFileToDirectus(
-        session.accessToken,
-        originalFile,
-        originalFile.name
-      );
-      const previewId = await uploadFileToDirectus(
-        session.accessToken,
-        previewFile,
-        `preview-${originalFile.name}.jpg`,
-        PUBLIC_FOLDER_ID
-      );
-      const downloadId = await uploadFileToDirectus(
-        session.accessToken,
-        downloadFile,
-        `download-${originalFile.name}.jpg`,
-        PUBLIC_FOLDER_ID
-      );
+      const [originalId, previewId, downloadId] = await Promise.all([
+        uploadFileToDirectus(session.accessToken, originalFile, originalFile.name),
+        uploadFileToDirectus(
+          session.accessToken,
+          previewFile,
+          `preview-${originalFile.name}.jpg`,
+          PUBLIC_FOLDER_ID
+        ),
+        uploadFileToDirectus(
+          session.accessToken,
+          downloadFile,
+          `download-${originalFile.name}.jpg`,
+          PUBLIC_FOLDER_ID
+        ),
+      ]);
 
-      const imageRes = await fetch(`${DIRECTUS_URL}/items/images`, {
+      // Bild-Datensatz anlegen.
+      await fetch(`${DIRECTUS_URL}/items/images`, {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${session.accessToken}`,
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify({
           id: randomUUID(),
           post: postId,
           file_original: originalId,
-          // "aktive" Felder starten auf der watermarkten Variante --
-          // Standard ist Wasserzeichen AN, wie gewünscht.
-          file_public_preview: previewId,
-          file_download: downloadId,
-          // Permanente Sicherungskopie der watermarkten Varianten -- wird
-          // nie überschrieben, dient nur zum Zurückschalten, falls das
-          // Wasserzeichen für dieses Foto später mal deaktiviert und
-          // wieder aktiviert wird.
+          file_public_preview: makePublic ? previewId : null,
+          file_download: makePublic ? downloadId : null,
           file_public_preview_watermarked: previewId,
           file_download_watermarked: downloadId,
           no_watermark: false,
@@ -206,10 +228,31 @@ export async function POST(request: NextRequest) {
         }),
       });
 
-      if (!imageRes.ok) {
-        const body = await imageRes.text();
-        throw new Error(`Foto ${i + 1} anlegen fehlgeschlagen: ${body}`);
-      }
+      // Auch in Medienbibliothek eintragen.
+      await fetch(`${DIRECTUS_URL}/items/media_library`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          id: randomUUID(),
+          organization: user.organization.id,
+          file: originalId,
+          file_preview: previewId,
+          file_download: downloadId,
+          original_filename: originalFile.name,
+          tags,
+          uploaded_at: now,
+          used_in_posts: [postId],
+        }),
+      });
+    }
+
+    // Ordner-Zuweisung.
+    if (finalFolderId) {
+      await assignToFolder(session.accessToken, finalFolderId, postId);
+    }
+    // Wenn Ursprungsordner vorhanden und != Zielordner → auch dort verknüpfen.
+    if (originFolderId && originFolderId !== finalFolderId) {
+      await assignToFolder(session.accessToken, originFolderId, postId);
     }
 
     return NextResponse.json({ ok: true, id: postId });
