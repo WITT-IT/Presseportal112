@@ -7,18 +7,26 @@ import { createWatermarkedVariants } from '@/lib/watermark';
 import AlarmCodeInput from '@/components/AlarmCodeInput';
 import RichTextEditor from '@/components/RichTextEditor';
 import { directusAssetUrl } from '@/lib/directus';
-import type { Alarmcode, Folder, MediaLibraryItem } from '@/lib/types';
+import type { Alarmcode, MediaLibraryItem } from '@/lib/types';
 
 const MAX_FILE_SIZE = 80 * 1024 * 1024;
 const MAX_IMAGES = 12;
 const NEW_FOLDER_VALUE = '__new__';
 
+// Schlanker lokaler Typ -- nur was getMyFolders() wirklich liefert.
+// Kein 'organization'-Feld nötig, das wird nie im Formular angezeigt.
+type FolderOption = {
+  id: string;
+  name: string;
+  is_system_folder: boolean;
+  system_role: 'public' | 'unsorted' | null;
+  postCount?: number;
+  coverImage?: string | null;
+};
+
 type SelectedImage = {
-  /** 'file' = neu vom Gerät, 'library' = aus Bibliothek */
   source: 'file' | 'library';
-  /** Nur bei source='file' */
   file?: File;
-  /** Nur bei source='library' */
   libraryId?: string;
   previewUrl: string;
   caption: string;
@@ -37,37 +45,31 @@ export default function UploadStudio({
   watermarkText: string;
   existingTags: string[];
   alarmcodes: Alarmcode[];
-  folders: Folder[];
+  folders: FolderOption[];
   preselectedFolderId?: string | null;
 }) {
   const router = useRouter();
 
-  // Bild-Auswahl
   const [selectedImages, setSelectedImages] = useState<SelectedImage[]>([]);
   const [sourceTab, setSourceTab] = useState<SourceTab>('neu');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Bibliothek
   const [libraryItems, setLibraryItems] = useState<MediaLibraryItem[]>([]);
   const [libraryLoading, setLibraryLoading] = useState(false);
   const [libraryQuery, setLibraryQuery] = useState('');
 
-  // Ordner-Browser
   const [openFolderId, setOpenFolderId] = useState<string | null>(null);
   const [folderPosts, setFolderPosts] = useState<{ id: string; title: string | null; images: { file_public_preview: string | null; sort: number }[] }[]>([]);
   const [folderLoading, setFolderLoading] = useState(false);
 
-  // Formular-Modus
   const [postMode, setPostMode] = useState<PostMode>('einsatz');
 
-  // Einsatz-Felder
   const [title, setTitle] = useState('');
   const [eventDate, setEventDate] = useState('');
   const [alarmCode, setAlarmCode] = useState('');
   const [location, setLocation] = useState('');
   const [articleBody, setArticleBody] = useState('');
 
-  // Gemeinsame Felder
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
   const [folderChoice, setFolderChoice] = useState(preselectedFolderId ?? '');
@@ -75,12 +77,10 @@ export default function UploadStudio({
   const [makePublic, setMakePublic] = useState(false);
   const [contentConfirmed, setContentConfirmed] = useState(false);
 
-  // Status
   const [status, setStatus] = useState<'idle' | 'working' | 'done' | 'error'>('idle');
   const [progress, setProgress] = useState('');
   const [error, setError] = useState<string | null>(null);
 
-  // ─── Bibliothek laden ───────────────────────────────────────────────────
   const loadLibrary = useCallback(async (q = '') => {
     setLibraryLoading(true);
     try {
@@ -101,7 +101,6 @@ export default function UploadStudio({
     }
   }
 
-  // ─── Ordner-Browser ─────────────────────────────────────────────────────
   async function openFolder(folderId: string) {
     setOpenFolderId(folderId);
     setFolderLoading(true);
@@ -116,7 +115,6 @@ export default function UploadStudio({
     }
   }
 
-  // ─── Bild-Auswahl ───────────────────────────────────────────────────────
   function handleFileInput(e: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
     if (!files.length) return;
@@ -163,7 +161,6 @@ export default function UploadStudio({
     });
   }
 
-  // ─── Tags ───────────────────────────────────────────────────────────────
   function addTag(value: string) {
     const v = value.trim();
     if (v && !tags.includes(v)) setTags((prev) => [...prev, v]);
@@ -174,7 +171,6 @@ export default function UploadStudio({
     setTags((prev) => prev.filter((t) => t !== tag));
   }
 
-  // ─── Submit ─────────────────────────────────────────────────────────────
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -199,7 +195,6 @@ export default function UploadStudio({
     setStatus('working');
 
     try {
-      // Neuen Ordner anlegen falls gewünscht.
       let targetFolderId = folderChoice === NEW_FOLDER_VALUE ? '' : folderChoice;
       if (folderChoice === NEW_FOLDER_VALUE) {
         setProgress('Ordner wird angelegt …');
@@ -229,7 +224,6 @@ export default function UploadStudio({
         formData.append('article_body', articleBody);
       }
 
-      // Wasserzeichen für Datei-Uploads erzeugen.
       for (let i = 0; i < selectedImages.length; i++) {
         const img = selectedImages[i];
         if (img.source === 'file' && img.file) {
@@ -252,9 +246,6 @@ export default function UploadStudio({
         throw new Error(body.error ?? 'Upload fehlgeschlagen.');
       }
 
-      const uploadData = await res.json();
-
-      // Aufräumen.
       selectedImages.forEach((img) => {
         if (img.source === 'file' && img.previewUrl) URL.revokeObjectURL(img.previewUrl);
       });
@@ -280,9 +271,12 @@ export default function UploadStudio({
     }
   }
 
-  // ─── Render ─────────────────────────────────────────────────────────────
   const fieldClass = 'w-full rounded-md border border-line-strong px-3 py-2 text-[14px] outline-none focus:border-ink bg-white';
   const labelClass = 'mb-1.5 block text-[12.5px] font-medium text-ink-2';
+
+  // Nur normale Ordner im Dropdown -- Systemordner (Öffentlich/Unsortiert) werden
+  // automatisch zugewiesen und nicht vom Nutzer ausgewählt.
+  const selectableFolders = folders.filter((f) => !f.is_system_folder);
 
   if (status === 'done') {
     return (
@@ -298,13 +292,10 @@ export default function UploadStudio({
 
   return (
     <form onSubmit={handleSubmit}>
-      {/* ── Zweispaltiges Layout ── */}
       <div className="grid grid-cols-1 gap-6 nav:grid-cols-[1fr_360px]">
 
         {/* ── LINKE SPALTE: Bildauswahl ── */}
         <div className="flex flex-col rounded-[10px] border border-line bg-white overflow-hidden">
-
-          {/* Header mit Tabs */}
           <div className="flex items-center gap-3 border-b border-line px-4 py-3">
             <span className="text-[12.5px] font-semibold text-ink-2">Bilder</span>
             <div className="flex gap-1 rounded-md border border-line-strong bg-panel p-0.5">
@@ -326,7 +317,6 @@ export default function UploadStudio({
             </span>
           </div>
 
-          {/* Panel: Neu hochladen */}
           {sourceTab === 'neu' && (
             <div className="flex flex-1 flex-col p-4">
               <button
@@ -349,7 +339,6 @@ export default function UploadStudio({
             </div>
           )}
 
-          {/* Panel: Bibliothek */}
           {sourceTab === 'bibliothek' && (
             <div className="flex flex-1 flex-col">
               <div className="flex items-center gap-2 border-b border-line px-4 py-2.5">
@@ -405,12 +394,11 @@ export default function UploadStudio({
             </div>
           )}
 
-          {/* Panel: Aus Ordner */}
           {sourceTab === 'ordner' && (
             <div className="flex flex-1 flex-col">
               {!openFolderId ? (
                 <div className="p-2">
-                  {folders.filter((f) => !f.is_system_folder).map((folder) => (
+                  {selectableFolders.map((folder) => (
                     <button
                       key={folder.id}
                       type="button"
@@ -422,7 +410,7 @@ export default function UploadStudio({
                       <i className="ti ti-chevron-right text-[13px] text-ink-3" aria-hidden="true" />
                     </button>
                   ))}
-                  {folders.filter((f) => !f.is_system_folder).length === 0 && (
+                  {selectableFolders.length === 0 && (
                     <p className="py-8 text-center text-[12.5px] text-ink-3">Noch keine eigenen Ordner.</p>
                   )}
                 </div>
@@ -495,7 +483,6 @@ export default function UploadStudio({
             </div>
           )}
 
-          {/* Ausgewählte Bilder — Leiste unten */}
           <div className="border-t border-line p-3">
             {selectedImages.length === 0 ? (
               <p className="text-[12px] text-ink-3">Noch keine Bilder gewählt</p>
@@ -527,7 +514,6 @@ export default function UploadStudio({
 
         {/* ── RECHTE SPALTE: Metadaten ── */}
         <div className="flex flex-col rounded-[10px] border border-line bg-white overflow-hidden">
-          {/* Modus-Header */}
           <div className="flex items-center gap-3 border-b border-line px-4 py-3">
             <span className="text-[12.5px] font-semibold text-ink-2">Inhalt</span>
             <div className="ml-auto flex gap-1 rounded-md border border-line-strong bg-panel p-0.5">
@@ -547,7 +533,6 @@ export default function UploadStudio({
           </div>
 
           <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-4">
-            {/* Einsatz-Felder */}
             {postMode === 'einsatz' && (
               <div className="flex flex-col gap-3 rounded-md border border-line bg-panel p-3">
                 <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-3">Einsatzdaten</p>
@@ -579,7 +564,6 @@ export default function UploadStudio({
               </div>
             )}
 
-            {/* Tags */}
             <div>
               <label className={labelClass}>Tags</label>
               <div
@@ -611,12 +595,11 @@ export default function UploadStudio({
               </div>
             </div>
 
-            {/* Ordner */}
             <div>
               <label className={labelClass}>Ordner</label>
               <select value={folderChoice} onChange={(e) => setFolderChoice(e.target.value)} className={fieldClass}>
                 <option value="">Unsortiert (Standard)</option>
-                {folders.filter((f) => !f.is_system_folder).map((f) => (
+                {selectableFolders.map((f) => (
                   <option key={f.id} value={f.id}>{f.name}</option>
                 ))}
                 <option value={NEW_FOLDER_VALUE}>+ Neuen Ordner anlegen …</option>
@@ -632,7 +615,6 @@ export default function UploadStudio({
               )}
             </div>
 
-            {/* Öffentlich-Toggle */}
             <div className="rounded-md border border-line bg-panel p-3">
               <label className="flex cursor-pointer items-center gap-3">
                 <div
@@ -651,13 +633,11 @@ export default function UploadStudio({
               )}
             </div>
 
-            {/* Wasserzeichen-Hinweis */}
             <div className="flex items-center gap-2 rounded-md bg-panel px-3 py-2 text-[12px] text-ink-2">
               <i className="ti ti-lock text-[13px]" aria-hidden="true" />
               Alle Fotos erhalten automatisch das Wasserzeichen "{watermarkText}"
             </div>
 
-            {/* Bestätigung */}
             <label className="flex cursor-pointer items-start gap-2.5 rounded-md border border-line-strong bg-panel p-3 text-[12px] leading-[1.55] text-ink-2">
               <input
                 type="checkbox"
@@ -671,7 +651,6 @@ export default function UploadStudio({
             </label>
           </div>
 
-          {/* Footer */}
           <div className="border-t border-line p-4">
             {error && <p className="mb-3 text-[12.5px] text-signal-deep">{error}</p>}
             {progress && <p className="mb-3 text-[12.5px] text-ink-2">{progress}</p>}
