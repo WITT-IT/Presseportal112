@@ -1,5 +1,4 @@
 // Diese Typen bilden 1:1 die Directus-Collections aus dem Datenmodell-Guide ab.
-// Wenn du später weitere Felder in Directus ergänzt, hier nachziehen.
 
 export type Gewerk = {
   id: string;
@@ -52,14 +51,15 @@ export type PostImage = {
   sort: number;
 };
 
-// post_type = 'einsatz'   → Pflichtfelder: title, event_date, alarm_code, location
-// post_type = 'stockfoto' → nur tags + images, alles andere optional/null
+// post_type ist optional mit Fallback auf 'einsatz' -- das Feld existiert
+// erst nach der Directus-Migration. Bestehende Beiträge ohne das Feld
+// werden automatisch als Einsatzbeiträge behandelt.
 // origin_folder_id merkt sich aus welchem Ordner ein Beitrag stammt,
 // bevor er öffentlich gemacht wurde.
 export type Post = {
   id: string;
   organization: Organization | string | null;
-  post_type: 'einsatz' | 'stockfoto';
+  post_type?: 'einsatz' | 'stockfoto' | null;
   title: string | null;
   article_body: string | null;
   event_date: string | null;
@@ -69,7 +69,7 @@ export type Post = {
   tags: string[] | null;
   is_public: boolean;
   published_at: string | null;
-  origin_folder_id: string | null;
+  origin_folder_id?: string | null;
   images?: PostImage[];
 };
 
@@ -96,12 +96,13 @@ export function normalizeTags(raw: unknown): string[] {
 }
 
 // Ordner -- mit Systemordner-Feldern.
+// is_system_folder und system_role sind optional bis zur Directus-Migration.
 export type Folder = {
   id: string;
   name: string;
-  organization: string | null;
-  is_system_folder: boolean;
-  system_role: 'public' | 'unsorted' | null;
+  organization?: string | null;
+  is_system_folder?: boolean;
+  system_role?: 'public' | 'unsorted' | null;
   postCount?: number;
   coverImage?: string | null;
 };
