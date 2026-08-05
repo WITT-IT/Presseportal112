@@ -4,6 +4,7 @@ import { DIRECTUS_URL } from '@/lib/directus';
 
 // POST /api/intern/posts/toggle-public
 // Body: { postId: string, makePublic: boolean }
+// KOmmentar zum Kompilieren
 
 export async function POST(request: NextRequest) {
   const raw = request.cookies.get(SESSION_COOKIE)?.value;
