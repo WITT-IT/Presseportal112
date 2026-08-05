@@ -11,10 +11,6 @@ import type {
 } from './types';
 import { normalizeTags } from './types';
 
-// Felder, die für die öffentliche Anzeige eines Beitrags gebraucht werden.
-// Bewusst ohne event_kind und uploaded_by -- die sind in der Public-Policy
-// gesperrt, und ein einziges nicht freigegebenes Feld lässt Directus die
-// komplette Anfrage mit 403 ablehnen.
 const PUBLIC_POST_FIELDS = [
   'id',
   'title',
@@ -29,7 +25,6 @@ const PUBLIC_POST_FIELDS = [
   { images: ['id', 'file_public_preview', 'file_download', 'caption', 'sort'] },
 ] as const;
 
-// Vier Gewerke inkl. Sortierung, wie in der Taxonomie angelegt.
 export async function getGewerke(): Promise<Gewerk[]> {
   return directus.request(
     readItems('gewerke', {
@@ -39,10 +34,6 @@ export async function getGewerke(): Promise<Gewerk[]> {
   ) as Promise<Gewerk[]>;
 }
 
-// Anzahl veröffentlichter Beiträge pro Gewerk, für die Zähler auf den
-// Gewerke-Karten. Bewusst über readItems + Array-Länge gelöst statt über
-// aggregate() -- das hat bekannte Bugs im Zusammenspiel mit gefilterten
-// Relationen (directus/directus#23395, #25803).
 export async function getPublicImageCountsByGewerk(
   gewerkIds: string[]
 ): Promise<Record<string, number>> {
@@ -79,7 +70,6 @@ export async function getTotalOrganizationCount(): Promise<number> {
   return rows.length;
 }
 
-// Neueste veröffentlichte Beiträge -- für Ticker und Startseiten-Mosaik.
 export async function getLatestPublicImages(limit = 8): Promise<Post[]> {
   return directus.request(
     readItems('posts', {
@@ -91,9 +81,6 @@ export async function getLatestPublicImages(limit = 8): Promise<Post[]> {
   ) as Promise<Post[]>;
 }
 
-// Seitenweise Beiträge fürs Bildarchiv, optional nach Gewerk gefiltert.
-// Fragt bewusst ein Element mehr an als angezeigt wird, um zu erkennen, ob
-// es eine weitere Seite gibt -- spart eine zweite Zählabfrage.
 export async function getPublicImagesPage({
   gewerkId,
   page = 1,
@@ -124,15 +111,6 @@ export async function getPublicImagesPage({
   };
 }
 
-// Beiträge der eigenen Organisation für den internen Bereich. Nutzt den
-// User-Token statt des anonymen Clients, damit auch Entwürfe sichtbar sind.
-//
-// WICHTIG: filtert jetzt explizit auf organizationId, statt sich
-// ausschließlich auf die Directus-Berechtigungsfilter zu verlassen. Zweite
-// Sicherheitsebene, nachdem eine falsch konfigurierte Directus-Policy
-// dazu geführt hat, dass Organisationen fremde Beiträge sehen konnten --
-// selbst wenn die Directus-Seite künftig wieder falsch steht, filtert
-// dieser Code trotzdem korrekt.
 export async function getMyOrganizationImages(
   accessToken: string,
   organizationId: string
@@ -171,9 +149,6 @@ export async function getMyOrganizationImages(
   return data;
 }
 
-// Einzelner Beitrag für die öffentliche Artikelseite. Nutzt bewusst den
-// anonymen Public-Client -- so wird automatisch nur ausgeliefert, was laut
-// Public-Policy wirklich öffentlich ist.
 export async function getPublicImageById(id: string): Promise<Post | null> {
   try {
     const result = await directus.request(
@@ -188,11 +163,6 @@ export async function getPublicImageById(id: string): Promise<Post | null> {
   }
 }
 
-// Alle Organisationen (BOS und Presse), sortiert nach Name. Bewusst ohne
-// Filterung nach Typ hier -- diese Funktion wird auch für die
-// Empfänger-Auswahl im Nachrichtensystem und die Admin-Freigabe genutzt,
-// wo Presse-"Organisationen" durchaus gebraucht werden. Die öffentliche
-// Verzeichnis-Seite filtert Presse-Einträge selbst heraus.
 export async function getAllOrganizations(): Promise<Organization[]> {
   return directus.request(
     readItems('organizations', {
@@ -202,7 +172,6 @@ export async function getAllOrganizations(): Promise<Organization[]> {
   ) as Promise<Organization[]>;
 }
 
-// Einzelne Organisation für die öffentliche Profilseite.
 export async function getOrganizationById(id: string): Promise<Organization | null> {
   try {
     const result = await directus.request(
@@ -228,14 +197,10 @@ export async function getOrganizationById(id: string): Promise<Organization | nu
   }
 }
 
-// Öffentliche Beiträge einer bestimmten Organisation, für deren Profilseite.
 export async function getPublicImagesByOrganization(
   organizationId: string,
   { page = 1, pageSize = 24 }: { page?: number; pageSize?: number } = {}
 ): Promise<{ images: Post[]; hasNextPage: boolean }> {
-  // Ein Element mehr anfragen als angezeigt wird, um zu erkennen ob es eine
-  // weitere Seite gibt -- spart eine zweite Zählabfrage. Gleiches Muster
-  // wie im Bildarchiv.
   const rows = (await directus.request(
     readItems('posts', {
       filter: {
@@ -255,10 +220,6 @@ export async function getPublicImagesByOrganization(
   };
 }
 
-// Einzelner Beitrag mit allen Feldern zum Bearbeiten -- läuft über den
-// User-Token, damit auch Entwürfe geladen werden können, und Directus prüft
-// automatisch über die Organisation-Policy, ob dieser Beitrag überhaupt zur
-// eigenen Organisation gehört.
 export async function getPostForEdit(accessToken: string, id: string): Promise<Post | null> {
   const fields = [
     'id',
@@ -294,9 +255,6 @@ export async function getPostForEdit(accessToken: string, id: string): Promise<P
   return data;
 }
 
-// Alle bisher verwendeten Tags -- Grundlage für die Autocomplete-Vorschläge
-// beim Hochladen. Gewollt über alle Organisationen hinweg, damit sich die
-// Schlagworte portalweit angleichen statt auseinanderzulaufen.
 export async function getAllUsedTags(): Promise<string[]> {
   try {
     const result = await directus.request(
@@ -320,58 +278,33 @@ export async function getAllUsedTags(): Promise<string[]> {
 // ---------------------------------------------------------------------------
 // Datumserkennung für die Suchleiste
 // ---------------------------------------------------------------------------
-// Unterstützte Formate:
-//   DD.MM.YYYY  oder  D.M.YYYY   → exakter Tag
-//   MM.YYYY     oder  M.YYYY     → ganzer Monat
-//   YYYY-MM-DD                   → exakter Tag (ISO)
-//   YYYY-MM                      → ganzer Monat (ISO)
-// ---------------------------------------------------------------------------
-type DateQueryDay   = { type: 'day';   date: string };            // YYYY-MM-DD
-type DateQueryMonth = { type: 'month'; year: string; month: string }; // YYYY-MM
+type DateQueryDay   = { type: 'day';   date: string };
+type DateQueryMonth = { type: 'month'; year: string; month: string };
 
 function parseDateQuery(raw: string): DateQueryDay | DateQueryMonth | null {
   const q = raw.trim();
 
-  // DD.MM.YYYY  /  D.M.YYYY
   const dayDe = q.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
   if (dayDe) {
     const [, d, m, y] = dayDe;
-    return {
-      type: 'day',
-      date: `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`,
-    };
+    return { type: 'day', date: `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}` };
   }
 
-  // MM.YYYY  /  M.YYYY  (Monatssuche)
   const monthDe = q.match(/^(\d{1,2})\.(\d{4})$/);
   if (monthDe) {
     const [, m, y] = monthDe;
     return { type: 'month', year: y, month: m.padStart(2, '0') };
   }
 
-  // YYYY-MM-DD  (ISO-Tag)
   const dayIso = q.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (dayIso) {
-    return { type: 'day', date: q };
-  }
+  if (dayIso) return { type: 'day', date: q };
 
-  // YYYY-MM  (ISO-Monat)
   const monthIso = q.match(/^(\d{4})-(\d{2})$/);
-  if (monthIso) {
-    return { type: 'month', year: monthIso[1], month: monthIso[2] };
-  }
+  if (monthIso) return { type: 'month', year: monthIso[1], month: monthIso[2] };
 
   return null;
 }
 
-// Suche übers Bildarchiv. Holt bewusst eine größere Menge und filtert
-// in unserem eigenen Code, statt sich auf Directus' Filterverhalten bei
-// JSON-Feldern (tags) zu verlassen -- bei der aktuellen Größenordnung
-// kostet das praktisch nichts, garantiert aber korrektes Verhalten.
-//
-// Erkennt automatisch Datumseingaben (z. B. "27.07.2026", "07.2026",
-// "2026-07-27") und filtert in diesem Fall nach dem Einsatzdatum
-// (event_date), nicht nach Freitext.
 export async function searchPublicImages({
   query,
   gewerkId,
@@ -392,7 +325,7 @@ export async function searchPublicImages({
     readItems('posts', {
       filter,
       sort: ['-published_at'],
-      limit: 500, // Obergrenze für die Textsuche -- reicht für die absehbare Größe
+      limit: 500,
       fields: PUBLIC_POST_FIELDS as unknown as string[],
     })
   )) as Post[];
@@ -402,31 +335,23 @@ export async function searchPublicImages({
 
   const scored = candidates
     .map((post) => {
-      // --- Datumsuche nach event_date ---
       if (dateQuery) {
-        // Directus liefert manchmal "2026-07-27T00:00:00", daher auf 10 Zeichen kürzen.
         const eventDate = (post.event_date || '').slice(0, 10);
-
         if (dateQuery.type === 'day') {
           return { post, score: eventDate === dateQuery.date ? 5 : 0 };
         }
-
         if (dateQuery.type === 'month') {
           const prefix = `${dateQuery.year}-${dateQuery.month}`;
           return { post, score: eventDate.startsWith(prefix) ? 5 : 0 };
         }
       }
 
-      // --- normaler Freitext-Score ---
       const tagsText = normalizeTags(post.tags).join(' ').toLowerCase();
       const title = (post.title || '').toLowerCase();
       const location = (post.location || '').toLowerCase();
       const alarmCode = (post.alarm_code || '').toLowerCase();
       const articleText = (post.article_body || '').replace(/<[^>]+>/g, ' ').toLowerCase();
-      const captions = (post.images || [])
-        .map((img) => img.caption || '')
-        .join(' ')
-        .toLowerCase();
+      const captions = (post.images || []).map((img) => img.caption || '').join(' ').toLowerCase();
 
       let score = 0;
       if (tagsText.includes(q)) score += 4;
@@ -442,7 +367,6 @@ export async function searchPublicImages({
     .sort(
       (a, b) =>
         b.score - a.score ||
-        // Bei Datumssuche: nach event_date sortieren (neueste zuerst)
         (dateQuery
           ? (b.post.event_date || '').localeCompare(a.post.event_date || '')
           : (b.post.published_at || '').localeCompare(a.post.published_at || ''))
@@ -455,11 +379,6 @@ export async function searchPublicImages({
   return { images: pageItems, hasNextPage: start + pageSize < total, total };
 }
 
-// Vom Admin manuell festgelegtes Titelbild für die Startseite -- läuft über
-// ein Directus-"Singleton" (genau ein Einstellungs-Datensatz, keine Liste).
-// Gibt null zurück, wenn nichts gesetzt ist oder der gewählte Beitrag aus
-// irgendeinem Grund nicht (mehr) öffentlich ist -- dann greift auf der
-// Startseite automatisch der bisherige "neuester Beitrag"-Fallback.
 export async function getFeaturedHeroPost(): Promise<Post | null> {
   try {
     const result = await directus.request(
@@ -491,9 +410,6 @@ export async function getFeaturedHeroPost(): Promise<Post | null> {
   }
 }
 
-// Alle 193 Alarmcodes -- kleine, feste Datenmenge, wird komplett geladen
-// und dann im Browser live gegen die Eingabe abgeglichen (kein Grund für
-// eine Anfrage pro Tastendruck).
 export async function getAlarmcodes(): Promise<Alarmcode[]> {
   return directus.request(
     readItems('alarmcodes', {
@@ -504,17 +420,23 @@ export async function getAlarmcodes(): Promise<Alarmcode[]> {
   ) as Promise<Alarmcode[]>;
 }
 
-// Eigene Ordner der Organisation samt Beitragsanzahl und einem
-// Vorschaubild -- für die Kachel-Ansicht. Nimmt das erste gefundene Foto
-// unter den zugeordneten Beiträgen als Titelbild, unabhängig von welchem
-// Beitrag genau.
+// getMyFolders -- jetzt mit is_system_folder + system_role
 export async function getMyFolders(
   accessToken: string,
   organizationId: string
-): Promise<{ id: string; name: string; postCount: number; coverImage: string | null }[]> {
+): Promise<{
+  id: string;
+  name: string;
+  postCount: number;
+  coverImage: string | null;
+  is_system_folder: boolean;
+  system_role: 'public' | 'unsorted' | null;
+}[]> {
   const fields = [
     'id',
     'name',
+    'is_system_folder',
+    'system_role',
     'posts.posts_id.id',
     'posts.posts_id.images.file_public_preview',
     'posts.posts_id.images.sort',
@@ -535,6 +457,8 @@ export async function getMyFolders(
     data as {
       id: string;
       name: string;
+      is_system_folder: boolean | null;
+      system_role: 'public' | 'unsorted' | null;
       posts?: {
         posts_id: {
           id: string;
@@ -557,14 +481,14 @@ export async function getMyFolders(
     return {
       id: f.id,
       name: f.name,
+      is_system_folder: f.is_system_folder ?? false,
+      system_role: f.system_role ?? null,
       postCount: posts.length,
       coverImage,
     };
   });
 }
 
-// Ein einzelner Ordner mit allen zugeordneten Beiträgen (inkl. Fotos), für
-// die Ordner-Detailseite.
 export async function getFolderWithPosts(
   accessToken: string,
   folderId: string
@@ -601,10 +525,6 @@ export async function getFolderWithPosts(
   return { id: data.id, name: data.name, posts };
 }
 
-// Eigene Ordner samt der IDs ihrer Beiträge -- schlanker als
-// getFolderWithPosts (keine Bilder, keine Titel), gedacht für den
-// "ganzen Ordner in eine Freigabe ziehen"-Baustein, der nur wissen muss,
-// welche IDs zu welchem Ordner gehören.
 export async function getMyFoldersWithPostIds(
   accessToken: string,
   organizationId: string
@@ -636,8 +556,6 @@ export async function getMyFoldersWithPostIds(
   }));
 }
 
-// Eigene Medienfreigaben samt Beitragsanzahl -- für die Übersicht unter
-// /intern/freigaben. Ebenfalls mit explizitem organizationId-Filter.
 export async function getMyMediaShares(
   accessToken: string,
   organizationId: string
@@ -677,8 +595,6 @@ export async function getMyMediaShares(
   }));
 }
 
-// Eine einzelne Freigabe mit allen zugeordneten Beiträgen -- für die
-// interne Verwaltungs-Detailseite (eingeloggt, eigene Organisation).
 export async function getMediaShareWithPosts(
   accessToken: string,
   shareId: string
@@ -732,14 +648,6 @@ export async function getMediaShareWithPosts(
   };
 }
 
-// Öffentlicher Zugriff auf eine Freigabe per Token -- läuft bewusst
-// ausschließlich über den Service-Token, nie über eine Public-Policy.
-// Prüft dabei gleich mit, ob die Freigabe noch gültig ist, und räumt
-// abgelaufene Freigaben mit aktivierter Auto-Löschung im Vorbeigehen auf.
-// Freigaben, die andere Organisationen gezielt an ein Presse-Konto
-// geschickt haben -- läuft über den Service-Token, weil das zwangsläufig
-// über Organisationsgrenzen hinweg gelesen werden muss (die empfangende
-// Organisation ist ja nicht die, die den Beitrag besitzt).
 export async function getReceivedMediaShares(organizationId: string): Promise<
   {
     id: string;
@@ -753,9 +661,7 @@ export async function getReceivedMediaShares(organizationId: string): Promise<
 > {
   const serviceToken = process.env.DIRECTUS_SERVICE_TOKEN;
   if (!serviceToken) return [];
-  const fields = ['id', 'name', 'token', 'active', 'expires_at', 'organization.name', 'posts.id'].join(
-    ','
-  );
+  const fields = ['id', 'name', 'token', 'active', 'expires_at', 'organization.name', 'posts.id'].join(',');
   try {
     const res = await fetch(
       `${DIRECTUS_URL}/items/media_shares?filter[recipient_organization][_eq]=${organizationId}&fields=${fields}&sort=-expires_at`,
@@ -826,9 +732,7 @@ export async function getMediaShareByToken(token: string): Promise<PublicMediaSh
 
   try {
     const res = await fetch(
-      `${DIRECTUS_URL}/items/media_shares?filter[token][_eq]=${encodeURIComponent(
-        token
-      )}&fields=${fields}&limit=1`,
+      `${DIRECTUS_URL}/items/media_shares?filter[token][_eq]=${encodeURIComponent(token)}&fields=${fields}&limit=1`,
       { headers: { Authorization: `Bearer ${serviceToken}` }, cache: 'no-store' }
     );
     if (!res.ok) {
