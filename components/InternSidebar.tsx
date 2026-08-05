@@ -43,7 +43,7 @@ export default function InternSidebar({
       ]
     : [
         { href: '/intern', label: 'Übersicht', icon: 'ti-layout-dashboard' },
-        { href: '/intern/medien', label: 'Meine Medien', icon: 'ti-photo' },
+       // { href: '/intern/medien', label: 'Meine Medien', icon: 'ti-photo' },
         { href: '/intern/ordner', label: 'Ordner', icon: 'ti-folder' },
         { href: '/intern/freigaben', label: 'Freigaben', icon: 'ti-share' },
         {
