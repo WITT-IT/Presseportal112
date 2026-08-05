@@ -21,11 +21,13 @@ export default function EditPostForm({
   existingTags,
   watermarkText,
   alarmcodes,
+  hasFolder = false,
 }: {
   post: Post;
   existingTags: string[];
   watermarkText: string;
   alarmcodes: Alarmcode[];
+  hasFolder?: boolean; // true wenn der Beitrag in mind. einem echten Ordner liegt
 }) {
   const router = useRouter();
   const [title, setTitle] = useState(post.title ?? '');
@@ -53,6 +55,7 @@ export default function EditPostForm({
   const [progress, setProgress] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [retiring, setRetiring] = useState(false);
 
   function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
@@ -104,7 +107,30 @@ export default function EditPostForm({
     );
   }
 
-  // ── Beitrag löschen ─────────────────────────────────────────────────────
+  // ── Beitrag zurückziehen (nicht löschen, in Unsortiert) ─────────────────
+  async function handleRetire() {
+    setRetiring(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/intern/posts/retire', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ postId: post.id }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? 'Zurückziehen fehlgeschlagen.');
+      }
+      router.push('/intern/ordner');
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Zurückziehen fehlgeschlagen.');
+      setRetiring(false);
+      setShowDeleteConfirm(false);
+    }
+  }
+
+  // ── Beitrag dauerhaft löschen ────────────────────────────────────────────
   async function handleDelete() {
     setStatus('deleting');
     setError(null);
@@ -118,7 +144,7 @@ export default function EditPostForm({
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error ?? 'Löschen fehlgeschlagen.');
       }
-      router.push('/intern/medien');
+      router.push('/intern/ordner');
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Löschen fehlgeschlagen.');
@@ -186,29 +212,41 @@ export default function EditPostForm({
     }
   }
 
-  const busy = status === 'saving' || status === 'deleting';
+  const busy = status === 'saving' || status === 'deleting' || retiring;
 
   return (
     <div className="flex flex-col gap-4">
       {/* ── Lösch-Bestätigung ── */}
       {showDeleteConfirm && (
         <div className="rounded-[10px] border border-signal-deep bg-white p-5">
-          <p className="mb-4 text-[13.5px] font-semibold text-ink">
-            Beitrag wirklich löschen?
+          <p className="mb-2 text-[13.5px] font-semibold text-ink">
+            Was soll mit dem Beitrag passieren?
           </p>
-          <p className="mb-5 text-[12.5px] text-ink-2">
-            Das entfernt den Beitrag samt allen {entries.length} Foto{entries.length === 1 ? '' : 's'} und allen Dateivarianten unwiderruflich.
-            {post.is_public && ' Der Beitrag ist aktuell öffentlich — er verschwindet sofort aus dem Bildarchiv.'}
+          <p className="mb-4 text-[12.5px] text-ink-2">
+            {hasFolder
+              ? `Der Beitrag liegt in einem Ordner und wird dort entfernt. Alle ${entries.length} Foto${entries.length === 1 ? '' : 's'} und Dateien werden dauerhaft gelöscht.`
+              : `Dieser Beitrag liegt in keinem eigenen Ordner. Du kannst ihn dauerhaft löschen oder nur zurückziehen — dann bleibt er in "Unsortiert" und die Dateien bleiben erhalten.`
+            }
           </p>
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-2">
             <button
               type="button"
               onClick={handleDelete}
               disabled={busy}
               className="rounded-md bg-signal-deep px-4 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-signal disabled:opacity-60"
             >
-              {status === 'deleting' ? 'Wird gelöscht …' : 'Ja, löschen'}
+              {status === 'deleting' ? 'Wird gelöscht …' : 'Dauerhaft löschen'}
             </button>
+            {!hasFolder && (
+              <button
+                type="button"
+                onClick={handleRetire}
+                disabled={busy}
+                className="rounded-md border border-line-strong bg-panel px-4 py-2.5 text-[13px] font-semibold text-ink transition-colors hover:border-ink disabled:opacity-60"
+              >
+                {retiring ? 'Wird verschoben …' : 'In Unsortiert verschieben'}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setShowDeleteConfirm(false)}
