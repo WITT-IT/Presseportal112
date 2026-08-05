@@ -57,6 +57,7 @@ export default function UploadStudio({
   const [newFolderName, setNewFolderName] = useState('');
   const [makePublic, setMakePublic] = useState(true);
   const [contentConfirmed, setContentConfirmed] = useState(false);
+  const [articleBody] = useState('');
   const [status, setStatus] = useState<'idle' | 'working' | 'done' | 'error'>('idle');
   const [progress, setProgress] = useState('');
   const [error, setError] = useState<string | null>(null);
