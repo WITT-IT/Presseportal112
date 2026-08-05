@@ -27,21 +27,23 @@ async function uploadFileToDirectus(
     body: fd,
   });
   const text = await res.text();
-  console.log(`[upload] status=${res.status} location=${res.headers.get('location')} bodyLen=${text.length} body=${text.slice(0, 200)}`);
   if (!res.ok) {
     throw new Error(`Datei-Upload fehlgeschlagen (${res.status}): ${text}`);
   }
   if (!text || !text.trim()) {
+    // 204 ohne Body -- Directus hat die Datei nicht zurückgemeldet.
+    // Passiert nach dem Directus-Update manchmal trotz unique Filename.
+    // Location-Header als Fallback versuchen.
     const location = res.headers.get('location') || '';
-    const idFromLocation = location.split('/').pop();
-    if (idFromLocation) return idFromLocation;
-    throw new Error(`Datei-Upload: leere Antwort (${res.status}), kein Location-Header.`);
+    const idFromLocation = location.split('/').filter(Boolean).pop();
+    if (idFromLocation && idFromLocation.length > 8) return idFromLocation;
+    throw new Error(`Datei-Upload: 204 ohne ID (status=${res.status})`);
   }
   try {
-    const { data } = JSON.parse(text);
-    return data.id;
+    const json = JSON.parse(text);
+    return json.data?.id ?? json.id;
   } catch {
-    throw new Error(`Datei-Upload: ungültiges JSON (${res.status}): ${text.slice(0, 100)}`);
+    throw new Error(`Datei-Upload: ungültiges JSON: ${text.slice(0, 100)}`);
   }
 }
 
@@ -205,11 +207,10 @@ export async function POST(request: NextRequest) {
       const caption = (formData.get(`caption_${i}`) as string) || null;
       if (!originalFile || !previewFile || !downloadFile) continue;
 
-      const [originalId, previewId, downloadId] = await Promise.all([
-        uploadFileToDirectus(session.accessToken, originalFile, originalFile.name),
-        uploadFileToDirectus(session.accessToken, previewFile, `preview-${originalFile.name}.jpg`, PUBLIC_FOLDER_ID),
-        uploadFileToDirectus(session.accessToken, downloadFile, `download-${originalFile.name}.jpg`, PUBLIC_FOLDER_ID),
-      ]);
+      const uid = randomUUID().slice(0, 8);
+      const originalId = await uploadFileToDirectus(session.accessToken, originalFile, `${uid}-orig-${originalFile.name}`);
+      const previewId = await uploadFileToDirectus(session.accessToken, previewFile, `${uid}-prev-${originalFile.name}.jpg`, PUBLIC_FOLDER_ID);
+      const downloadId = await uploadFileToDirectus(session.accessToken, downloadFile, `${uid}-dl-${originalFile.name}.jpg`, PUBLIC_FOLDER_ID);
 
       await fetch(`${DIRECTUS_URL}/items/images`, {
         method: 'POST',
