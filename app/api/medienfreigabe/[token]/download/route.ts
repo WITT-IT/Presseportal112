@@ -2,6 +2,7 @@ import JSZip from 'jszip';
 import { NextRequest, NextResponse } from 'next/server';
 import { getMediaShareByToken } from '@/lib/queries';
 import { directusAssetUrl } from '@/lib/directus';
+import type { Post } from '@/lib/types';
 
 function sanitizeFilename(input: string): string {
   return (
@@ -13,9 +14,6 @@ function sanitizeFilename(input: string): string {
   );
 }
 
-// file_original ist -- anders als die watermarkten Varianten -- nicht
-// zwingend JPEG (Upload erlaubt auch PNG/WebP/GIF unverändert). Endung
-// darum aus dem tatsächlichen Content-Type ableiten statt .jpg zu erzwingen.
 function extensionFromContentType(contentType: string | null): string {
   switch (contentType) {
     case 'image/png':
@@ -29,13 +27,6 @@ function extensionFromContentType(contentType: string | null): string {
   }
 }
 
-// Zwei Modi, wie bei der internen Download-Route:
-//   ?imageId=... -> genau dieses eine Foto
-//   ohne Parameter -> alle Fotos der Freigabe als ZIP
-//
-// Bewusst file_original statt file_download -- Medienfreigaben gehen an
-// bereits autorisierte Empfänger:innen, die bekommen die Datei ohne
-// Wasserzeichen und in voller Originalqualität.
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ token: string }> }
@@ -55,7 +46,7 @@ export async function GET(
   }
   const authHeader = { Authorization: `Bearer ${serviceToken}` };
 
-  const allImages = share.posts.flatMap((post) =>
+  const allImages = share.posts.flatMap((post: Post) =>
     (post.images ?? []).map((img) => ({
       ...img,
       postTitle: post.title,
