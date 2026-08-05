@@ -10,6 +10,7 @@ import Breadcrumbs from '@/components/Breadcrumbs';
 import FolderActions from '@/components/FolderActions';
 import AddToMediaShareControl from '@/components/AddToMediaShareControl';
 import FolderPostPicker from '@/components/FolderPostPicker';
+import QuickUploadButton from '@/components/QuickUploadButton';
 
 export const dynamic = 'force-dynamic';
 
@@ -46,11 +47,16 @@ export default async function FolderDetailPage({
 
   const folderMeta = allFolders.find((f) => f.id === id);
   const isPublicFolder = folderMeta?.system_role === 'public' || folder.name === 'Öffentlich';
-  const isSystemFolder = folderMeta?.is_system_folder === true ||
-    folder.name === 'Öffentlich' || folder.name === 'Unsortiert';
+  const isSystemFolder =
+    folderMeta?.is_system_folder === true ||
+    folder.name === 'Öffentlich' ||
+    folder.name === 'Unsortiert';
 
   const includedIds = new Set(folder.posts.map((p) => p.id));
   const availablePosts = allOwnPosts.filter((p) => !includedIds.has(p.id));
+
+  const watermarkText =
+    user.organization.branding_label || `Foto: ${user.organization.name ?? ''}`;
 
   return (
     <div>
@@ -62,26 +68,34 @@ export default async function FolderDetailPage({
         ]}
       />
 
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
         <h1 className="font-display text-[28px] font-bold">{folder.name}</h1>
         <div className="flex flex-wrap gap-2">
           {!isSystemFolder && (
             <FolderActions folderId={folder.id} name={folder.name} />
           )}
+          {/* Vollständiger Upload mit Metadaten */}
           <Link
             href={`/intern/upload?folderId=${folder.id}`}
-            className="flex items-center gap-2 rounded-md bg-ink px-4 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-black"
+            className="flex items-center gap-2 rounded-md border border-line-strong px-4 py-2.5 text-[13px] font-semibold text-ink transition-colors hover:border-ink"
           >
-            <i className="ti ti-plus text-[14px]" aria-hidden="true" />
-            Foto hochladen
+            <i className="ti ti-forms text-[14px]" aria-hidden="true" />
+            Mit Metadaten hochladen
           </Link>
         </div>
       </div>
 
+      {/* Schnellupload — direkt per Drag & Drop oder Klick */}
+      {!isPublicFolder && (
+        <div className="mb-6">
+          <QuickUploadButton folderId={folder.id} watermarkText={watermarkText} />
+        </div>
+      )}
+
       {isPublicFolder && (
         <div className="mb-6 rounded-md border border-line bg-panel px-4 py-3 text-[12.5px] text-ink-2">
           <i className="ti ti-info-circle mr-1.5 text-[13px]" aria-hidden="true" />
-          Klick auf einen Beitrag öffnet die Bearbeiten-Seite — dort kannst du einzelne Fotos entfernen oder den Beitrag ganz löschen.
+          Klick auf einen Beitrag öffnet die Bearbeiten-Seite — dort kannst du Fotos entfernen oder den Beitrag ganz löschen.
         </div>
       )}
 
@@ -91,7 +105,7 @@ export default async function FolderDetailPage({
 
       {folder.posts.length === 0 ? (
         <p className="mb-10 text-[13px] text-ink-2">
-          Noch keine Beiträge in diesem Ordner.
+          Noch keine Beiträge in diesem Ordner — einfach Dateien oben ablegen.
         </p>
       ) : (
         <div className="mb-10 grid grid-cols-2 gap-4 nav:grid-cols-4">
@@ -101,7 +115,7 @@ export default async function FolderDetailPage({
               <Link
                 key={post.id}
                 href={`/intern/bearbeiten/${post.id}`}
-                className="relative overflow-hidden rounded-[10px] border border-line bg-white transition-colors hover:border-line-strong"
+                className="group relative overflow-hidden rounded-[10px] border border-line bg-white transition-colors hover:border-line-strong"
               >
                 <div className="relative h-[110px] bg-panel">
                   {hero?.file_public_preview && (
@@ -119,13 +133,14 @@ export default async function FolderDetailPage({
                   >
                     {post.is_public ? 'Öffentlich' : 'Entwurf'}
                   </span>
-                  <span className="absolute inset-0 flex items-center justify-center bg-black/0 transition-colors hover:bg-black/20">
-                    <i className="ti ti-edit text-[22px] text-white opacity-0 transition-opacity hover:opacity-100" aria-hidden="true" />
-                  </span>
+                  {/* Hover-Overlay */}
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/0 transition-colors group-hover:bg-black/25">
+                    <i className="ti ti-edit text-[22px] text-white opacity-0 transition-opacity group-hover:opacity-100" aria-hidden="true" />
+                  </div>
                 </div>
                 <div className="p-2.5">
                   <span className="block truncate text-[12px] font-medium">
-                    {post.title || post.alarm_code || 'Ohne Titel'}
+                    {post.title || post.alarm_code || 'Stockfoto'}
                   </span>
                   {!isPublicFolder && (
                     <div onClick={(e) => e.preventDefault()}>
