@@ -14,7 +14,13 @@ function formatDate(iso: string | null) {
   });
 }
 
-export default function GalleryCard({ post }: { post: Post }) {
+export default function GalleryCard({
+  post,
+  loggedIn = false,
+}: {
+  post: Post;
+  loggedIn?: boolean;
+}) {
   const org = typeof post.organization === 'object' ? post.organization : null;
   const hero = primaryImage(post);
   const imageCount = post.images?.length ?? 0;
@@ -57,7 +63,7 @@ export default function GalleryCard({ post }: { post: Post }) {
             {imageCount} Fotos
           </span>
         )}
-        <AddToCartButton imageId={post.id} />
+        <AddToCartButton imageId={post.id} loggedIn={loggedIn} />
       </div>
       <div className="border-t border-line p-[15px]">
         <div className="mb-1.5 font-mono text-[10px] text-ink-3">
