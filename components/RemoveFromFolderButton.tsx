@@ -16,19 +16,16 @@ export default function RemoveFromFolderButton({
   const [busy, setBusy] = useState(false);
 
   async function handleClick() {
-    console.log('[RemoveFromFolderButton] click', { folderId, postId, isPublicFolder });
     setBusy(true);
 
     if (isPublicFolder) {
-      console.log('[RemoveFromFolderButton] → remove-from-public');
-      const res = await fetch('/api/intern/posts/remove-from-public', {
+      // Nutzt toggle-public mit removeFromPublic=true statt separater Route
+      await fetch('/api/intern/posts/toggle-public', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ postId, folderId }),
+        body: JSON.stringify({ postId, removeFromPublic: true, folderId }),
       });
-      console.log('[RemoveFromFolderButton] response status:', res.status);
     } else {
-      console.log('[RemoveFromFolderButton] → folders/assign remove');
       await fetch('/api/intern/folders/assign', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
