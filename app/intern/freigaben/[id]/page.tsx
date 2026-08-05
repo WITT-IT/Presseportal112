@@ -8,7 +8,7 @@ import {
   getMyFoldersWithPostIds,
 } from '@/lib/queries';
 import { directusAssetUrl } from '@/lib/directus';
-import { primaryImage } from '@/lib/types';
+import { primaryImage, type Post } from '@/lib/types';
 import Breadcrumbs from '@/components/Breadcrumbs';
 import MediaShareActions from '@/components/MediaShareActions';
 import MediaShareLinkBox from '@/components/MediaShareLinkBox';
@@ -48,8 +48,8 @@ export default async function MediaShareDetailPage({
   ]);
   if (!share) notFound();
 
-  const includedIds = new Set(share.posts.map((p) => p.id));
-  const availablePosts = allOwnPosts.filter((p) => !includedIds.has(p.id));
+  const includedIds = new Set(share.posts.map((p: Post) => p.id));
+  const availablePosts = allOwnPosts.filter((p: Post) => !includedIds.has(p.id));
 
   return (
     <div>
@@ -85,7 +85,7 @@ export default async function MediaShareDetailPage({
         </p>
       ) : (
         <div className="mb-10 grid grid-cols-2 gap-4 nav:grid-cols-4">
-          {share.posts.map((post) => {
+          {share.posts.map((post: Post) => {
             const hero = primaryImage(post);
             return (
               <div
@@ -121,7 +121,7 @@ export default async function MediaShareDetailPage({
       <FolderToShareControl
         shareId={share.id}
         folders={folders}
-        existingPostIds={share.posts.map((p) => p.id)}
+        existingPostIds={share.posts.map((p: Post) => p.id)}
       />
 
       <MediaSharePostPicker shareId={share.id} availablePosts={availablePosts} />
