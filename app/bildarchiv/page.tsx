@@ -1,7 +1,9 @@
 import Link from 'next/link';
+import { cookies } from 'next/headers';
 import GewerkFilterTabs from '@/components/GewerkFilterTabs';
 import GalleryCard from '@/components/GalleryCard';
 import SearchBox from '@/components/SearchBox';
+import { SESSION_COOKIE } from '@/lib/auth';
 import { getGewerke, getPublicImagesPage, searchPublicImages } from '@/lib/queries';
 
 export const dynamic = 'force-dynamic';
@@ -14,7 +16,6 @@ export const metadata = {
 
 const PAGE_SIZE = 24;
 
-// Next.js 15: searchParams ist ein Promise und muss erst aufgelöst werden.
 export default async function BildarchivPage({
   searchParams,
 }: {
@@ -24,6 +25,19 @@ export default async function BildarchivPage({
   const gewerkId = params.gewerk;
   const page = Math.max(1, Number(params.page) || 1);
   const query = params.q?.trim() || '';
+
+  // Login-Status prüfen -- kein Directus-Aufruf nötig, Cookie-Check reicht.
+  const cookieStore = await cookies();
+  const raw = cookieStore.get(SESSION_COOKIE)?.value;
+  let loggedIn = false;
+  if (raw) {
+    try {
+      const session = JSON.parse(raw);
+      loggedIn = typeof session?.accessToken === 'string';
+    } catch {
+      loggedIn = false;
+    }
+  }
 
   let gewerke: Awaited<ReturnType<typeof getGewerke>> = [];
   let images: Awaited<ReturnType<typeof getPublicImagesPage>>['images'] = [];
@@ -104,7 +118,7 @@ export default async function BildarchivPage({
           <>
             <div className="grid grid-cols-2 gap-[16px] nav:grid-cols-4">
               {images.map((post) => (
-                <GalleryCard key={post.id} post={post} />
+                <GalleryCard key={post.id} post={post} loggedIn={loggedIn} />
               ))}
             </div>
 
