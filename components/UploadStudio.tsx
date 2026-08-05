@@ -313,10 +313,10 @@ export default function UploadStudio({
           {sourceTab === 'neu' && (
             <div className="flex flex-1 flex-col p-4">
               <button type="button" onClick={() => fileInputRef.current?.click()}
-                className="flex flex-1 flex-col items-center justify-center gap-3 rounded-md border-2 border-dashed border-line-strong py-12 text-ink-2 transition-colors hover:border-ink hover:text-ink">
-                <i className="ti ti-cloud-upload text-[32px]" aria-hidden="true" />
-                <span className="text-[13.5px] font-semibold">Fotos hierher ziehen oder klicken</span>
-                <span className="text-[11.5px] text-ink-3">JPEG, PNG, WebP · max. 80 MB · bis zu {MAX_IMAGES} Fotos</span>
+                className="flex w-full items-center justify-center gap-3 rounded-md border-2 border-dashed border-line-strong py-4 text-ink-2 transition-colors hover:border-ink hover:text-ink">
+                <i className="ti ti-cloud-upload text-[18px]" aria-hidden="true" />
+                <span className="text-[13px] font-semibold">Fotos hierher ziehen oder klicken</span>
+                <span className="text-[11px] text-ink-3">JPEG · PNG · WebP · max. 80 MB</span>
               </button>
               <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif"
                 multiple onChange={handleFileInput} className="hidden" />
