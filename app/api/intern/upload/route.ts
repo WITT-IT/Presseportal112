@@ -207,21 +207,32 @@ export async function POST(request: NextRequest) {
       const uid = randomUUID().slice(0, 8);
       const baseName = originalBlob.name.replace(/\.[^.]+$/, '');
 
+      // Node.js FormData File-Objekte teilen intern denselben Stream --
+      // jeden via arrayBuffer() klonen bevor er an Directus gesendet wird.
+      const [origBuf, prevBuf, dlBuf] = await Promise.all([
+        originalBlob.arrayBuffer(),
+        previewBlob.arrayBuffer(),
+        downloadBlob.arrayBuffer(),
+      ]);
+      const origClone = new Blob([origBuf], { type: originalBlob.type });
+      const prevClone = new Blob([prevBuf], { type: previewBlob.type });
+      const dlClone = new Blob([dlBuf], { type: downloadBlob.type });
+
       // Sequenziell statt parallel — verhindert 204-Duplikat-Antworten
       const originalId = await uploadFileToDirectus(
         session.accessToken,
-        originalBlob,
+        origClone,
         `${uid}-orig-${baseName}`
       );
       const previewId = await uploadFileToDirectus(
         session.accessToken,
-        previewBlob,
+        prevClone,
         `${uid}-prev-${baseName}.jpg`,
         PUBLIC_FOLDER_ID
       );
       const downloadId = await uploadFileToDirectus(
         session.accessToken,
-        downloadBlob,
+        dlClone,
         `${uid}-dl-${baseName}.jpg`,
         PUBLIC_FOLDER_ID
       );
