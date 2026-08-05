@@ -2,7 +2,7 @@ import JSZip from 'jszip';
 import { NextRequest, NextResponse } from 'next/server';
 import { getMediaShareByToken } from '@/lib/queries';
 import { directusAssetUrl } from '@/lib/directus';
-import type { Post } from '@/lib/types';
+import type { Post, PostImage } from '@/lib/types';
 
 function sanitizeFilename(input: string): string {
   return (
@@ -27,6 +27,11 @@ function extensionFromContentType(contentType: string | null): string {
   }
 }
 
+type ImageWithMeta = PostImage & {
+  postTitle: string | null;
+  postAlarmCode: string | null;
+};
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ token: string }> }
@@ -46,8 +51,8 @@ export async function GET(
   }
   const authHeader = { Authorization: `Bearer ${serviceToken}` };
 
-  const allImages = share.posts.flatMap((post: Post) =>
-    (post.images ?? []).map((img) => ({
+  const allImages: ImageWithMeta[] = share.posts.flatMap((post: Post) =>
+    (post.images ?? []).map((img: PostImage) => ({
       ...img,
       postTitle: post.title,
       postAlarmCode: post.alarm_code,
@@ -55,7 +60,7 @@ export async function GET(
   );
 
   if (imageId) {
-    const image = allImages.find((img) => img.id === imageId);
+    const image = allImages.find((img: ImageWithMeta) => img.id === imageId);
     if (!image?.file_original) {
       return NextResponse.json({ error: 'Foto nicht Teil dieser Freigabe.' }, { status: 404 });
     }
@@ -76,7 +81,7 @@ export async function GET(
     });
   }
 
-  const downloadable = allImages.filter((img) => img.file_original);
+  const downloadable = allImages.filter((img: ImageWithMeta) => img.file_original);
   if (downloadable.length === 0) {
     return NextResponse.json({ error: 'Keine Dateien vorhanden.' }, { status: 404 });
   }
