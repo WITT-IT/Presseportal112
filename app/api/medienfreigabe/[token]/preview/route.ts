@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getMediaShareByToken } from '@/lib/queries';
 import { directusAssetUrl } from '@/lib/directus';
+import type { Post, PostImage } from '@/lib/types';
 
 export async function GET(
   request: NextRequest,
@@ -17,7 +18,10 @@ export async function GET(
     return NextResponse.json({ error: 'Freigabe nicht verfügbar.' }, { status: 404 });
   }
 
-  const image = share.posts.flatMap((post) => post.images ?? []).find((img) => img.id === imageId);
+  const image = share.posts
+    .flatMap((post: Post) => (post.images ?? []) as PostImage[])
+    .find((img: PostImage) => img.id === imageId);
+
   // Bewusst file_original statt file_public_preview -- Medienfreigaben
   // gehen an bereits autorisierte Empfänger:innen, die brauchen kein
   // Wasserzeichen. Directus verkleinert trotzdem on-the-fly über die
@@ -32,10 +36,6 @@ export async function GET(
     return NextResponse.json({ error: 'Nicht verfügbar.' }, { status: 500 });
   }
 
-  // Bewusst per Service-Token server-seitig geladen und weitergereicht,
-  // statt die Directus-Asset-URL direkt im Browser aufzurufen -- so
-  // funktioniert das unabhängig davon, ob der zugehörige Beitrag öffentlich
-  // ist oder nicht, ohne die Public-Policy dafür öffnen zu müssen.
   const assetRes = await fetch(directusAssetUrl(image.file_original, 'width=600&quality=75'), {
     headers: { Authorization: `Bearer ${serviceToken}` },
   });
