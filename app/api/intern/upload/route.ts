@@ -1,3 +1,4 @@
+// v2 - sequenzieller Upload, ein Bild pro Request
 import { randomUUID } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
@@ -12,78 +13,37 @@ const ARTICLE_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
 
 const PUBLIC_FOLDER_ID = process.env.DIRECTUS_PUBLIC_FOLDER_ID;
 
-// Datei zu Directus hochladen via raw Buffer -- kein Blob/Stream-Problem
-async function uploadBuffer(
-  token: string,
-  buffer: Buffer,
-  mimeType: string,
-  filename: string,
-  folderId?: string
-): Promise<string> {
+async function uploadBuffer(token: string, buffer: Buffer, mimeType: string, filename: string, folderId?: string): Promise<string> {
   const fileId = randomUUID();
   const boundary = `----FormBoundary${randomUUID().replace(/-/g, '')}`;
-
   const parts: Buffer[] = [];
-
-  // id field
-  parts.push(Buffer.from(
-    `--${boundary}\r\nContent-Disposition: form-data; name="id"\r\n\r\n${fileId}\r\n`
-  ));
-
-  // folder field
-  if (folderId) {
-    parts.push(Buffer.from(
-      `--${boundary}\r\nContent-Disposition: form-data; name="folder"\r\n\r\n${folderId}\r\n`
-    ));
-  }
-
-  // file field
-  parts.push(Buffer.from(
-    `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: ${mimeType}\r\n\r\n`
-  ));
+  parts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="id"\r\n\r\n${fileId}\r\n`));
+  if (folderId) parts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="folder"\r\n\r\n${folderId}\r\n`));
+  parts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: ${mimeType}\r\n\r\n`));
   parts.push(buffer);
   parts.push(Buffer.from(`\r\n--${boundary}--\r\n`));
-
   const body = Buffer.concat(parts);
-
   const res = await fetch(`${DIRECTUS_URL}/files`, {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': `multipart/form-data; boundary=${boundary}`,
-      'Content-Length': String(body.length),
-    },
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': `multipart/form-data; boundary=${boundary}`, 'Content-Length': String(body.length) },
     body,
   });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Datei-Upload fehlgeschlagen (${res.status}): ${text}`);
-  }
+  if (!res.ok) throw new Error(`Datei-Upload fehlgeschlagen (${res.status}): ${await res.text()}`);
   return fileId;
 }
 
-// Systemordner per system_role oder Name finden
-async function getSystemFolders(
-  token: string,
-  orgId: string
-): Promise<{ publicFolderId: string | null; unsortedFolderId: string | null }> {
-  const res = await fetch(
-    `${DIRECTUS_URL}/items/folders?filter[organization][_eq]=${orgId}&fields=id,name,system_role&limit=100`,
-    { headers: { Authorization: `Bearer ${token}` } }
-  );
+async function getSystemFolders(token: string, orgId: string) {
+  const res = await fetch(`${DIRECTUS_URL}/items/folders?filter[organization][_eq]=${orgId}&fields=id,name,system_role&limit=100`, { headers: { Authorization: `Bearer ${token}` } });
   if (!res.ok) return { publicFolderId: null, unsortedFolderId: null };
   const { data } = await res.json();
   const rows = data as { id: string; name: string; system_role?: string | null }[];
-  const publicFolder = rows.find((r) => r.system_role === 'public') ?? rows.find((r) => r.name === 'Öffentlich');
-  const unsortedFolder = rows.find((r) => r.system_role === 'unsorted') ?? rows.find((r) => r.name === 'Unsortiert');
   return {
-    publicFolderId: publicFolder?.id ?? null,
-    unsortedFolderId: unsortedFolder?.id ?? null,
+    publicFolderId: rows.find((r) => r.system_role === 'public')?.id ?? rows.find((r) => r.name === 'Öffentlich')?.id ?? null,
+    unsortedFolderId: rows.find((r) => r.system_role === 'unsorted')?.id ?? rows.find((r) => r.name === 'Unsortiert')?.id ?? null,
   };
 }
 
-async function assignToFolder(token: string, folderId: string, postId: string): Promise<void> {
+async function assignToFolder(token: string, folderId: string, postId: string) {
   await fetch(`${DIRECTUS_URL}/items/folders_posts`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -94,193 +54,119 @@ async function assignToFolder(token: string, folderId: string, postId: string): 
 export async function POST(request: NextRequest) {
   const raw = request.cookies.get(SESSION_COOKIE)?.value;
   if (!raw) return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
-
   let session: { accessToken: string };
-  try {
-    session = JSON.parse(raw);
-  } catch {
-    return NextResponse.json({ error: 'Sitzung ungültig.' }, { status: 401 });
-  }
+  try { session = JSON.parse(raw); } catch { return NextResponse.json({ error: 'Sitzung ungültig.' }, { status: 401 }); }
 
   const user = await getCurrentUser(session.accessToken);
-  if (!user || !user.organization?.id) {
-    return NextResponse.json({ error: 'Deinem Konto ist keine Organisation zugeordnet.' }, { status: 403 });
-  }
+  if (!user?.organization?.id) return NextResponse.json({ error: 'Keine Organisation.' }, { status: 403 });
 
-  // FormData normal parsen -- die File-Objekte lesen wir direkt als Buffer
   const formData = await request.formData();
 
-  const postTypeRaw = (formData.get('post_type') as string) || 'einsatz';
-  const isStock = postTypeRaw === 'stockfoto';
-  const title = isStock ? null : ((formData.get('title') as string) || null);
-  const eventDate = isStock ? null : ((formData.get('event_date') as string) || null);
-  const alarmCode = isStock ? null : ((formData.get('alarm_code') as string) || null);
-  const location = isStock ? null : ((formData.get('location') as string) || null);
-  const tagsRaw = (formData.get('tags') as string) || '';
-  const articleBodyRaw = isStock ? '' : ((formData.get('article_body') as string) || '');
-  const articleBody = articleBodyRaw.trim()
-    ? sanitizeHtml(articleBodyRaw, ARTICLE_SANITIZE_OPTIONS)
-    : null;
+  const imageIndex = Number(formData.get('image_index') ?? 0);
+  const isLast = formData.get('is_last') === 'true';
+  const existingPostId = (formData.get('post_id') as string) || null;
   const makePublic = formData.get('make_public') === 'true';
-  const targetFolderIdRaw = (formData.get('folder_id') as string) || '';
-  const contentConfirmed = formData.get('content_confirmed') === 'true';
-  const imageCount = Number(formData.get('image_count') || 0);
+  const sort = Number(formData.get('sort') ?? imageIndex);
 
-  if (!contentConfirmed) {
-    return NextResponse.json({ error: 'Bitte die Bestätigung ankreuzen.' }, { status: 400 });
-  }
-  if (!isStock && (!title?.trim() || !location?.trim() || !alarmCode?.trim() || !eventDate)) {
-    return NextResponse.json({ error: 'Bitte Titel, Ort, Alarmcode und Datum ausfüllen.' }, { status: 400 });
-  }
-  if (imageCount < 1) {
-    return NextResponse.json({ error: 'Mindestens ein Foto nötig.' }, { status: 400 });
-  }
-
-  // Alle File-Buffers VOR dem eigentlichen Upload lesen
-  // -- so ist kein Stream-Problem möglich da alles im Speicher ist
-  type FileEntry = { buffer: Buffer; mimeType: string; name: string };
-  const fileEntries: { original: FileEntry; preview: FileEntry; download: FileEntry; caption: string }[] = [];
-
-  for (let i = 0; i < imageCount; i++) {
-    const originalFile = formData.get(`original_${i}`) as File | null;
-    const previewFile = formData.get(`preview_${i}`) as File | null;
-    const downloadFile = formData.get(`download_${i}`) as File | null;
-    const caption = (formData.get(`caption_${i}`) as string) || '';
-
-    if (!originalFile || !previewFile || !downloadFile) continue;
-
-    const [origBuf, prevBuf, dlBuf] = await Promise.all([
-      originalFile.arrayBuffer().then(Buffer.from),
-      previewFile.arrayBuffer().then(Buffer.from),
-      downloadFile.arrayBuffer().then(Buffer.from),
-    ]);
-
-    fileEntries.push({
-      original: { buffer: origBuf, mimeType: originalFile.type || 'image/jpeg', name: originalFile.name },
-      preview: { buffer: prevBuf, mimeType: previewFile.type || 'image/jpeg', name: previewFile.name },
-      download: { buffer: dlBuf, mimeType: downloadFile.type || 'image/jpeg', name: downloadFile.name },
-      caption,
-    });
-  }
-
-  const authHeaders = {
-    Authorization: `Bearer ${session.accessToken}`,
-    'Content-Type': 'application/json',
-  };
+  const authHeaders = { Authorization: `Bearer ${session.accessToken}`, 'Content-Type': 'application/json' };
 
   try {
-    const tags = tagsRaw.split(',').map((t) => t.trim()).filter(Boolean);
-
-    const { publicFolderId, unsortedFolderId } = await getSystemFolders(
-      session.accessToken,
-      user.organization.id
-    );
-
+    let postId: string;
     let finalFolderId: string | null = null;
     let originFolderId: string | null = null;
 
-    if (makePublic && publicFolderId) {
-      finalFolderId = publicFolderId;
-      if (targetFolderIdRaw) originFolderId = targetFolderIdRaw;
-    } else if (targetFolderIdRaw) {
-      finalFolderId = targetFolderIdRaw;
-    } else {
-      finalFolderId = unsortedFolderId;
-    }
+    if (imageIndex === 0) {
+      // ── Erstes Bild: Beitrag anlegen ──────────────────────────────────
+      const postTypeRaw = (formData.get('post_type') as string) || 'einsatz';
+      const isStock = postTypeRaw === 'stockfoto';
+      const title = isStock ? null : ((formData.get('title') as string) || null);
+      const eventDate = isStock ? null : ((formData.get('event_date') as string) || null);
+      const alarmCode = isStock ? null : ((formData.get('alarm_code') as string) || null);
+      const location = isStock ? null : ((formData.get('location') as string) || null);
+      const tagsRaw = (formData.get('tags') as string) || '';
+      const articleBodyRaw = isStock ? '' : ((formData.get('article_body') as string) || '');
+      const articleBody = articleBodyRaw.trim() ? sanitizeHtml(articleBodyRaw, ARTICLE_SANITIZE_OPTIONS) : null;
+      const targetFolderIdRaw = (formData.get('folder_id') as string) || '';
+      const tags = tagsRaw.split(',').map((t) => t.trim()).filter(Boolean);
 
-    const postId = randomUUID();
-    const now = new Date().toISOString();
+      const { publicFolderId, unsortedFolderId } = await getSystemFolders(session.accessToken, user.organization.id);
 
-    const postBody: Record<string, unknown> = {
-      id: postId,
-      organization: user.organization.id,
-      title,
-      article_body: articleBody,
-      event_date: eventDate || null,
-      alarm_code: alarmCode || null,
-      location: location || null,
-      tags,
-      is_public: makePublic,
-      published_at: makePublic ? now : null,
-      post_type: postTypeRaw,
-    };
-    if (originFolderId) postBody.origin_folder_id = originFolderId;
-
-    let postRes = await fetch(`${DIRECTUS_URL}/items/posts`, {
-      method: 'POST',
-      headers: authHeaders,
-      body: JSON.stringify(postBody),
-    });
-
-    if (!postRes.ok) {
-      const errText = await postRes.text();
-      if (postRes.status === 403 && errText.includes('post_type')) {
-        delete postBody.post_type;
-        delete postBody.origin_folder_id;
-        postRes = await fetch(`${DIRECTUS_URL}/items/posts`, {
-          method: 'POST',
-          headers: authHeaders,
-          body: JSON.stringify(postBody),
-        });
-        if (!postRes.ok) {
-          throw new Error(`Beitrag anlegen fehlgeschlagen: ${await postRes.text()}`);
-        }
+      if (makePublic && publicFolderId) {
+        finalFolderId = publicFolderId;
+        if (targetFolderIdRaw) originFolderId = targetFolderIdRaw;
+      } else if (targetFolderIdRaw) {
+        finalFolderId = targetFolderIdRaw;
       } else {
-        throw new Error(`Beitrag anlegen fehlgeschlagen: ${errText}`);
+        finalFolderId = unsortedFolderId;
       }
+
+      postId = randomUUID();
+      const now = new Date().toISOString();
+      const postBody: Record<string, unknown> = {
+        id: postId, organization: user.organization.id, title,
+        article_body: articleBody, event_date: eventDate || null,
+        alarm_code: alarmCode || null, location: location || null,
+        tags, is_public: makePublic, published_at: makePublic ? now : null,
+        post_type: postTypeRaw,
+      };
+      if (originFolderId) postBody.origin_folder_id = originFolderId;
+
+      let postRes = await fetch(`${DIRECTUS_URL}/items/posts`, { method: 'POST', headers: authHeaders, body: JSON.stringify(postBody) });
+      if (!postRes.ok) {
+        const errText = await postRes.text();
+        if (postRes.status === 403 && errText.includes('post_type')) {
+          delete postBody.post_type; delete postBody.origin_folder_id;
+          postRes = await fetch(`${DIRECTUS_URL}/items/posts`, { method: 'POST', headers: authHeaders, body: JSON.stringify(postBody) });
+        }
+        if (!postRes.ok) throw new Error(`Beitrag anlegen fehlgeschlagen: ${await postRes.text()}`);
+      }
+    } else {
+      // ── Folgebild: bestehenden Beitrag verwenden ───────────────────────
+      if (!existingPostId) return NextResponse.json({ error: 'post_id fehlt.' }, { status: 400 });
+      postId = existingPostId;
+      finalFolderId = (formData.get('final_folder_id') as string) || null;
+      originFolderId = (formData.get('origin_folder_id') as string) || null;
     }
 
-    // Fotos hochladen -- alle Buffers sind bereits im Speicher
-    for (let i = 0; i < fileEntries.length; i++) {
-      const { original, preview, download, caption } = fileEntries[i];
-      const uid = randomUUID().slice(0, 8);
-      const baseName = original.name.replace(/\.[^.]+$/, '');
+    // ── Bild hochladen ─────────────────────────────────────────────────
+    const originalFile = formData.get('original_0') as File | null;
+    const previewFile = formData.get('preview_0') as File | null;
+    const downloadFile = formData.get('download_0') as File | null;
+    const caption = (formData.get('caption_0') as string) || null;
 
-      const originalId = await uploadBuffer(
-        session.accessToken,
-        original.buffer,
-        original.mimeType,
-        `${uid}-orig-${baseName}`
-      );
-      const previewId = await uploadBuffer(
-        session.accessToken,
-        preview.buffer,
-        preview.mimeType,
-        `${uid}-prev-${baseName}.jpg`,
-        PUBLIC_FOLDER_ID
-      );
-      const downloadId = await uploadBuffer(
-        session.accessToken,
-        download.buffer,
-        download.mimeType,
-        `${uid}-dl-${baseName}.jpg`,
-        PUBLIC_FOLDER_ID
-      );
+    if (originalFile && previewFile && downloadFile) {
+      const [origBuf, prevBuf, dlBuf] = await Promise.all([
+        originalFile.arrayBuffer().then(Buffer.from),
+        previewFile.arrayBuffer().then(Buffer.from),
+        downloadFile.arrayBuffer().then(Buffer.from),
+      ]);
+      const uid = randomUUID().slice(0, 8);
+      const baseName = originalFile.name.replace(/\.[^.]+$/, '');
+      const originalId = await uploadBuffer(session.accessToken, origBuf, originalFile.type || 'image/jpeg', `${uid}-orig-${baseName}`);
+      const previewId = await uploadBuffer(session.accessToken, prevBuf, previewFile.type || 'image/jpeg', `${uid}-prev-${baseName}.jpg`, PUBLIC_FOLDER_ID);
+      const downloadId = await uploadBuffer(session.accessToken, dlBuf, downloadFile.type || 'image/jpeg', `${uid}-dl-${baseName}.jpg`, PUBLIC_FOLDER_ID);
 
       await fetch(`${DIRECTUS_URL}/items/images`, {
-        method: 'POST',
-        headers: authHeaders,
+        method: 'POST', headers: authHeaders,
         body: JSON.stringify({
-          id: randomUUID(),
-          post: postId,
+          id: randomUUID(), post: postId,
           file_original: originalId,
           file_public_preview: makePublic ? previewId : null,
           file_download: makePublic ? downloadId : null,
           file_public_preview_watermarked: previewId,
           file_download_watermarked: downloadId,
-          no_watermark: false,
-          caption: caption || null,
-          sort: i,
+          no_watermark: false, caption: caption || null, sort,
         }),
       });
     }
 
-    if (finalFolderId) await assignToFolder(session.accessToken, finalFolderId, postId);
-    if (originFolderId && originFolderId !== finalFolderId) {
-      await assignToFolder(session.accessToken, originFolderId, postId);
+    // ── Letztes Bild: Ordner-Zuweisung ────────────────────────────────
+    if (isLast) {
+      if (finalFolderId) await assignToFolder(session.accessToken, finalFolderId, postId);
+      if (originFolderId && originFolderId !== finalFolderId) await assignToFolder(session.accessToken, originFolderId, postId);
     }
 
-    return NextResponse.json({ ok: true, id: postId });
+    return NextResponse.json({ ok: true, id: postId, final_folder_id: finalFolderId, origin_folder_id: originFolderId });
   } catch (error) {
     console.error('Upload fehlgeschlagen:', error);
     return NextResponse.json({ error: 'Upload fehlgeschlagen. Bitte erneut versuchen.' }, { status: 500 });
