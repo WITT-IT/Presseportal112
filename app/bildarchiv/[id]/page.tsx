@@ -1,3 +1,4 @@
+import { cookies } from 'next/headers';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import type { Metadata } from 'next';
@@ -5,6 +6,7 @@ import { directusAssetUrl } from '@/lib/directus';
 import { getPublicImageById, getPublicImagesByOrganization } from '@/lib/queries';
 import { GEWERK_COLORS, normalizeTags, primaryImage, type Post } from '@/lib/types';
 import { toJsonLd } from '@/lib/structuredData';
+import { SESSION_COOKIE } from '@/lib/auth';
 import ArticleCartToggle from '@/components/ArticleCartToggle';
 import GalleryCard from '@/components/GalleryCard';
 import PostGallery from '@/components/PostGallery';
@@ -43,6 +45,19 @@ export default async function PostArticlePage({ params }: Props) {
   const post = await getPublicImageById(id);
   if (!post) notFound();
 
+  // Login-Status prüfen -- kein Directus-Aufruf nötig, Cookie-Check reicht.
+  const cookieStore = await cookies();
+  const raw = cookieStore.get(SESSION_COOKIE)?.value;
+  let loggedIn = false;
+  if (raw) {
+    try {
+      const session = JSON.parse(raw);
+      loggedIn = typeof session?.accessToken === 'string';
+    } catch {
+      loggedIn = false;
+    }
+  }
+
   const org = typeof post.organization === 'object' ? post.organization : null;
   const gewerkId = org?.gewerk ?? 'feuerwehr';
   const color = GEWERK_COLORS[gewerkId] ?? GEWERK_COLORS.feuerwehr;
@@ -55,10 +70,6 @@ export default async function PostArticlePage({ params }: Props) {
     year: 'numeric',
   });
 
-  // Eine mehr anfragen als gebraucht, damit nach dem Herausfiltern des
-  // aktuellen Beitrags trotzdem genug übrig bleiben. Bewusst abgesichert --
-  // scheitert das, soll die Artikelseite trotzdem laden, nur eben ohne
-  // "Weitere Meldungen".
   let relatedPosts: Post[] = [];
   if (org) {
     try {
@@ -96,9 +107,6 @@ export default async function PostArticlePage({ params }: Props) {
         dangerouslySetInnerHTML={{ __html: toJsonLd(newsArticleJsonLd) }}
       />
 
-      {/* Kein DarkMasthead mehr -- nur die Textdaten, auf normalem hellem
-          Untergrund wie der Rest der Seite. border-b trennt den
-          Kopfbereich optisch leicht vom Inhalt darunter ab. */}
       <div className="border-b border-line px-8 py-14">
         <div className="mx-auto max-w-[760px]">
           <Link
@@ -172,8 +180,6 @@ export default async function PostArticlePage({ params }: Props) {
           {post.article_body && (
             <div
               className="prose-article mb-10 text-[15.5px] text-ink"
-              // Inhalt wurde serverseitig beim Hochladen bereits auf eine
-              // kleine, sichere Tag-Liste beschränkt (siehe upload/route.ts).
               dangerouslySetInnerHTML={{ __html: post.article_body }}
             />
           )}
@@ -198,7 +204,7 @@ export default async function PostArticlePage({ params }: Props) {
               </h2>
               <div className="grid grid-cols-2 gap-[16px] nav:grid-cols-4">
                 {relatedPosts.map((p) => (
-                  <GalleryCard key={p.id} post={p} />
+                  <GalleryCard key={p.id} post={p} loggedIn={loggedIn} />
                 ))}
               </div>
             </div>
