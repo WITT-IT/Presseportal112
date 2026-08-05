@@ -8,7 +8,6 @@ import { directusAssetUrl } from '@/lib/directus';
 import { primaryImage } from '@/lib/types';
 import Breadcrumbs from '@/components/Breadcrumbs';
 import FolderActions from '@/components/FolderActions';
-import AddToMediaShareControl from '@/components/AddToMediaShareControl';
 import FolderPostPicker from '@/components/FolderPostPicker';
 import QuickUploadButton from '@/components/QuickUploadButton';
 
@@ -142,11 +141,7 @@ export default async function FolderDetailPage({
                   <span className="block truncate text-[12px] font-medium">
                     {post.title || post.alarm_code || 'Stockfoto'}
                   </span>
-                  {!isPublicFolder && (
-                    <div onClick={(e) => e.preventDefault()}>
-                      <AddToMediaShareControl postId={post.id} mediaShares={mediaShares} />
-                    </div>
-                  )}
+
                 </div>
               </Link>
             );
