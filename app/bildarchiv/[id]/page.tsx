@@ -22,7 +22,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   const org = typeof post.organization === 'object' ? post.organization : null;
   const hero = primaryImage(post);
-  const title = post.title || `Einsatzfoto ${post.alarm_code ?? ''}`.trim();
+  const title = post.title || (post.alarm_code ? `Einsatz ${post.alarm_code}` : 'Stockfoto');
   const description = org?.name
     ? `Freigegebene Einsatzfotos von ${org.name}${post.location ? ` — ${post.location}` : ''}.`
     : 'Freigegebene Einsatzfotos von Presseportal112.';
@@ -62,8 +62,8 @@ export default async function PostArticlePage({ params }: Props) {
   const color = GEWERK_COLORS[gewerkId] ?? GEWERK_COLORS.feuerwehr;
   const images = post.images ?? [];
   const hero = primaryImage(post);
+  const isStock = post.post_type === 'stockfoto';
 
-  // event_date ist jetzt string | null (Stockfotos haben keins)
   const dateLabel = post.event_date
     ? new Date(post.event_date).toLocaleDateString('de-DE', {
         day: '2-digit',
@@ -84,11 +84,13 @@ export default async function PostArticlePage({ params }: Props) {
 
   const articleUrl = `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/bildarchiv/${post.id}`;
 
+  const headline = post.title || (post.alarm_code ? `Einsatz ${post.alarm_code}` : 'Stockfoto');
+
   const newsArticleJsonLd = {
     '@context': 'https://schema.org',
     '@type': 'NewsArticle',
     mainEntityOfPage: { '@type': 'WebPage', '@id': articleUrl },
-    headline: post.title || `Einsatzfoto ${post.alarm_code ?? ''}`.trim(),
+    headline,
     image: images
       .map((img) =>
         img.file_public_preview
@@ -125,7 +127,8 @@ export default async function PostArticlePage({ params }: Props) {
               style={{ backgroundColor: color, boxShadow: `0 0 6px ${color}` }}
               aria-hidden="true"
             />
-            {post.alarm_code ?? 'Pressefoto'}
+            {/* Stockfotos ohne Alarmcode zeigen "Stockfoto" statt Org-Name */}
+            {post.alarm_code ?? (isStock ? 'Stockfoto' : 'Pressefoto')}
             {dateLabel && <> &middot; {dateLabel}</>}
             {images.length > 1 && (
               <span className="text-ink-3">&middot; {images.length} Fotos</span>
@@ -133,7 +136,8 @@ export default async function PostArticlePage({ params }: Props) {
           </div>
 
           <h1 className="mb-4 font-display text-[clamp(30px,5vw,48px)] font-bold leading-[1.02] tracking-[-0.01em] text-ink">
-            {post.title || `Einsatz ${org?.name ?? ''}`}
+            {/* Kein Titel → Alarmcode als Fallback, sonst "Stockfoto" */}
+            {post.title || (post.alarm_code ? `Einsatz ${post.alarm_code}` : 'Stockfoto')}
           </h1>
 
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-ink-2">
