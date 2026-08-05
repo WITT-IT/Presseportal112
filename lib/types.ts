@@ -45,7 +45,9 @@ export type PostImage = {
   post: Post | string | null;
   file_original: string | null;
   file_public_preview: string | null;
+  file_public_preview_watermarked?: string | null;
   file_download: string | null;
+  file_download_watermarked?: string | null;
   no_watermark: boolean;
   caption: string | null;
   sort: number;
