@@ -1,7 +1,7 @@
 import { redirect, notFound } from 'next/navigation';
 import { cookies } from 'next/headers';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
-import { getPostForEdit, getAllUsedTags, getAlarmcodes, getMyFoldersWithPostIds } from '@/lib/queries';
+import { getPostForEdit, getAllUsedTags, getAlarmcodes, getMyFoldersWithPostIds, getMyFolders } from '@/lib/queries';
 import EditPostForm from '@/components/EditPostForm';
 
 export const dynamic = 'force-dynamic';
@@ -27,12 +27,15 @@ export default async function EditPostPage({
   const user = await getCurrentUser(session.accessToken);
   if (!user) redirect('/login');
 
-  const [post, existingTags, alarmcodes, foldersWithPosts] = await Promise.all([
+  const [post, existingTags, alarmcodes, foldersWithPosts, allFolders] = await Promise.all([
     getPostForEdit(session.accessToken, id),
     getAllUsedTags(),
     getAlarmcodes(),
     user.organization?.id
       ? getMyFoldersWithPostIds(session.accessToken, user.organization.id)
+      : Promise.resolve([]),
+    user.organization?.id
+      ? getMyFolders(session.accessToken, user.organization.id)
       : Promise.resolve([]),
   ]);
 
@@ -41,11 +44,18 @@ export default async function EditPostPage({
   const watermarkText =
     user?.organization?.branding_label || `Foto: ${user?.organization?.name ?? ''}`;
 
-  // Prüfen ob der Beitrag in einem echten (nicht-System-)Ordner liegt.
-  // Systemordner (Öffentlich, Unsortiert) zählen nicht als "echter" Ordner.
-  const hasFolder = foldersWithPosts
+  // Nur echte (nicht-System-)Ordner für die Zuordnung anzeigen
+  const realFolders = allFolders
+    .filter((f) => !f.is_system_folder && f.name !== 'Öffentlich' && f.name !== 'Unsortiert')
+    .map((f) => ({ id: f.id, name: f.name }));
+
+  // Aktuelle Ordner-Zuordnungen des Beitrags (nur echte Ordner)
+  const assignedFolderIds = foldersWithPosts
     .filter((f) => f.name !== 'Öffentlich' && f.name !== 'Unsortiert')
-    .some((f) => f.postIds.includes(id));
+    .filter((f) => f.postIds.includes(id))
+    .map((f) => f.id);
+
+  const hasFolder = assignedFolderIds.length > 0;
 
   return (
     <section className="px-8 py-14">
@@ -62,6 +72,8 @@ export default async function EditPostPage({
           watermarkText={watermarkText}
           alarmcodes={alarmcodes}
           hasFolder={hasFolder}
+          folders={realFolders}
+          assignedFolderIds={assignedFolderIds}
         />
       </div>
     </section>
