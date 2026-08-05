@@ -133,10 +133,10 @@ export default function EditPostForm({
     setRetiring(true);
     setError(null);
     try {
-      const res = await fetch('/api/intern/posts/retire', {
+      const res = await fetch('/api/intern/posts/toggle-public', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ postId: post.id }),
+        body: JSON.stringify({ postId: post.id, retire: true }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
