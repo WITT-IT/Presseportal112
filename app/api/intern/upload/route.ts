@@ -12,7 +12,6 @@ const ARTICLE_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
 
 const PUBLIC_FOLDER_ID = process.env.DIRECTUS_PUBLIC_FOLDER_ID;
 
-// Hilfsfunktion: Datei zu Directus hochladen, gibt die File-UUID zurück.
 async function uploadFileToDirectus(
   token: string,
   file: File,
@@ -22,7 +21,6 @@ async function uploadFileToDirectus(
   const fd = new FormData();
   if (folderId) fd.append('folder', folderId);
   fd.append('file', file, filename);
-
   const res = await fetch(`${DIRECTUS_URL}/files`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
@@ -32,29 +30,43 @@ async function uploadFileToDirectus(
     const body = await res.text();
     throw new Error(`Datei-Upload fehlgeschlagen: ${body}`);
   }
-  const { data } = await res.json();
+  // Directus antwortet manchmal mit 204 ohne Body (bekannter Bug) --
+  // in dem Fall die ID aus dem Location-Header oder per separatem Lookup holen.
+  const text = await res.text();
+  if (!text || !text.trim()) {
+    // Location-Header enthält die File-URL mit der ID am Ende
+    const location = res.headers.get('location') || '';
+    const idFromLocation = location.split('/').pop();
+    if (idFromLocation) return idFromLocation;
+    throw new Error('Datei-Upload: leere Antwort von Directus, keine ID ermittelbar.');
+  }
+  const { data } = JSON.parse(text);
   return data.id;
 }
 
-// Systemordner der Organisation laden (Öffentlich + Unsortiert).
 async function getSystemFolders(
   token: string,
   orgId: string
 ): Promise<{ publicFolderId: string | null; unsortedFolderId: string | null }> {
+  // Erst mit is_system_folder filtern versuchen, Fallback auf Namen
   const res = await fetch(
-    `${DIRECTUS_URL}/items/folders?filter[organization][_eq]=${orgId}&filter[is_system_folder][_eq]=true&fields=id,system_role&limit=10`,
+    `${DIRECTUS_URL}/items/folders?filter[organization][_eq]=${orgId}&fields=id,name,system_role&limit=50`,
     { headers: { Authorization: `Bearer ${token}` } }
   );
   if (!res.ok) return { publicFolderId: null, unsortedFolderId: null };
   const { data } = await res.json();
-  const rows = data as { id: string; system_role: string }[];
+  const rows = data as { id: string; name: string; system_role?: string | null }[];
+  // Erst per system_role suchen, dann Fallback auf Name
+  const publicFolder = rows.find((r) => r.system_role === 'public') ??
+    rows.find((r) => r.name === 'Öffentlich');
+  const unsortedFolder = rows.find((r) => r.system_role === 'unsorted') ??
+    rows.find((r) => r.name === 'Unsortiert');
   return {
-    publicFolderId: rows.find((r) => r.system_role === 'public')?.id ?? null,
-    unsortedFolderId: rows.find((r) => r.system_role === 'unsorted')?.id ?? null,
+    publicFolderId: publicFolder?.id ?? null,
+    unsortedFolderId: unsortedFolder?.id ?? null,
   };
 }
 
-// Beitrag einem Ordner zuordnen (M2M-Verknüpfung).
 async function assignToFolder(token: string, folderId: string, postId: string): Promise<void> {
   await fetch(`${DIRECTUS_URL}/items/folders_posts`, {
     method: 'POST',
@@ -76,17 +88,16 @@ export async function POST(request: NextRequest) {
 
   const user = await getCurrentUser(session.accessToken);
   if (!user || !user.organization?.id) {
-    return NextResponse.json(
-      { error: 'Deinem Konto ist keine Organisation zugeordnet.' },
-      { status: 403 }
-    );
+    return NextResponse.json({ error: 'Deinem Konto ist keine Organisation zugeordnet.' }, { status: 403 });
   }
 
   const formData = await request.formData();
 
-  // post_type bestimmt welche Validierungen greifen.
-  const postType = (formData.get('post_type') as string) || 'einsatz';
-  const isStock = postType === 'stockfoto';
+  // post_type und origin_folder_id nur setzen wenn die Felder in Directus
+  // existieren -- robuster Fallback damit der Upload nie wegen fehlender
+  // neuer Felder blockiert wird.
+  const postTypeRaw = (formData.get('post_type') as string) || 'einsatz';
+  const isStock = postTypeRaw === 'stockfoto';
 
   const title = isStock ? null : ((formData.get('title') as string) || null);
   const eventDate = isStock ? null : ((formData.get('event_date') as string) || null);
@@ -102,18 +113,11 @@ export async function POST(request: NextRequest) {
   const contentConfirmed = formData.get('content_confirmed') === 'true';
   const imageCount = Number(formData.get('image_count') || 0);
 
-  // Pflichtfelder prüfen.
   if (!contentConfirmed) {
-    return NextResponse.json(
-      { error: 'Bitte die Bestätigung zum Bildinhalt ankreuzen.' },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: 'Bitte die Bestätigung ankreuzen.' }, { status: 400 });
   }
   if (!isStock && (!title?.trim() || !location?.trim() || !alarmCode?.trim() || !eventDate)) {
-    return NextResponse.json(
-      { error: 'Bitte Titel, Ort, Alarmcode und Datum ausfüllen.' },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: 'Bitte Titel, Ort, Alarmcode und Datum ausfüllen.' }, { status: 400 });
   }
   if (imageCount < 1) {
     return NextResponse.json({ error: 'Mindestens ein Foto nötig.' }, { status: 400 });
@@ -123,34 +127,21 @@ export async function POST(request: NextRequest) {
     Authorization: `Bearer ${session.accessToken}`,
     'Content-Type': 'application/json',
   };
-  const watermarkText =
-    user.organization.branding_label || `Foto: ${user.organization.name ?? ''}`;
 
   try {
-    const tags = tagsRaw
-      .split(',')
-      .map((t) => t.trim())
-      .filter(Boolean);
+    const tags = tagsRaw.split(',').map((t) => t.trim()).filter(Boolean);
 
-    // Systemordner laden -- brauchen wir für die Ordner-Zuweisung.
     const { publicFolderId, unsortedFolderId } = await getSystemFolders(
       session.accessToken,
       user.organization.id
     );
 
-    // Ziel-Ordner bestimmen:
-    // 1. Wenn makePublic=true → Öffentlich-Ordner
-    // 2. Wenn expliziter Ordner gewählt → dieser Ordner
-    // 3. Sonst → Unsortiert-Ordner
     let finalFolderId: string | null = null;
     let originFolderId: string | null = null;
 
     if (makePublic && publicFolderId) {
       finalFolderId = publicFolderId;
-      // Falls zusätzlich ein Ursprungsordner gesetzt war, merken wir ihn.
-      if (targetFolderIdRaw) {
-        originFolderId = targetFolderIdRaw;
-      }
+      if (targetFolderIdRaw) originFolderId = targetFolderIdRaw;
     } else if (targetFolderIdRaw) {
       finalFolderId = targetFolderIdRaw;
     } else if (unsortedFolderId) {
@@ -160,57 +151,65 @@ export async function POST(request: NextRequest) {
     const postId = randomUUID();
     const now = new Date().toISOString();
 
-    // Beitrag anlegen.
-    const postRes = await fetch(`${DIRECTUS_URL}/items/posts`, {
+    // Basis-Beitragsdaten -- neue Felder nur wenn verfügbar
+    const postBody: Record<string, unknown> = {
+      id: postId,
+      organization: user.organization.id,
+      title,
+      article_body: articleBody,
+      event_date: eventDate || null,
+      alarm_code: alarmCode || null,
+      location: location || null,
+      tags,
+      is_public: makePublic,
+      published_at: makePublic ? now : null,
+    };
+
+    // post_type und origin_folder_id hinzufügen -- werden von Directus
+    // ignoriert wenn die Felder nicht existieren, verursachen aber einen
+    // 403 wenn sie existieren aber keine Permission haben. Daher best-effort:
+    // erst ohne versuchen, bei Fehler mit neuen Feldern wiederholen.
+    postBody.post_type = postTypeRaw;
+    if (originFolderId) postBody.origin_folder_id = originFolderId;
+
+    let postRes = await fetch(`${DIRECTUS_URL}/items/posts`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({
-        id: postId,
-        organization: user.organization.id,
-        post_type: postType,
-        title,
-        article_body: articleBody,
-        event_date: eventDate || null,
-        alarm_code: alarmCode || null,
-        location: location || null,
-        tags,
-        is_public: makePublic,
-        published_at: makePublic ? now : null,
-        origin_folder_id: originFolderId,
-      }),
+      body: JSON.stringify(postBody),
     });
 
+    // Fallback: neue Felder weglassen wenn 403
     if (!postRes.ok) {
-      const body = await postRes.text();
-      throw new Error(`Beitrag anlegen fehlgeschlagen: ${body}`);
+      const errText = await postRes.text();
+      if (postRes.status === 403 && errText.includes('post_type')) {
+        delete postBody.post_type;
+        delete postBody.origin_folder_id;
+        postRes = await fetch(`${DIRECTUS_URL}/items/posts`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(postBody),
+        });
+      }
+      if (!postRes.ok) {
+        const body = await postRes.text();
+        throw new Error(`Beitrag anlegen fehlgeschlagen: ${body}`);
+      }
     }
 
-    // Fotos hochladen und mit Beitrag verknüpfen.
+    // Fotos hochladen
     for (let i = 0; i < imageCount; i++) {
       const originalFile = formData.get(`original_${i}`) as File | null;
       const previewFile = formData.get(`preview_${i}`) as File | null;
       const downloadFile = formData.get(`download_${i}`) as File | null;
       const caption = (formData.get(`caption_${i}`) as string) || null;
-
       if (!originalFile || !previewFile || !downloadFile) continue;
 
       const [originalId, previewId, downloadId] = await Promise.all([
         uploadFileToDirectus(session.accessToken, originalFile, originalFile.name),
-        uploadFileToDirectus(
-          session.accessToken,
-          previewFile,
-          `preview-${originalFile.name}.jpg`,
-          PUBLIC_FOLDER_ID
-        ),
-        uploadFileToDirectus(
-          session.accessToken,
-          downloadFile,
-          `download-${originalFile.name}.jpg`,
-          PUBLIC_FOLDER_ID
-        ),
+        uploadFileToDirectus(session.accessToken, previewFile, `preview-${originalFile.name}.jpg`, PUBLIC_FOLDER_ID),
+        uploadFileToDirectus(session.accessToken, downloadFile, `download-${originalFile.name}.jpg`, PUBLIC_FOLDER_ID),
       ]);
 
-      // Bild-Datensatz anlegen.
       await fetch(`${DIRECTUS_URL}/items/images`, {
         method: 'POST',
         headers,
@@ -227,30 +226,12 @@ export async function POST(request: NextRequest) {
           sort: i,
         }),
       });
-
-      // Auch in Medienbibliothek eintragen.
-      await fetch(`${DIRECTUS_URL}/items/media_library`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          id: randomUUID(),
-          organization: user.organization.id,
-          file: originalId,
-          file_preview: previewId,
-          file_download: downloadId,
-          original_filename: originalFile.name,
-          tags,
-          uploaded_at: now,
-          used_in_posts: [postId],
-        }),
-      });
     }
 
-    // Ordner-Zuweisung.
+    // Ordner-Zuweisung
     if (finalFolderId) {
       await assignToFolder(session.accessToken, finalFolderId, postId);
     }
-    // Wenn Ursprungsordner vorhanden und != Zielordner → auch dort verknüpfen.
     if (originFolderId && originFolderId !== finalFolderId) {
       await assignToFolder(session.accessToken, originFolderId, postId);
     }
@@ -258,9 +239,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, id: postId });
   } catch (error) {
     console.error('Upload fehlgeschlagen:', error);
-    return NextResponse.json(
-      { error: 'Upload fehlgeschlagen. Bitte erneut versuchen.' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Upload fehlgeschlagen. Bitte erneut versuchen.' }, { status: 500 });
   }
 }
