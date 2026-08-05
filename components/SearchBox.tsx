@@ -151,7 +151,7 @@ export default function SearchBox({
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className={`truncate text-[13px] font-semibold ${dark ? 'text-white' : 'text-ink'}`}>
-                    {post.title || post.alarm_code || 'Ohne Titel'}
+                    {post.title || (post.alarm_code ? `Einsatz ${post.alarm_code}` : 'Stockfoto')}
                   </div>
                   <div className={`truncate text-[11.5px] ${dark ? 'text-white/40' : 'text-ink-3'}`}>
                     {[post.alarm_code, post.location, post.event_date?.slice(0, 10)].filter(Boolean).join(' · ')}
