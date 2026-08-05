@@ -222,9 +222,11 @@ export async function POST(request: NextRequest) {
           headers: authHeaders,
           body: JSON.stringify(postBody),
         });
-      }
-      if (!postRes.ok) {
-        throw new Error(`Beitrag anlegen fehlgeschlagen: ${await postRes.text()}`);
+        if (!postRes.ok) {
+          throw new Error(`Beitrag anlegen fehlgeschlagen: ${await postRes.text()}`);
+        }
+      } else {
+        throw new Error(`Beitrag anlegen fehlgeschlagen: ${errText}`);
       }
     }
 
