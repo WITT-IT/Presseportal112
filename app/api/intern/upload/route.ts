@@ -18,7 +18,12 @@ async function uploadFileToDirectus(
   filename: string,
   folderId?: string
 ): Promise<string> {
+  // ID selbst vergeben -- Directus akzeptiert eine vorgegebene UUID im
+  // FormData-Feld "id". So sind wir unabhängig davon ob Directus 200 oder
+  // 204 zurückgibt: die ID steht immer fest.
+  const fileId = randomUUID();
   const fd = new FormData();
+  fd.append('id', fileId);
   if (folderId) fd.append('folder', folderId);
   fd.append('file', file, filename);
   const res = await fetch(`${DIRECTUS_URL}/files`, {
@@ -26,32 +31,18 @@ async function uploadFileToDirectus(
     headers: { Authorization: `Bearer ${token}` },
     body: fd,
   });
-  const text = await res.text();
   if (!res.ok) {
-    throw new Error(`Datei-Upload fehlgeschlagen (${res.status}): ${text}`);
+    const body = await res.text();
+    throw new Error(`Datei-Upload fehlgeschlagen (${res.status}): ${body}`);
   }
-  if (!text || !text.trim()) {
-    // 204 ohne Body -- Directus hat die Datei nicht zurückgemeldet.
-    // Passiert nach dem Directus-Update manchmal trotz unique Filename.
-    // Location-Header als Fallback versuchen.
-    const location = res.headers.get('location') || '';
-    const idFromLocation = location.split('/').filter(Boolean).pop();
-    if (idFromLocation && idFromLocation.length > 8) return idFromLocation;
-    throw new Error(`Datei-Upload: 204 ohne ID (status=${res.status})`);
-  }
-  try {
-    const json = JSON.parse(text);
-    return json.data?.id ?? json.id;
-  } catch {
-    throw new Error(`Datei-Upload: ungültiges JSON: ${text.slice(0, 100)}`);
-  }
+  // 200 oder 204 -- egal, wir kennen die ID bereits.
+  return fileId;
 }
 
 async function getSystemFolders(
   token: string,
   orgId: string
 ): Promise<{ publicFolderId: string | null; unsortedFolderId: string | null }> {
-  // Erst mit is_system_folder filtern versuchen, Fallback auf Namen
   const res = await fetch(
     `${DIRECTUS_URL}/items/folders?filter[organization][_eq]=${orgId}&fields=id,name,system_role&limit=50`,
     { headers: { Authorization: `Bearer ${token}` } }
@@ -59,7 +50,6 @@ async function getSystemFolders(
   if (!res.ok) return { publicFolderId: null, unsortedFolderId: null };
   const { data } = await res.json();
   const rows = data as { id: string; name: string; system_role?: string | null }[];
-  // Erst per system_role suchen, dann Fallback auf Name
   const publicFolder = rows.find((r) => r.system_role === 'public') ??
     rows.find((r) => r.name === 'Öffentlich');
   const unsortedFolder = rows.find((r) => r.system_role === 'unsorted') ??
@@ -96,9 +86,6 @@ export async function POST(request: NextRequest) {
 
   const formData = await request.formData();
 
-  // post_type und origin_folder_id nur setzen wenn die Felder in Directus
-  // existieren -- robuster Fallback damit der Upload nie wegen fehlender
-  // neuer Felder blockiert wird.
   const postTypeRaw = (formData.get('post_type') as string) || 'einsatz';
   const isStock = postTypeRaw === 'stockfoto';
 
@@ -154,7 +141,6 @@ export async function POST(request: NextRequest) {
     const postId = randomUUID();
     const now = new Date().toISOString();
 
-    // Basis-Beitragsdaten -- neue Felder nur wenn verfügbar
     const postBody: Record<string, unknown> = {
       id: postId,
       organization: user.organization.id,
@@ -166,13 +152,8 @@ export async function POST(request: NextRequest) {
       tags,
       is_public: makePublic,
       published_at: makePublic ? now : null,
+      post_type: postTypeRaw,
     };
-
-    // post_type und origin_folder_id hinzufügen -- werden von Directus
-    // ignoriert wenn die Felder nicht existieren, verursachen aber einen
-    // 403 wenn sie existieren aber keine Permission haben. Daher best-effort:
-    // erst ohne versuchen, bei Fehler mit neuen Feldern wiederholen.
-    postBody.post_type = postTypeRaw;
     if (originFolderId) postBody.origin_folder_id = originFolderId;
 
     let postRes = await fetch(`${DIRECTUS_URL}/items/posts`, {
@@ -199,7 +180,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Fotos hochladen
+    // Fotos sequenziell hochladen -- parallel führt zu 204-Antworten
     for (let i = 0; i < imageCount; i++) {
       const originalFile = formData.get(`original_${i}`) as File | null;
       const previewFile = formData.get(`preview_${i}`) as File | null;
