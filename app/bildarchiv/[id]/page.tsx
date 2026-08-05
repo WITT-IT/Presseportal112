@@ -45,7 +45,6 @@ export default async function PostArticlePage({ params }: Props) {
   const post = await getPublicImageById(id);
   if (!post) notFound();
 
-  // Login-Status prüfen -- kein Directus-Aufruf nötig, Cookie-Check reicht.
   const cookieStore = await cookies();
   const raw = cookieStore.get(SESSION_COOKIE)?.value;
   let loggedIn = false;
@@ -64,11 +63,14 @@ export default async function PostArticlePage({ params }: Props) {
   const images = post.images ?? [];
   const hero = primaryImage(post);
 
-  const dateLabel = new Date(post.event_date).toLocaleDateString('de-DE', {
-    day: '2-digit',
-    month: 'long',
-    year: 'numeric',
-  });
+  // event_date ist jetzt string | null (Stockfotos haben keins)
+  const dateLabel = post.event_date
+    ? new Date(post.event_date).toLocaleDateString('de-DE', {
+        day: '2-digit',
+        month: 'long',
+        year: 'numeric',
+      })
+    : null;
 
   let relatedPosts: Post[] = [];
   if (org) {
@@ -123,7 +125,8 @@ export default async function PostArticlePage({ params }: Props) {
               style={{ backgroundColor: color, boxShadow: `0 0 6px ${color}` }}
               aria-hidden="true"
             />
-            {post.alarm_code ?? 'Pressefoto'} &middot; {dateLabel}
+            {post.alarm_code ?? 'Pressefoto'}
+            {dateLabel && <> &middot; {dateLabel}</>}
             {images.length > 1 && (
               <span className="text-ink-3">&middot; {images.length} Fotos</span>
             )}
