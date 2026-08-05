@@ -117,9 +117,12 @@ export default async function FolderDetailPage({
                 className="group relative overflow-hidden rounded-[10px] border border-line bg-white transition-colors hover:border-line-strong"
               >
                 <div className="relative h-[110px] bg-panel">
-                  {hero?.file_public_preview && (
+                  {(hero?.file_public_preview || hero?.file_public_preview_watermarked) && (
                     <Image
-                      src={directusAssetUrl(hero.file_public_preview, 'width=300&quality=70')}
+                      src={directusAssetUrl(
+                        (hero.file_public_preview ?? hero.file_public_preview_watermarked)!,
+                        'width=300&quality=70'
+                      )}
                       alt=""
                       fill
                       className="object-cover"
