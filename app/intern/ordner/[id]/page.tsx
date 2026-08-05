@@ -3,7 +3,7 @@ import { redirect, notFound } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
-import { getFolderWithPosts, getMyOrganizationImages, getMyMediaShares } from '@/lib/queries';
+import { getFolderWithPosts, getMyOrganizationImages, getMyMediaShares, getMyFolders } from '@/lib/queries';
 import { directusAssetUrl } from '@/lib/directus';
 import { primaryImage } from '@/lib/types';
 import Breadcrumbs from '@/components/Breadcrumbs';
@@ -37,12 +37,22 @@ export default async function FolderDetailPage({
   if (!user.organization?.id) redirect('/intern');
   if (user.organization.organization_type === 'press') redirect('/intern');
 
-  const [folder, allOwnPosts, mediaShares] = await Promise.all([
+  const [folder, allOwnPosts, mediaShares, allFolders] = await Promise.all([
     getFolderWithPosts(session.accessToken, id),
     getMyOrganizationImages(session.accessToken, user.organization.id),
     getMyMediaShares(session.accessToken, user.organization.id),
+    getMyFolders(session.accessToken, user.organization.id),
   ]);
   if (!folder) notFound();
+
+  // Prüfen ob dieser Ordner der Öffentlich-Systemordner ist
+  const folderMeta = allFolders.find((f) => f.id === id);
+  const isPublicFolder =
+    folderMeta?.system_role === 'public' || folder.name === 'Öffentlich';
+  const isSystemFolder =
+    folderMeta?.is_system_folder === true ||
+    folder.name === 'Öffentlich' ||
+    folder.name === 'Unsortiert';
 
   const includedIds = new Set(folder.posts.map((p) => p.id));
   const availablePosts = allOwnPosts.filter((p) => !includedIds.has(p.id));
@@ -60,7 +70,10 @@ export default async function FolderDetailPage({
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <h1 className="font-display text-[28px] font-bold">{folder.name}</h1>
         <div className="flex flex-wrap gap-2">
-          <FolderActions folderId={folder.id} name={folder.name} />
+          {/* Systemordner können nicht umbenannt oder gelöscht werden */}
+          {!isSystemFolder && (
+            <FolderActions folderId={folder.id} name={folder.name} />
+          )}
           <Link
             href={`/intern/upload?folderId=${folder.id}`}
             className="flex items-center gap-2 rounded-md bg-ink px-4 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-black"
@@ -71,13 +84,21 @@ export default async function FolderDetailPage({
         </div>
       </div>
 
-      <p className="mb-6 max-w-[560px] text-[12.5px] leading-[1.6] text-ink-2">
-        Öffentliche und noch nicht veröffentlichte Beiträge können
-        problemlos gemeinsam in diesem Ordner liegen — praktisch, wenn ein
-        Medienvertreter gezielt nach einem noch nicht freigegebenen Bild aus
-        demselben Einsatz fragt. Über „Zu Freigabe hinzufügen" lässt sich
-        ein Beitrag direkt von hier aus einer Freigabe zuordnen.
-      </p>
+      {isPublicFolder && (
+        <div className="mb-6 rounded-md border border-line bg-panel px-4 py-3 text-[12.5px] text-ink-2">
+          <i className="ti ti-info-circle mr-1.5 text-[13px]" aria-hidden="true" />
+          Das X an einem Beitrag zieht ihn zurück — er wird privat und landet je nach Ursprung in Unsortiert oder im Ursprungsordner.
+        </div>
+      )}
+
+      {!isPublicFolder && !isSystemFolder && (
+        <p className="mb-6 max-w-[560px] text-[12.5px] leading-[1.6] text-ink-2">
+          Öffentliche und noch nicht veröffentlichte Beiträge können
+          problemlos gemeinsam in diesem Ordner liegen.
+          Über „Zu Freigabe hinzufügen" lässt sich ein Beitrag direkt
+          von hier aus einer Freigabe zuordnen.
+        </p>
+      )}
 
       <h2 className="mb-4 font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
         Enthaltene Beiträge ({folder.posts.length})
@@ -96,7 +117,11 @@ export default async function FolderDetailPage({
                 key={post.id}
                 className="relative overflow-hidden rounded-[10px] border border-line bg-white"
               >
-                <RemoveFromFolderButton folderId={folder.id} postId={post.id} />
+                <RemoveFromFolderButton
+                  folderId={folder.id}
+                  postId={post.id}
+                  isPublicFolder={isPublicFolder}
+                />
                 <div className="relative h-[110px] bg-panel">
                   {hero?.file_public_preview && (
                     <Image
@@ -118,7 +143,9 @@ export default async function FolderDetailPage({
                   <span className="mb-2 block truncate text-[12px] font-medium">
                     {post.title || post.alarm_code || 'Ohne Titel'}
                   </span>
-                  <AddToMediaShareControl postId={post.id} mediaShares={mediaShares} />
+                  {!isPublicFolder && (
+                    <AddToMediaShareControl postId={post.id} mediaShares={mediaShares} />
+                  )}
                 </div>
               </div>
             );
@@ -126,10 +153,14 @@ export default async function FolderDetailPage({
         </div>
       )}
 
-      <h2 className="mb-4 font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
-        Bestehenden Beitrag hinzufügen
-      </h2>
-      <FolderPostPicker folderId={folder.id} availablePosts={availablePosts} />
+      {!isPublicFolder && (
+        <>
+          <h2 className="mb-4 font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
+            Bestehenden Beitrag hinzufügen
+          </h2>
+          <FolderPostPicker folderId={folder.id} availablePosts={availablePosts} />
+        </>
+      )}
     </div>
   );
 }
