@@ -402,7 +402,10 @@ export async function getFolderWithPosts(
     'id', 'name',
     'posts.posts_id.id', 'posts.posts_id.title', 'posts.posts_id.alarm_code',
     'posts.posts_id.event_date', 'posts.posts_id.is_public', 'posts.posts_id.published_at',
-    'posts.posts_id.images.id', 'posts.posts_id.images.file_public_preview', 'posts.posts_id.images.sort',
+    'posts.posts_id.images.id',
+    'posts.posts_id.images.file_public_preview',
+    'posts.posts_id.images.file_public_preview_watermarked',
+    'posts.posts_id.images.sort',
   ].join(',');
   const res = await fetch(`${DIRECTUS_URL}/items/folders/${folderId}?fields=${fields}`, {
     headers: { Authorization: `Bearer ${accessToken}` }, cache: 'no-store',
