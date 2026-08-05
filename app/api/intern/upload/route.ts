@@ -26,22 +26,23 @@ async function uploadFileToDirectus(
     headers: { Authorization: `Bearer ${token}` },
     body: fd,
   });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Datei-Upload fehlgeschlagen: ${body}`);
-  }
-  // Directus antwortet manchmal mit 204 ohne Body (bekannter Bug) --
-  // in dem Fall die ID aus dem Location-Header oder per separatem Lookup holen.
   const text = await res.text();
+  console.log(`[upload] status=${res.status} location=${res.headers.get('location')} bodyLen=${text.length} body=${text.slice(0, 200)}`);
+  if (!res.ok) {
+    throw new Error(`Datei-Upload fehlgeschlagen (${res.status}): ${text}`);
+  }
   if (!text || !text.trim()) {
-    // Location-Header enthält die File-URL mit der ID am Ende
     const location = res.headers.get('location') || '';
     const idFromLocation = location.split('/').pop();
     if (idFromLocation) return idFromLocation;
-    throw new Error('Datei-Upload: leere Antwort von Directus, keine ID ermittelbar.');
+    throw new Error(`Datei-Upload: leere Antwort (${res.status}), kein Location-Header.`);
   }
-  const { data } = JSON.parse(text);
-  return data.id;
+  try {
+    const { data } = JSON.parse(text);
+    return data.id;
+  } catch {
+    throw new Error(`Datei-Upload: ungültiges JSON (${res.status}): ${text.slice(0, 100)}`);
+  }
 }
 
 async function getSystemFolders(
