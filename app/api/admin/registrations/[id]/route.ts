@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser, isAdministrator, SESSION_COOKIE } from '@/lib/auth';
 import { DIRECTUS_URL } from '@/lib/directus';
 import { sendRegistrationApprovedEmail } from '@/lib/email';
+import { createSystemFoldersForOrg } from './create-system-folders';
 
 async function requireAdmin(request: NextRequest) {
   const raw = request.cookies.get(SESSION_COOKIE)?.value;
@@ -43,12 +44,9 @@ export async function POST(
 
   let finalOrganizationId: string;
   let finalOrganizationName: string;
+  let isNewOrganization = false;
 
   if (newOrganizationName) {
-    // Neue Organisation direkt hier anlegen -- kein Umweg über Directus
-    // mehr nötig. Ob es eine BOS-Organisation oder eine Presse-Redaktion
-    // wird, entscheidet der ursprüngliche Registrierungstyp -- frisch aus
-    // Directus nachgeladen, nicht dem Client vertraut.
     const regRes = await fetch(`${DIRECTUS_URL}/users/${id}?fields=requested_account_type`, {
       headers: adminHeaders,
     });
@@ -83,6 +81,7 @@ export async function POST(
       );
     }
     finalOrganizationName = name;
+    isNewOrganization = true;
   } else {
     if (!organizationId) {
       return NextResponse.json({ error: 'Bitte eine Organisation auswählen.' }, { status: 400 });
@@ -103,10 +102,18 @@ export async function POST(
     return NextResponse.json({ error: 'Freigabe fehlgeschlagen.' }, { status: 500 });
   }
 
-  // Best-effort Benachrichtigung -- die Freigabe selbst ist zu diesem
-  // Zeitpunkt schon passiert und wird bei einem Mail-Fehler nicht
-  // rückgängig gemacht. Bewusst frisch von Directus nachgeladen statt dem
-  // Nutzer zu vertrauen, was der Browser mitschickt.
+  // Systemordner anlegen -- nur bei neuen Organisationen nötig.
+  // Bei bestehenden Orgs sind die Ordner bereits vorhanden.
+  // Best-effort: schlägt das fehl, ist die Freigabe trotzdem durch.
+  if (isNewOrganization) {
+    try {
+      await createSystemFoldersForOrg(serviceToken, finalOrganizationId);
+    } catch (error) {
+      console.error('Systemordner anlegen fehlgeschlagen (nicht kritisch):', error);
+    }
+  }
+
+  // Bestätigungsmail an den User.
   try {
     const userRes = await fetch(`${DIRECTUS_URL}/users/${id}?fields=email,first_name`, {
       headers: adminHeaders,
