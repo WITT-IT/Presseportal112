@@ -25,10 +25,6 @@ export default function InternSidebar({
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  // Presse-Konten bekommen bewusst nur das, was für sie relevant ist --
-  // kein Upload, keine eigene Medienverwaltung, keine Ordner. Die
-  // dazugehörigen Seiten selbst blocken zusätzlich auch direkten
-  // URL-Zugriff, dieses Ausblenden hier ist nur die Navigation.
   const mainItems: NavItem[] = isPress
     ? [
         { href: '/intern', label: 'Übersicht', icon: 'ti-layout-dashboard' },
@@ -43,7 +39,8 @@ export default function InternSidebar({
       ]
     : [
         { href: '/intern', label: 'Übersicht', icon: 'ti-layout-dashboard' },
-       // { href: '/intern/medien', label: 'Meine Medien', icon: 'ti-photo' },
+        // { href: '/intern/medien', label: 'Meine Medien', icon: 'ti-photo' }, // auskommentiert – Beiträge werden über Ordner verwaltet
+        { href: '/intern/upload', label: 'Neuer Beitrag', icon: 'ti-plus' },
         { href: '/intern/ordner', label: 'Ordner', icon: 'ti-folder' },
         { href: '/intern/freigaben', label: 'Freigaben', icon: 'ti-share' },
         {
@@ -96,25 +93,13 @@ export default function InternSidebar({
 
   return (
     <>
-      {/* Mobiler Umschalter -- eingebettetes SVG statt externer Icon-Schrift,
-          gleiches Muster wie im Haupt-Header, aus demselben Grund. */}
       <button
         type="button"
         onClick={() => setMobileOpen(true)}
         aria-label="Menü öffnen"
         className="mb-4 flex items-center gap-2 rounded-md border border-line-strong px-3 py-2 text-[12.5px] font-semibold text-ink nav:hidden"
       >
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-        >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <line x1="4" y1="6" x2="20" y2="6" />
           <line x1="4" y1="12" x2="20" y2="12" />
           <line x1="4" y1="18" x2="20" y2="18" />
@@ -123,11 +108,7 @@ export default function InternSidebar({
       </button>
 
       {mobileOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-void/40 nav:hidden"
-          onClick={() => setMobileOpen(false)}
-          aria-hidden="true"
-        />
+        <div className="fixed inset-0 z-40 bg-void/40 nav:hidden" onClick={() => setMobileOpen(false)} aria-hidden="true" />
       )}
 
       <aside
@@ -140,31 +121,14 @@ export default function InternSidebar({
             <span
               aria-hidden="true"
               className="h-[26px] w-[26px] flex-none rounded-[6px] border border-ink"
-              style={{
-                backgroundImage: 'repeating-linear-gradient(-45deg, #14161A 0 3px, #fff 3px 6px)',
-              }}
+              style={{ backgroundImage: 'repeating-linear-gradient(-45deg, #14161A 0 3px, #fff 3px 6px)' }}
             />
             <span className="font-display text-[16px] font-bold">
               Presseportal<span className="text-signal">112</span>
             </span>
           </Link>
-          <button
-            type="button"
-            onClick={() => setMobileOpen(false)}
-            aria-label="Menü schließen"
-            className="text-ink-2 nav:hidden"
-          >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
+          <button type="button" onClick={() => setMobileOpen(false)} aria-label="Menü schließen" className="text-ink-2 nav:hidden">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
