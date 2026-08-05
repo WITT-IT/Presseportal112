@@ -125,7 +125,7 @@ export default function RegisterForm({
         </div>
         <p className="mt-1.5 text-[11.5px] text-ink-3">
           {accountType === 'organization'
-            ? 'Für Feuerwehr, DRK, Polizei und THW.'
+            ? 'Für Feuerwehr, Rettungsdienste, Polizei und THW.'
             : 'Für Redaktionen, Journalistinnen und Journalisten.'}
         </p>
       </div>
