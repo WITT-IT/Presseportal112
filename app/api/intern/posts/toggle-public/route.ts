@@ -5,6 +5,9 @@ import { DIRECTUS_URL } from '@/lib/directus';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+const PUBLIC_FOLDER_ID = process.env.DIRECTUS_PUBLIC_FOLDER_ID;
+const PRIVATE_FOLDER_ID = process.env.DIRECTUS_PRIVATE_FOLDER_ID;
+
 async function directusJson(url: string, init?: RequestInit) {
   const res = await fetch(url, init);
   const text = await res.text().catch(() => '');
@@ -60,6 +63,19 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const targetFolderId = makePublic ? PUBLIC_FOLDER_ID : PRIVATE_FOLDER_ID;
+  const targetFolderName = makePublic ? 'Öffentlich' : 'Privat';
+
+  if (!targetFolderId) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: `Folder-ID für "${targetFolderName}" fehlt in der Umgebung.`,
+      },
+      { status: 500 }
+    );
+  }
+
   const authHeaders = {
     Authorization: `Bearer ${session.accessToken}`,
   };
@@ -70,7 +86,7 @@ export async function POST(request: NextRequest) {
   };
 
   try {
-    // 1) Post laden + Ownership prüfen
+    // 1) Post laden und Berechtigung prüfen
     const postReq = await directusJson(
       `${DIRECTUS_URL}/items/posts/${postId}?fields=id,organization,is_public,published_at`,
       { headers: authHeaders }
@@ -117,30 +133,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 3) Zielordner bestimmen
-    const targetFolderName = makePublic ? 'Öffentlich' : 'Privat';
-
-    const folderReq = await directusJson(
-      `${DIRECTUS_URL}/folders?filter[name][_eq]=${encodeURIComponent(targetFolderName)}&limit=1`,
-      { headers: authHeaders }
-    );
-
-    if (!folderReq.res.ok || !folderReq.json?.data?.[0]?.id) {
-      console.error(`[toggle-public] Ordner "${targetFolderName}" nicht gefunden:`, {
-        status: folderReq.res.status,
-        body: folderReq.text,
-      });
-      return NextResponse.json(
-        { ok: false, error: `Ordner "${targetFolderName}" wurde nicht gefunden.` },
-        { status: 500 }
-      );
-    }
-
-    const targetFolderId = folderReq.json.data[0].id;
-
-    // 4) Zugehörige Bilder laden
+    // 3) Zugehörige Bilder laden
     const imagesReq = await directusJson(
-      `${DIRECTUS_URL}/items/images?filter[post][_eq]=${postId}&fields=id,file_original,file_public_preview_watermarked,file_download_watermarked`,
+      `${DIRECTUS_URL}/items/images?filter[post][_eq]=${postId}&fields=id,file_original,file_public_preview,file_download,file_public_preview_watermarked,file_download_watermarked`,
       { headers: authHeaders }
     );
 
@@ -155,14 +150,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const images = Array.isArray(imagesReq.json?.data) ? imagesReq.json.data : [];
+    const images = Array.isArray(imagesReq.json?.data)
+      ? imagesReq.json.data
+      : [];
 
-    // 5) Alle verknüpften Dateien sammeln
+    // 4) Alle betroffenen Datei-IDs sammeln
     const fileIds = Array.from(
       new Set(
         images.flatMap((img: any) =>
           [
             img?.file_original,
+            img?.file_public_preview,
+            img?.file_download,
             img?.file_public_preview_watermarked,
             img?.file_download_watermarked,
           ].filter(Boolean)
@@ -170,7 +169,7 @@ export async function POST(request: NextRequest) {
       )
     );
 
-    // 6) Dateien in Zielordner verschieben
+    // 5) Alle Dateien in den Zielordner verschieben
     for (const fileId of fileIds) {
       const fileUpdateReq = await directusJson(
         `${DIRECTUS_URL}/files/${fileId}`,
@@ -185,6 +184,7 @@ export async function POST(request: NextRequest) {
         console.error('[toggle-public] Datei konnte nicht verschoben werden:', {
           fileId,
           targetFolderName,
+          targetFolderId,
           status: fileUpdateReq.res.status,
           body: fileUpdateReq.text,
         });
@@ -204,14 +204,20 @@ export async function POST(request: NextRequest) {
         postId,
         isPublic: makePublic,
         publishedAt: makePublic ? now : null,
+      },
+      files: {
         movedToFolder: targetFolderName,
-        movedFiles: fileIds.length,
+        folderId: targetFolderId,
+        movedCount: fileIds.length,
       },
     });
   } catch (error) {
     console.error('[toggle-public] Fehler:', error);
     return NextResponse.json(
-      { ok: false, error: 'Umschalten fehlgeschlagen. Bitte erneut versuchen.' },
+      {
+        ok: false,
+        error: 'Umschalten fehlgeschlagen. Bitte erneut versuchen.',
+      },
       { status: 500 }
     );
   }
