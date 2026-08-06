@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
 import { DIRECTUS_URL, directusAssetUrl } from '@/lib/directus';
+import { normalizeTags } from '@/lib/types';
 
 function getSession(request: NextRequest): { accessToken: string } | null {
   const raw = request.cookies.get(SESSION_COOKIE)?.value;
@@ -158,8 +159,8 @@ export async function GET(request: NextRequest) {
   const { data } = await res.json();
 
   const filtered = q
-    ? data.filter((item: { tags: string[] | null; display_name: string | null }) => {
-        const tagMatch = (item.tags || []).some((t: string) => t.toLowerCase().includes(q));
+    ? data.filter((item: { tags: unknown; display_name: string | null }) => {
+        const tagMatch = normalizeTags(item.tags).some((t) => t.toLowerCase().includes(q));
         const nameMatch = (item.display_name || '').toLowerCase().includes(q);
         return tagMatch || nameMatch;
       })
