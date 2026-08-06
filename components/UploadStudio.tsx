@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { createWatermarkedVariants } from '@/lib/watermark';
 import AlarmCodeInput from '@/components/AlarmCodeInput';
+import { normalizeTags } from '@/lib/types';
 import type { Alarmcode } from '@/lib/types';
 
 type SourceMedia = {
@@ -41,7 +42,7 @@ export default function UploadStudio({
   const [eventDate, setEventDate] = useState('');
   const [alarmCode, setAlarmCode] = useState('');
   const [location, setLocation] = useState('');
-  const [tags, setTags] = useState<string[]>(sourceMedia.tags ?? []);
+  const [tags, setTags] = useState<string[]>(normalizeTags(sourceMedia.tags));
   const [tagInput, setTagInput] = useState('');
   const [caption, setCaption] = useState('');
   const [makePublic, setMakePublic] = useState(true);
