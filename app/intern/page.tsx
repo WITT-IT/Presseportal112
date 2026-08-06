@@ -3,8 +3,6 @@
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import StatStrip from "@/components/StatStrip";
 
 interface DashboardStats {
   totalUploads: number;
@@ -46,9 +44,12 @@ interface DashboardResponse {
   };
 }
 
-export default function InternPage() {
-  const router = useRouter();
+type Tile = {
+  label: string;
+  value: number;
+};
 
+export default function InternPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState<DashboardStats | null>(null);
@@ -75,9 +76,7 @@ export default function InternPage() {
       } catch (err) {
         if (cancelled) return;
         setError(
-          err instanceof Error
-            ? err.message
-            : "Übersicht konnte nicht geladen werden."
+          err instanceof Error ? err.message : "Übersicht konnte nicht geladen werden."
         );
       } finally {
         if (!cancelled) setLoading(false);
@@ -100,7 +99,7 @@ export default function InternPage() {
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok || !body.ok) {
-        throw new Error(body.error || "Umschalten fehlgeschlagen.");
+        throw new Error(body.error || "Statuswechsel fehlgeschlagen.");
       }
 
       // Optimistisch zwischen den Listen verschieben
@@ -129,22 +128,54 @@ export default function InternPage() {
       }
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Umschalten fehlgeschlagen."
+        err instanceof Error ? err.message : "Statuswechsel fehlgeschlagen."
       );
     }
   }
 
+  const tiles: Tile[] = [
+    {
+      label: "Uploads gesamt",
+      value: stats?.totalUploads ?? 0,
+    },
+    {
+      label: "Öffentlich",
+      value: stats?.publicPosts ?? 0,
+    },
+    {
+      label: "Privat",
+      value: stats?.privatePosts ?? 0,
+    },
+    {
+      label: "Aktive Freigaben",
+      value: stats?.activeShares ?? 0,
+    },
+  ];
+
   return (
     <div className="mx-auto max-w-6xl px-4 py-6">
       <header className="mb-6">
-        <h1 className="mb-2 font-display text-[28px] font-bold">Willkommen</h1>
+        <h1 className="mb-2 font-display text-[28px] font-bold">
+          Willkommen
+        </h1>
       </header>
 
-      {/* StatStrip nutzt totalUploads und eine einfache Orga-Zahl */}
-      <StatStrip
-        totalImages={stats?.totalUploads ?? 0}
-        totalOrganizations={1}
-      />
+      {/* Einfache Statistik-Zeile statt Banner */}
+      <div className="mb-6 grid grid-cols-2 gap-3 nav:grid-cols-4">
+        {tiles.map((tile) => (
+          <div
+            key={tile.label}
+            className="rounded-[10px] border border-line bg-white px-3 py-2"
+          >
+            <div className="text-[11.5px] font-semibold text-ink-3">
+              {tile.label}
+            </div>
+            <div className="mt-1 text-[18px] font-bold text-ink">
+              {tile.value.toLocaleString("de-DE")}
+            </div>
+          </div>
+        ))}
+      </div>
 
       {error && (
         <p className="mt-4 text-[13px] text-signal-deep">{error}</p>
@@ -161,7 +192,9 @@ export default function InternPage() {
           {/* Öffentliche Beiträge/Bilder */}
           <section>
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="font-display text-[18px] font-bold">Öffentlich</h2>
+              <h2 className="font-display text-[18px] font-bold">
+                Öffentlich
+              </h2>
               <span className="text-[12px] text-ink-3">
                 {publicItems.length} Beiträge/Bilder
               </span>
@@ -208,16 +241,18 @@ export default function InternPage() {
                       <div className="mt-auto flex items-center justify-between gap-2">
                         <button
                           type="button"
-                          onClick={() => togglePublic(item.postId, false)}
+                          onClick={() =>
+                            togglePublic(item.postId, false)
+                          }
                           className="rounded-md border border-line-strong bg-panel px-3 py-1.5 text-[12px] font-semibold text-ink hover:bg-line"
                         >
                           Privat schalten
                         </button>
                         <Link
-                          href={`/pressemappe?post=${item.postId}`}
+                          href={`/intern/upload-studio?postId=${item.postId}`}
                           className="text-[12px] font-semibold text-ink hover:underline"
                         >
-                          Details
+                          Bearbeiten
                         </Link>
                       </div>
                     </div>
@@ -229,8 +264,10 @@ export default function InternPage() {
 
           {/* Private Beiträge/Bilder */}
           <section>
-            <div className="mb-3 flex items_center justify-between">
-              <h2 className="font-display text-[18px] font-bold">Privat</h2>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="font-display text-[18px] font-bold">
+                Privat
+              </h2>
               <span className="text-[12px] text-ink-3">
                 {privateItems.length} Beiträge/Bilder
               </span>
@@ -277,16 +314,18 @@ export default function InternPage() {
                       <div className="mt-auto flex items-center justify-between gap-2">
                         <button
                           type="button"
-                          onClick={() => togglePublic(item.postId, true)}
+                          onClick={() =>
+                            togglePublic(item.postId, true)
+                          }
                           className="rounded-md border border-line-strong bg-ink px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-black"
                         >
                           Öffentlich schalten
                         </button>
                         <Link
-                          href={`/pressemappe?post=${item.postId}`}
+                          href={`/intern/upload-studio?postId=${item.postId}`}
                           className="text-[12px] font-semibold text-ink hover:underline"
                         >
-                          Details
+                          Bearbeiten
                         </Link>
                       </div>
                     </div>
