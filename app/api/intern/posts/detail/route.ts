@@ -28,17 +28,13 @@ export async function GET(request: NextRequest) {
   const postId = url.searchParams.get("postId");
 
   if (!postId) {
-    return NextResponse.json(
-      { error: "postId fehlt." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "postId fehlt." }, { status: 400 });
   }
 
   const token = session.accessToken;
   const headers = { Authorization: `Bearer ${token}` };
 
   try {
-    // Beitrag inkl. Basis-Felder
     const postRes = await fetch(
       `${DIRECTUS_URL}/items/posts/${postId}?fields=id,organization,post_type,title,event_date,alarm_code,location,is_public,tags,article_body`,
       { headers }
@@ -65,7 +61,6 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Zugehörige Bilder laden
     const imagesRes = await fetch(
       `${DIRECTUS_URL}/items/images?filter[post][_eq]=${postId}&fields=id,file_original,file_public_preview_watermarked,caption&limit=50`,
       { headers }
@@ -101,7 +96,8 @@ export async function GET(request: NextRequest) {
       images: images.map((img: any) => ({
         id: img.id,
         file_original: img.file_original,
-        file_public_preview_watermarked: img.file_public_preview_watermarked,
+        file_public_preview_watermarked:
+          img.file_public_preview_watermarked,
         caption: img.caption ?? null,
       })),
     });
