@@ -39,9 +39,9 @@ export default function InternSidebar({
       ]
     : [
         { href: '/intern', label: 'Übersicht', icon: 'ti-layout-dashboard' },
-        // { href: '/intern/medien', label: 'Meine Medien', icon: 'ti-photo' }, // auskommentiert – Beiträge werden über Ordner verwaltet
+        { href: '/intern/medien', label: 'Meine Medien', icon: 'ti-photo' }, // auskommentiert – Beiträge werden über Ordner verwaltet
         { href: '/intern/upload', label: 'Neuer Beitrag', icon: 'ti-plus' },
-        { href: '/intern/ordner', label: 'Ordner', icon: 'ti-folder' },
+       // { href: '/intern/ordner', label: 'Ordner', icon: 'ti-folder' },
         { href: '/intern/freigaben', label: 'Freigaben', icon: 'ti-share' },
         {
           href: '/intern/nachrichten',
