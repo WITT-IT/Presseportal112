@@ -105,7 +105,15 @@ export async function GET(request: NextRequest) {
       headers: { Authorization: `Bearer ${session.accessToken}` },
     });
     if (!assetRes.ok) {
-      return NextResponse.json({ error: 'Datei konnte nicht geladen werden.' }, { status: 502 });
+      const body = await assetRes.text().catch(() => '');
+      console.error(
+        `Asset-Proxy fehlgeschlagen (${assetRes.status}) für media_library/${originalOf} (file=${item.file}):`,
+        body
+      );
+      return NextResponse.json(
+        { error: `Datei konnte nicht geladen werden (Status ${assetRes.status}).` },
+        { status: 502 }
+      );
     }
     const buffer = await assetRes.arrayBuffer();
     return new NextResponse(buffer, {
