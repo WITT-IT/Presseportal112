@@ -1,117 +1,138 @@
-"use client";
-
-import { useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+import { SESSION_COOKIE } from "@/lib/auth";
+import { DIRECTUS_URL } from "@/lib/directus";
 import UploadStudio from "@/components/UploadStudio";
-import type { Alarmcode } from "@/lib/types";
 
-type SourceMedia = {
-  id: string;
-  file: string;
-  file_preview: string | null;
-  file_preview_watermarked: string | null;
-  file_download_watermarked: string | null;
-  display_name: string | null;
-  tags: string[] | null;
-};
+export const dynamic = "force-dynamic";
 
-export default function UploadStudioPage() {
-  const searchParams = useSearchParams();
-  const postId = searchParams.get("postId");
+export default async function UploadStudioPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ postId?: string }>;
+}) {
+  const { postId } = await searchParams;
 
-  const [watermarkText, setWatermarkText] = useState<string>("Presseportal112.de");
-  const [existingTags, setExistingTags] = useState<string[]>([]);
-  const [alarmcodes, setAlarmcodes] = useState<Alarmcode[]>([]);
-  const [sourceMedia, setSourceMedia] = useState<SourceMedia | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const cookieStore = await cookies();
+  const raw = cookieStore.get(SESSION_COOKIE)?.value;
+  if (!raw) redirect("/login");
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadInitial() {
-      setLoading(true);
-      setError(null);
-      try {
-        // 1) Metadaten für Watermark, Tags, Alarmcodes laden
-        const [tagsRes, alarmRes] = await Promise.all([
-          fetch("/api/intern/tags").catch(() => null),
-          fetch("/api/intern/alarmcodes").catch(() => null),
-        ]);
-
-        if (tagsRes && tagsRes.ok) {
-          const tBody = await tagsRes.json().catch(() => ({}));
-          setExistingTags(Array.isArray(tBody.tags) ? tBody.tags : []);
-        }
-
-        if (alarmRes && alarmRes.ok) {
-          const aBody = await alarmRes.json().catch(() => ({}));
-          setAlarmcodes(Array.isArray(aBody.alarmcodes) ? aBody.alarmcodes : []);
-        }
-
-        // 2) SourceMedia aus der Medienbibliothek (für dieses postId oder aus Query original)
-        // Für den Anfang nehmen wir postId als Quelle: Du kannst hier deine eigene Logik einsetzen.
-        if (!postId) {
-          throw new Error("postId fehlt in der URL.");
-        }
-
-        const mediaRes = await fetch(
-          `/api/intern/library?from_post=${postId}`
-        ).catch(() => null);
-
-        if (!mediaRes || !mediaRes.ok) {
-          throw new Error("Medienbibliothek-Eintrag konnte nicht geladen werden.");
-        }
-
-        const mBody = await mediaRes.json().catch(() => ({}));
-        if (!mBody || !mBody.sourceMedia) {
-          throw new Error("Kein Medienbibliothek-Eintrag gefunden.");
-        }
-
-        if (cancelled) return;
-        setSourceMedia(mBody.sourceMedia);
-      } catch (err) {
-        if (cancelled) return;
-        setError(
-          err instanceof Error ? err.message : "UploadStudio konnte nicht geladen werden."
-        );
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    loadInitial();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [postId]);
-
-  if (loading) {
-    return (
-      <div className="mx-auto max-w-4xl px-4 py-8">
-        <p className="text-[13px] text-ink-2">UploadStudio wird vorbereitet …</p>
-      </div>
-    );
+  let session: { accessToken: string };
+  try {
+    session = JSON.parse(raw);
+  } catch {
+    redirect("/login");
   }
 
-  if (error || !sourceMedia) {
+  const token = session.accessToken;
+  const headers = { Authorization: `Bearer ${token}` };
+
+  // User + Org laden
+  const userRes = await fetch(
+    `${DIRECTUS_URL}/users/me?fields=id,organization,organization.name`,
+    { headers }
+  );
+  if (!userRes.ok) redirect("/login");
+  const { data: user } = await userRes.json();
+  const organizationId = user?.organization?.id as string | undefined;
+  if (!organizationId) {
+    throw new Error("Keine Organisation gefunden.");
+  }
+
+  // Tags laden
+  const tagsRes = await fetch(
+    `${DIRECTUS_URL}/items/tags?filter[organization][_eq]=${organizationId}&fields=id,slug&limit=200`,
+    { headers }
+  );
+  const tagsData = await tagsRes.json().catch(() => ({ data: [] }));
+  const existingTags = (tagsData.data ?? []).map((t: any) => t.slug);
+
+  // Alarmcodes laden
+  const alarmcodesRes = await fetch(
+    `${DIRECTUS_URL}/items/alarmcodes?filter[organization][_eq]=${organizationId}&fields=id,code,title&sort=code`,
+    { headers }
+  );
+  const alarmcodesData = await alarmcodesRes.json().catch(() => ({ data: [] }));
+  const alarmcodes = (alarmcodesData.data ?? []).map((t: any) => ({
+    id: t.id,
+    code: t.code,
+    title: t.title,
+  }));
+
+  // Bestehenden Beitrag laden, falls postId vorhanden
+  let initialSourceMedia: {
+    id: string;
+    file: string;
+    file_preview: string | null;
+    file_preview_watermarked: string | null;
+    file_download_watermarked: string | null;
+    display_name: string | null;
+    tags: string[] | null;
+  } | null = null;
+
+  if (postId) {
+    try {
+      const postRes = await fetch(
+        `${DIRECTUS_URL}/items/posts/${postId}?fields=id,organization,post_type,title,event_date,alarm_code,location,is_public,tags,article_body,images.id,images.file_original,images.file_public_preview_watermarked,images.caption`,
+        { headers }
+      );
+      if (!postRes.ok) {
+        throw new Error("Beitrag konnte nicht geladen werden.");
+      }
+      const { data: post } = await postRes.json();
+      if (post.organization !== organizationId) {
+        throw new Error("Keine Berechtigung für diesen Beitrag.");
+      }
+
+      const images = post.images ?? [];
+      const mainImage = images[0] ?? null;
+
+      if (mainImage) {
+        initialSourceMedia = {
+          id: mainImage.id,
+          file: mainImage.file_original,
+          file_preview: mainImage.file_public_preview_watermarked ?? null,
+          file_preview_watermarked:
+            mainImage.file_public_preview_watermarked ?? null,
+          file_download_watermarked:
+            mainImage.file_public_preview_watermarked ?? null,
+          display_name: mainImage.caption ?? null,
+          tags: post.tags ?? [],
+        };
+      }
+    } catch (err) {
+      console.error(
+        "[upload-studio] Fehler beim Laden des Beitrags:",
+        err
+      );
+      // Wir lassen UploadStudio selbst den Fehler anzeigen (es ruft /api/intern/posts/detail auf).
+    }
+  }
+
+  // Fallback: Wenn kein postId oder kein Bild im Beitrag, dann müssen wir hier nicht weitermachen –
+  // UploadStudio selbst ist für den Fall ausgelegt, dass es von der Media-Bibliothek aus geöffnet wird.
+  // In diesem Setup erwarten wir aber, dass immer ein postId + Bild da ist.
+
+  if (!initialSourceMedia) {
+    // Kein Beitrag/Bild gefunden → zurück zur Übersicht mit Hinweis
     return (
-      <div className="mx-auto max-w-4xl px-4 py-8">
-        <p className="text-[13px] text-signal-deep">
-          {error || "UploadStudio konnte nicht geladen werden."}
+      <div className="mx-auto max-w-3xl px-4 py-6">
+        <h1 className="mb-4 font-display text-[24px] font-bold">Studio</h1>
+        <p className="text-[13px] text-ink-2">
+          Kein gültiger Beitrag gefunden. Bitte über die Übersicht öffnen.
         </p>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-4xl px-4 py-8">
+    <div className="mx-auto max-w-3xl px-4 py-6">
+      <h1 className="mb-4 font-display text-[24px] font-bold">Studio</h1>
       <UploadStudio
-        watermarkText={watermarkText}
+        watermarkText="Presseportal112"
         existingTags={existingTags}
         alarmcodes={alarmcodes}
-        sourceMedia={sourceMedia}
+        sourceMedia={initialSourceMedia}
       />
     </div>
   );
