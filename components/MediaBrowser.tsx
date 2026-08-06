@@ -3,7 +3,6 @@
 import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { directusAssetUrl } from '@/lib/directus';
 import { useDialog } from './DialogProvider';
 
 type SubFolder = { id: string; name: string };
@@ -448,10 +447,11 @@ export default function MediaBrowser({
 
               <div className="relative h-[92px] w-[92px] overflow-hidden rounded-2xl bg-panel">
                 <Image
-                  src={directusAssetUrl(item.file_preview || item.file, 'width=200&quality=70')}
+                  src={`/api/intern/library?original=${item.id}&width=200&quality=70`}
                   alt=""
                   fill
                   className="object-cover"
+                  unoptimized
                 />
               </div>
               {renaming?.id === item.id ? (
