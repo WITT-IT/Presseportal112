@@ -1,11 +1,11 @@
-// v4 - vereinfacht: (a) Veröffentlichen eines bestehenden Medienbibliothek-
-// Items (source_media_id gesetzt, Weg über /intern/medien) -- das Original
-// wird NICHT mehr kopiert/neu hochgeladen, sondern direkt verlinkt. Nur die
-// Wasserzeichen-Varianten sind wirklich neue Dateien, und die werden pro
-// Bild gecacht, damit ein erneuter Veröffentlichen-Klick keine Duplikate
-// mehr in Directus erzeugt. (b) alter sequenzieller Datei-Upload-Flow
-// (unverändert erhalten, falls noch irgendwo referenziert -- ungefährlich
-// als toter Pfad).
+// v5 - wie v4 (Original wird direkt verlinkt statt kopiert, kein manuelles
+// PUBLIC_FOLDER_ID mehr), aber mit Fix: neue Wasserzeichen-Dateien erben
+// automatisch den Ordner der Originaldatei. Grund: die "Organisation"-Rolle
+// in Directus hat eine Permission-Policy, die den Lesezugriff auf
+// directus_files an einen bestimmten Ordner koppelt -- Dateien ganz ohne
+// Ordner (folder = null) waren für die Rolle nicht mehr lesbar (403 beim
+// Anzeigen). Keine feste Ordner-ID mehr im Code/Env nötig -- der richtige
+// Ordner wird jedes Mal automatisch vom Original übernommen.
 import { randomUUID } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
@@ -22,11 +22,12 @@ const ARTICLE_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
   allowedSchemes: ['https', 'mailto'],
 };
 
-async function uploadBuffer(token: string, buffer: Buffer, mimeType: string, filename: string): Promise<string> {
+async function uploadBuffer(token: string, buffer: Buffer, mimeType: string, filename: string, folderId?: string | null): Promise<string> {
   const fileId = randomUUID();
   const boundary = `----FormBoundary${randomUUID().replace(/-/g, '')}`;
   const parts: Buffer[] = [];
   parts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="id"\r\n\r\n${fileId}\r\n`));
+  if (folderId) parts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="folder"\r\n\r\n${folderId}\r\n`));
   parts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: ${mimeType}\r\n\r\n`));
   parts.push(buffer);
   parts.push(Buffer.from(`\r\n--${boundary}--\r\n`));
@@ -40,22 +41,35 @@ async function uploadBuffer(token: string, buffer: Buffer, mimeType: string, fil
       body,
     });
   } catch (networkError) {
-    console.error('[upload] Netzwerkfehler beim Datei-Upload zu Directus:', networkError, { DIRECTUS_URL, filename, size: body.length });
+    console.error('[upload] Netzwerkfehler beim Datei-Upload zu Directus:', networkError, { DIRECTUS_URL, filename, size: body.length, folderId });
     throw new Error(`Verbindung zu Directus fehlgeschlagen (Datei-Upload): ${networkError instanceof Error ? networkError.message : String(networkError)}`);
   }
 
   if (!res.ok) {
     const errText = await res.text().catch(() => '(kein Response-Body)');
-    console.error('[upload] Directus /files lehnte Upload ab:', { status: res.status, errText, filename, size: body.length });
+    console.error('[upload] Directus /files lehnte Upload ab:', { status: res.status, errText, filename, size: body.length, folderId });
     throw new Error(`Datei-Upload fehlgeschlagen (${res.status}): ${errText}`);
   }
   return fileId;
 }
 
-// used_in_posts kommt manchmal als roher Text statt als echtes JSON-Array
-// zurück (gleiches Problem wie bei "tags") -- vor dem Verlängern der Liste
-// immer robust normalisieren, sonst hängt am Ende ein String statt eines
-// Arrays am Feld.
+// Liest den Ordner der Originaldatei aus, damit neu erzeugte
+// Wasserzeichen-Varianten denselben Ordner (und damit dieselben
+// Lese-Berechtigungen) bekommen -- ohne feste Ordner-ID pflegen zu müssen.
+async function getFileFolder(token: string, fileId: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${DIRECTUS_URL}/files/${fileId}?fields=folder`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return null;
+    const { data } = await res.json();
+    return data?.folder ?? null;
+  } catch (error) {
+    console.error('[upload] getFileFolder fehlgeschlagen (ignoriert, Upload landet im Root):', error, { fileId });
+    return null;
+  }
+}
+
 function normalizeIdArray(raw: unknown): string[] {
   if (!raw) return [];
   if (Array.isArray(raw)) return raw.filter((v): v is string => typeof v === 'string');
@@ -95,18 +109,12 @@ async function getSystemFolders(token: string, orgId: string) {
 }
 
 // ── Modus A: Veröffentlichen aus der Medienbibliothek ──────────────────────
-// Vereinfacht: das Original (media_library.file) wird NICHT mehr kopiert --
-// es wird direkt als file_original am images-Eintrag verlinkt. Das war der
-// Grund, warum bei jedem Klick auf "Veröffentlichen" eine komplette Dublette
-// der Originaldatei in Directus entstand. Nur die Wasserzeichen-Varianten
-// (preview_0 / download_0) sind echte neue Dateien -- die werden weiterhin
-// auf dem media_library-Eintrag gecacht (file_preview_watermarked /
-// file_download_watermarked), damit ein erneuter Klick auf dasselbe Bild
-// sie wiederverwendet statt neu zu erzeugen.
-//
-// Keine Ordner-Zuweisung mehr beim Directus-Datei-Upload (kein
-// DIRECTUS_PUBLIC_FOLDER_ID mehr nötig) -- Dateien landen einfach im Root
-// der File Library. Das war die Quelle des Foreign-Key-Fehlers.
+// Original wird direkt verlinkt (item.file) -- keine Kopie, kein Duplikat.
+// Wasserzeichen-Varianten sind echte neue Dateien und werden pro Bild
+// gecacht (file_preview_watermarked / file_download_watermarked), damit ein
+// erneuter Klick auf dasselbe Bild sie wiederverwendet statt neu zu
+// erzeugen. Sie landen automatisch im selben Directus-Ordner wie das
+// Original, damit sie dieselben Lese-Berechtigungen haben.
 async function handlePublishFromLibrary(
   formData: FormData,
   accessToken: string,
@@ -172,13 +180,18 @@ async function handlePublishFromLibrary(
         });
         return NextResponse.json({ error: 'Wasserzeichen-Varianten fehlen.' }, { status: 400 });
       }
+
+      // Ordner des Originals ermitteln, damit die neuen Dateien dieselben
+      // Lese-Berechtigungen bekommen (Fix für 403 bei ordnerlosen Dateien).
+      const inheritedFolderId = await getFileFolder(accessToken, originalId);
+
       const [prevBuf, dlBuf] = await Promise.all([
         previewFile.arrayBuffer().then(Buffer.from),
         downloadFile.arrayBuffer().then(Buffer.from),
       ]);
       const uid = randomUUID().slice(0, 8);
-      previewId = await uploadBuffer(accessToken, prevBuf, previewFile.type || 'image/jpeg', `${uid}-prev.jpg`);
-      downloadId = await uploadBuffer(accessToken, dlBuf, downloadFile.type || 'image/jpeg', `${uid}-dl.jpg`);
+      previewId = await uploadBuffer(accessToken, prevBuf, previewFile.type || 'image/jpeg', `${uid}-prev.jpg`, inheritedFolderId);
+      downloadId = await uploadBuffer(accessToken, dlBuf, downloadFile.type || 'image/jpeg', `${uid}-dl.jpg`, inheritedFolderId);
 
       // Für zukünftige Veröffentlichungen desselben Bildes cachen, damit ein
       // erneuter Klick (oder ein zweiter Beitrag mit demselben Quellbild)
@@ -296,7 +309,6 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // ── Modus A: Veröffentlichen aus der Medienbibliothek ──────────────────
   const sourceMediaId = formData.get('source_media_id') as string | null;
   if (sourceMediaId) {
     try {
@@ -385,9 +397,9 @@ export async function POST(request: NextRequest) {
       ]);
       const uid = randomUUID().slice(0, 8);
       const baseName = originalFile.name.replace(/\.[^.]+$/, '');
-      const originalId = await uploadBuffer(session.accessToken, origBuf, originalFile.type || 'image/jpeg', `${uid}-orig-${baseName}`);
-      const previewId = await uploadBuffer(session.accessToken, prevBuf, previewFile.type || 'image/jpeg', `${uid}-prev-${baseName}.jpg`);
-      const downloadId = await uploadBuffer(session.accessToken, dlBuf, downloadFile.type || 'image/jpeg', `${uid}-dl-${baseName}.jpg`);
+      const originalId = await uploadBuffer(session.accessToken, origBuf, originalFile.type || 'image/jpeg', `${uid}-orig-${baseName}`, finalFolderId);
+      const previewId = await uploadBuffer(session.accessToken, prevBuf, previewFile.type || 'image/jpeg', `${uid}-prev-${baseName}.jpg`, finalFolderId);
+      const downloadId = await uploadBuffer(session.accessToken, dlBuf, downloadFile.type || 'image/jpeg', `${uid}-dl-${baseName}.jpg`, finalFolderId);
 
       await fetch(`${DIRECTUS_URL}/items/images`, {
         method: 'POST', headers: authHeaders,
