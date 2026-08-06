@@ -27,13 +27,12 @@ export default async function UploadStudioPage({
   const token = session.accessToken;
   const headers = { Authorization: `Bearer ${token}` };
 
-  // User + Org über getCurrentUser laden
+  // User + Org
   const user = await getCurrentUser(token);
   if (!user) redirect("/login");
 
   const organizationId = user?.organization?.id as string | undefined;
   if (!organizationId) {
-    // Kein Org-Zugriff → Hinweis statt Exception
     return (
       <div className="mx-auto max-w-3xl px-4 py-6">
         <h1 className="mb-4 font-display text-[24px] font-bold">Studio</h1>
@@ -44,7 +43,7 @@ export default async function UploadStudioPage({
     );
   }
 
-  // Tags laden
+  // Tags
   const tagsRes = await fetch(
     `${DIRECTUS_URL}/items/tags?filter[organization][_eq]=${organizationId}&fields=id,slug&limit=200`,
     { headers }
@@ -52,7 +51,7 @@ export default async function UploadStudioPage({
   const tagsData = await tagsRes.json().catch(() => ({ data: [] }));
   const existingTags = (tagsData.data ?? []).map((t: any) => t.slug);
 
-  // Alarmcodes laden
+  // Alarmcodes
   const alarmcodesRes = await fetch(
     `${DIRECTUS_URL}/items/alarmcodes?filter[organization][_eq]=${organizationId}&fields=id,code,title&sort=code`,
     { headers }
@@ -64,8 +63,8 @@ export default async function UploadStudioPage({
     title: t.title,
   }));
 
-  // Bestehenden Beitrag laden, falls postId vorhanden
-  let initialSourceMedia: {
+  // Beitrag + Bilder (falls postId)
+  let sourceMedia: {
     id: string;
     file: string;
     file_preview: string | null;
@@ -81,19 +80,15 @@ export default async function UploadStudioPage({
         `${DIRECTUS_URL}/items/posts/${postId}?fields=id,organization,post_type,title,event_date,alarm_code,location,is_public,tags,article_body,images.id,images.file_original,images.file_public_preview_watermarked,images.caption`,
         { headers }
       );
-      if (!postRes.ok) {
-        throw new Error("Beitrag konnte nicht geladen werden.");
-      }
+      if (!postRes.ok) throw new Error("Beitrag konnte nicht geladen werden.");
       const { data: post } = await postRes.json();
       if (post.organization !== organizationId) {
         throw new Error("Keine Berechtigung für diesen Beitrag.");
       }
-
       const images = post.images ?? [];
       const mainImage = images[0] ?? null;
-
       if (mainImage) {
-        initialSourceMedia = {
+        sourceMedia = {
           id: mainImage.id,
           file: mainImage.file_original,
           file_preview: mainImage.file_public_preview_watermarked ?? null,
@@ -105,11 +100,10 @@ export default async function UploadStudioPage({
       }
     } catch (err) {
       console.error("[upload-studio] Fehler beim Laden des Beitrags:", err);
-      // Wir lassen UploadStudio selbst den Fehler anzeigen (es ruft /api/intern/posts/detail auf).
     }
   }
 
-  if (!initialSourceMedia) {
+  if (!sourceMedia) {
     return (
       <div className="mx-auto max-w-3xl px-4 py-6">
         <h1 className="mb-4 font-display text-[24px] font-bold">Studio</h1>
@@ -127,7 +121,7 @@ export default async function UploadStudioPage({
         watermarkText="Presseportal112"
         existingTags={existingTags}
         alarmcodes={alarmcodes}
-        sourceMedia={initialSourceMedia}
+        sourceMedia={sourceMedia}
       />
     </div>
   );
