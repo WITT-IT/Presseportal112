@@ -45,13 +45,17 @@ export default function MediaBrowser({
   }
 
   // ── Upload ────────────────────────────────────────────────────────────
-  async function uploadFiles(files: File[]) {
+  // targetFolderId ist bewusst ein eigener Parameter statt currentFolderId
+  // zu verwenden -- so kann sowohl "auf die Fläche fallen lassen" (aktueller
+  // Ordner) als auch "direkt auf eine Ordner-Kachel fallen lassen" (dieser
+  // Unterordner) dieselbe Funktion nutzen.
+  async function uploadFiles(files: File[], targetFolderId: string | null) {
     if (files.length === 0) return;
     setBusy(true);
     setError(null);
     try {
       const formData = new FormData();
-      if (currentFolderId) formData.append('folder', currentFolderId);
+      if (targetFolderId) formData.append('folder', targetFolderId);
       formData.append('image_count', String(files.length));
       files.forEach((file, i) => formData.append(`file_${i}`, file, file.name));
 
@@ -69,7 +73,7 @@ export default function MediaBrowser({
   }
 
   function handleFileInputChange(e: React.ChangeEvent<HTMLInputElement>) {
-    uploadFiles(Array.from(e.target.files ?? []));
+    uploadFiles(Array.from(e.target.files ?? []), currentFolderId);
     e.target.value = '';
   }
 
@@ -80,7 +84,7 @@ export default function MediaBrowser({
   function handleGridDrop(e: React.DragEvent) {
     e.preventDefault();
     setIsDraggingFiles(false);
-    if (e.dataTransfer.files?.length) uploadFiles(Array.from(e.dataTransfer.files));
+    if (e.dataTransfer.files?.length) uploadFiles(Array.from(e.dataTransfer.files), currentFolderId);
   }
 
   // ── Neuer Ordner ─────────────────────────────────────────────────────
@@ -132,7 +136,7 @@ export default function MediaBrowser({
     }
   }
 
-  // ── Verschieben per Drag & Drop ─────────────────────────────────────
+  // ── Verschieben per Drag & Drop (Kachel auf Kachel) ─────────────────
   async function moveItem(dragged: DragPayload, targetFolderId: string | null) {
     if (dragged.type === 'folder' && dragged.id === targetFolderId) return;
     setBusy(true);
@@ -162,9 +166,20 @@ export default function MediaBrowser({
   function handleDragStart(e: React.DragEvent, payload: DragPayload) {
     e.dataTransfer.setData('application/x-media-item', JSON.stringify(payload));
   }
-  function handleDropOnFolder(e: React.DragEvent, targetId: string | null) {
+
+  // Drop auf eine Ordner-Kachel: entweder Dateien vom Desktop (Direkt-
+  // Upload in genau diesen Ordner) oder eine andere Kachel (Verschieben).
+  // stopPropagation ist hier wichtig -- sonst läuft ein Datei-Drop zusätzlich
+  // zum Grid-Handler durch und landet im FALSCHEN (aktuell offenen) Ordner.
+  function handleDropOnFolderTile(e: React.DragEvent, targetId: string | null) {
     e.preventDefault();
+    e.stopPropagation();
     setDragOverId(null);
+
+    if (e.dataTransfer.files?.length) {
+      uploadFiles(Array.from(e.dataTransfer.files), targetId);
+      return;
+    }
     const raw = e.dataTransfer.getData('application/x-media-item');
     if (raw) moveItem(JSON.parse(raw), targetId);
   }
@@ -211,7 +226,7 @@ export default function MediaBrowser({
   return (
     <div>
       {/* Toolbar */}
-      <div className="mb-5 flex flex-wrap items-center gap-2">
+      <div className="mb-2 flex flex-wrap items-center gap-2">
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
@@ -245,6 +260,10 @@ export default function MediaBrowser({
         )}
       </div>
 
+      <p className="mb-4 text-[11.5px] text-ink-3">
+        Tipp: Bilder direkt auf einen Ordner ziehen, um sie ohne Umweg dort abzulegen.
+      </p>
+
       {error && (
         <p className="mb-4 rounded-md border border-signal-deep/30 bg-signal-deep/5 px-3 py-2 text-[12.5px] text-signal-deep">
           {error}
@@ -264,9 +283,9 @@ export default function MediaBrowser({
           <button
             type="button"
             onClick={() => openFolder(parentFolderId)}
-            onDragOver={(e) => { e.preventDefault(); setDragOverId('ROOT'); }}
+            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOverId('ROOT'); }}
             onDragLeave={() => setDragOverId(null)}
-            onDrop={(e) => handleDropOnFolder(e, parentFolderId)}
+            onDrop={(e) => handleDropOnFolderTile(e, parentFolderId)}
             className={`flex flex-col items-center gap-2 rounded-xl p-3 text-center transition-colors hover:bg-panel ${
               dragOverId === 'ROOT' ? 'bg-panel outline outline-2 outline-ink' : ''
             }`}
@@ -300,11 +319,12 @@ export default function MediaBrowser({
             key={folder.id}
             draggable
             onDragStart={(e) => handleDragStart(e, { id: folder.id, type: 'folder' })}
-            onDragOver={(e) => { e.preventDefault(); setDragOverId(folder.id); }}
+            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOverId(folder.id); }}
             onDragLeave={() => setDragOverId(null)}
-            onDrop={(e) => handleDropOnFolder(e, folder.id)}
+            onDrop={(e) => handleDropOnFolderTile(e, folder.id)}
             onClick={() => setSelected({ id: folder.id, type: 'folder' })}
             onDoubleClick={() => openFolder(folder.id)}
+            title="Bilder hierher ziehen, um sie in diesem Ordner abzulegen"
             className={`group relative flex cursor-pointer flex-col items-center gap-2 rounded-xl p-3 text-center transition-colors hover:bg-panel ${
               selected?.id === folder.id ? 'bg-panel outline outline-2 outline-ink' : ''
             } ${dragOverId === folder.id ? 'bg-panel outline outline-2 outline-ink' : ''}`}
@@ -319,7 +339,7 @@ export default function MediaBrowser({
             </button>
 
             <div className="flex h-[92px] w-[92px] items-center justify-center rounded-2xl bg-panel">
-              <i className="ti ti-folder-filled text-[44px] text-ink-2" aria-hidden="true" />
+              <i className="ti ti-folder text-[44px] text-ink-2" aria-hidden="true" />
             </div>
             {renaming?.id === folder.id ? (
               <input
