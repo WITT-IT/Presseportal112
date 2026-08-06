@@ -1,19 +1,18 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
-import { getMyOrganizationImages, getMyFolders, getMyMediaShares } from '@/lib/queries';
+import { getFolderContents } from '@/lib/queries';
 import Breadcrumbs from '@/components/Breadcrumbs';
-import MediaLibraryView from '@/components/MediaLibraryView';
+import MediaBrowser from '@/components/MediaBrowser';
 
 export const dynamic = 'force-dynamic';
 
 export default async function MedienPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string }>;
+  searchParams: Promise<{ folder?: string }>;
 }) {
-  const { status } = await searchParams;
-  const initialStatus = status === 'public' || status === 'draft' ? status : 'all';
+  const { folder } = await searchParams;
 
   const cookieStore = await cookies();
   const raw = cookieStore.get(SESSION_COOKIE)?.value;
@@ -29,25 +28,30 @@ export default async function MedienPage({
   const user = await getCurrentUser(session.accessToken);
   if (!user) redirect('/login');
   if (!user.organization?.id) redirect('/intern');
-  // Presse-Konten haben keine eigenen Medien zu verwalten -- diese Seite
-  // ist ausschließlich für BOS-Organisationen gedacht.
   if (user.organization.organization_type === 'press') redirect('/intern');
 
-  const [posts, folders, mediaShares] = await Promise.all([
-    getMyOrganizationImages(session.accessToken, user.organization.id),
-    getMyFolders(session.accessToken, user.organization.id),
-    getMyMediaShares(session.accessToken, user.organization.id),
-  ]);
+  const contents = await getFolderContents(session.accessToken, user.organization.id, folder ?? null);
+
+  const breadcrumbItems = [
+    { label: 'Übersicht', href: '/intern' },
+    { label: 'Medien', href: contents.breadcrumb.length ? '/intern/medien' : undefined },
+    ...contents.breadcrumb.map((b, i) => ({
+      label: b.name,
+      href: i === contents.breadcrumb.length - 1 ? undefined : `/intern/medien?folder=${b.id}`,
+    })),
+  ];
 
   return (
     <div>
-      <Breadcrumbs items={[{ label: 'Übersicht', href: '/intern' }, { label: 'Meine Medien' }]} />
-      <h1 className="mb-6 font-display text-[28px] font-bold">Meine Medien</h1>
-      <MediaLibraryView
-        posts={posts}
-        folders={folders}
-        mediaShares={mediaShares}
-        initialStatus={initialStatus}
+      <Breadcrumbs items={breadcrumbItems} />
+      <h1 className="mb-6 font-display text-[28px] font-bold">
+        {contents.folder?.name ?? 'Medien'}
+      </h1>
+      <MediaBrowser
+        currentFolderId={folder ?? null}
+        parentFolderId={contents.folder?.parent_folder ?? null}
+        subfolders={contents.subfolders}
+        items={contents.items}
       />
     </div>
   );
