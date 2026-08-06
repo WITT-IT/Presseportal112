@@ -568,7 +568,6 @@ export async function getFolderContents(
   items: {
     id: string;
     display_name: string | null;
-    original_filename: string | null;
     file: string;
     file_preview: string | null;
   }[];
@@ -601,7 +600,7 @@ export async function getFolderContents(
       { headers, cache: 'no-store' }
     ),
     fetch(
-      `${DIRECTUS_URL}/items/media_library?filter[organization][_eq]=${organizationId}&${folderFilter}&fields=id,display_name,original_filename,file,file_preview&sort=-uploaded_at&limit=200`,
+      `${DIRECTUS_URL}/items/media_library?filter[organization][_eq]=${organizationId}&${folderFilter}&fields=id,display_name,file,file_preview&sort=-uploaded_at&limit=200`,
       { headers, cache: 'no-store' }
     ),
   ]);
@@ -627,13 +626,12 @@ export async function getMediaLibraryItem(
   file_preview_watermarked: string | null;
   file_download_watermarked: string | null;
   display_name: string | null;
-  original_filename: string | null;
   tags: string[] | null;
 } | null> {
   const fields = [
     'id', 'organization', 'file', 'file_preview',
     'file_preview_watermarked', 'file_download_watermarked',
-    'display_name', 'original_filename', 'tags',
+    'display_name', 'tags',
   ].join(',');
   const res = await fetch(`${DIRECTUS_URL}/items/media_library/${id}?fields=${fields}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
