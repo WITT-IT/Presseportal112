@@ -555,10 +555,8 @@ export async function getMediaShareByToken(token: string): Promise<PublicMediaSh
   }
 }
 
-// Ordnerinhalt (Unterordner + Medien) + Breadcrumb-Pfad für die neue
-// Kachel-Ansicht unter /intern/medien. folderId = null → Wurzel der
-// Organisation. Läuft bewusst über direkten fetch() statt Directus-SDK,
-// analog zu den anderen accessToken-basierten Funktionen oben.
+// Ordnerinhalt (Unterordner + Medien) + Breadcrumb-Pfad für die Kachel-
+// Ansicht unter /intern/medien. folderId = null → Wurzel der Organisation.
 export async function getFolderContents(
   accessToken: string,
   organizationId: string,
@@ -612,4 +610,39 @@ export async function getFolderContents(
   const items = itemsRes.ok ? (await itemsRes.json()).data : [];
 
   return { folder: currentFolder, breadcrumb, subfolders, items };
+}
+
+// Ein einzelnes Medienbibliothek-Item für den Veröffentlichen-Flow unter
+// /intern/upload?mediaId=... -- inkl. gecachter Wasserzeichen-Varianten,
+// damit UploadStudio weiß, ob es die Wasserzeichen-Erzeugung überspringen
+// kann (Bild wurde schon einmal veröffentlicht).
+export async function getMediaLibraryItem(
+  accessToken: string,
+  id: string
+): Promise<{
+  id: string;
+  organization: string;
+  file: string;
+  file_preview: string | null;
+  file_preview_watermarked: string | null;
+  file_download_watermarked: string | null;
+  display_name: string | null;
+  original_filename: string | null;
+  tags: string[] | null;
+} | null> {
+  const fields = [
+    'id', 'organization', 'file', 'file_preview',
+    'file_preview_watermarked', 'file_download_watermarked',
+    'display_name', 'original_filename', 'tags',
+  ].join(',');
+  const res = await fetch(`${DIRECTUS_URL}/items/media_library/${id}?fields=${fields}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    cache: 'no-store',
+  });
+  if (!res.ok) {
+    console.error(`getMediaLibraryItem(${id}) fehlgeschlagen (Status ${res.status}):`, await res.text().catch(() => ''));
+    return null;
+  }
+  const { data } = await res.json();
+  return data;
 }
