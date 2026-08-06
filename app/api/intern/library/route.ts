@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
-import { DIRECTUS_URL } from '@/lib/directus';
+import { DIRECTUS_URL, directusAssetUrl } from '@/lib/directus';
 
 function getSession(request: NextRequest): { accessToken: string } | null {
   const raw = request.cookies.get(SESSION_COOKIE)?.value;
@@ -45,8 +45,15 @@ async function uploadBuffer(
 }
 
 // GET /api/intern/library?q=tag&folder=&limit=48&offset=0
-// Lädt die Medienbibliothek der eigenen Organisation.
-// Unterstützt Freitextsuche über Tags und Dateinamen, optional nach Ordner gefiltert.
+//     /api/intern/library?original=<mediaId>
+//
+// Zwei Aufgaben in einer Route:
+// 1. Ohne "original"-Parameter: Bibliotheksliste laden (Freitextsuche über
+//    Tags/Dateinamen, optional nach Ordner gefiltert).
+// 2. Mit "original"-Parameter: Same-Origin-Proxy, der die Originaldatei
+//    eines Bibliothekseintrags durchreicht. Wird beim Veröffentlichen
+//    gebraucht, damit der Browser das Bild fürs Wasserzeichen (Canvas) laden
+//    kann, ohne eine Cross-Origin-Anfrage direkt gegen Directus zu stellen.
 export async function GET(request: NextRequest) {
   const session = getSession(request);
   if (!session) return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
@@ -57,6 +64,36 @@ export async function GET(request: NextRequest) {
   }
 
   const { searchParams } = request.nextUrl;
+
+  const originalOf = searchParams.get('original');
+  if (originalOf) {
+    const itemRes = await fetch(
+      `${DIRECTUS_URL}/items/media_library/${originalOf}?fields=id,organization,file`,
+      { headers: { Authorization: `Bearer ${session.accessToken}` } }
+    );
+    if (!itemRes.ok) {
+      return NextResponse.json({ error: 'Bild nicht gefunden.' }, { status: 404 });
+    }
+    const { data: item } = await itemRes.json();
+    if (item.organization !== user.organization.id) {
+      return NextResponse.json({ error: 'Keine Berechtigung.' }, { status: 403 });
+    }
+
+    const assetRes = await fetch(directusAssetUrl(item.file), {
+      headers: { Authorization: `Bearer ${session.accessToken}` },
+    });
+    if (!assetRes.ok) {
+      return NextResponse.json({ error: 'Datei konnte nicht geladen werden.' }, { status: 502 });
+    }
+    const buffer = await assetRes.arrayBuffer();
+    return new NextResponse(buffer, {
+      headers: {
+        'Content-Type': assetRes.headers.get('content-type') || 'application/octet-stream',
+        'Cache-Control': 'private, no-store',
+      },
+    });
+  }
+
   const q = searchParams.get('q')?.trim().toLowerCase() || '';
   const folder = searchParams.get('folder');
   const limit = Math.min(Number(searchParams.get('limit') || 48), 100);
