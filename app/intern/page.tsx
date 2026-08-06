@@ -134,36 +134,17 @@ export default function InternPage() {
     }
   }
 
-  const tiles = [
-    {
-      icon: "ti-photo",
-      label: "Uploads gesamt",
-      value: stats?.totalUploads ?? 0,
-    },
-    {
-      icon: "ti-eye",
-      label: "Öffentlich",
-      value: stats?.publicPosts ?? 0,
-    },
-    {
-      icon: "ti-lock",
-      label: "Privat",
-      value: stats?.privatePosts ?? 0,
-    },
-    {
-      icon: "ti-share",
-      label: "Aktive Freigaben",
-      value: stats?.activeShares ?? 0,
-    },
-  ];
-
   return (
     <div className="mx-auto max-w-6xl px-4 py-6">
       <header className="mb-6">
         <h1 className="mb-2 font-display text-[28px] font-bold">Willkommen</h1>
       </header>
 
-      <StatStrip tiles={tiles} />
+      {/* StatStrip nutzt totalUploads und eine einfache Orga-Zahl */}
+      <StatStrip
+        totalImages={stats?.totalUploads ?? 0}
+        totalOrganizations={1}
+      />
 
       {error && (
         <p className="mt-4 text-[13px] text-signal-deep">{error}</p>
@@ -248,7 +229,7 @@ export default function InternPage() {
 
           {/* Private Beiträge/Bilder */}
           <section>
-            <div className="mb-3 flex items-center justify-between">
+            <div className="mb-3 flex items_center justify-between">
               <h2 className="font-display text-[18px] font-bold">Privat</h2>
               <span className="text-[12px] text-ink-3">
                 {privateItems.length} Beiträge/Bilder
@@ -293,7 +274,7 @@ export default function InternPage() {
                           </p>
                         )}
                       </div>
-                      <div className="mt-auto flex items-center justify_between gap-2">
+                      <div className="mt-auto flex items-center justify-between gap-2">
                         <button
                           type="button"
                           onClick={() => togglePublic(item.postId, true)}
