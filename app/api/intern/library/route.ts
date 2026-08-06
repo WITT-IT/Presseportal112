@@ -13,6 +13,24 @@ function getSession(request: NextRequest): { accessToken: string } | null {
   }
 }
 
+// used_in_posts kommt manchmal als roher Text statt als echtes JSON-Array
+// zurück (gleiches Problem wie bei "tags" an anderer Stelle im Projekt) --
+// ein String wie "[]" hat eine .length von 2, nicht 0, und würde die
+// Lösch-Sperre unten fälschlich auslösen. Deshalb immer robust normalisieren.
+function normalizeIdArray(raw: unknown): string[] {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw.filter((v): v is string => typeof v === 'string');
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed.filter((v): v is string => typeof v === 'string');
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 async function uploadBuffer(
   token: string,
   buffer: Buffer,
@@ -70,8 +88,20 @@ export async function GET(request: NextRequest) {
     if (item.organization !== user.organization.id) {
       return NextResponse.json({ error: 'Keine Berechtigung.' }, { status: 403 });
     }
+    if (!item.file) {
+      return NextResponse.json({ error: 'Diesem Eintrag ist keine Datei zugeordnet.' }, { status: 404 });
+    }
 
-    const assetRes = await fetch(directusAssetUrl(item.file), {
+    // Optionale Transform-Parameter (Thumbnails) durchreichen -- Directus
+    // skaliert/komprimiert das Original on-the-fly, wir laden es nicht
+    // mehrfach in unterschiedlichen Größen vor.
+    const width = searchParams.get('width');
+    const quality = searchParams.get('quality');
+    const transform = [width ? `width=${width}` : null, quality ? `quality=${quality}` : null]
+      .filter(Boolean)
+      .join('&');
+
+    const assetRes = await fetch(directusAssetUrl(item.file, transform || undefined), {
       headers: { Authorization: `Bearer ${session.accessToken}` },
     });
     if (!assetRes.ok) {
@@ -98,7 +128,6 @@ export async function GET(request: NextRequest) {
     'file',
     'file_preview',
     'file_download',
-    'original_filename',
     'tags',
     'uploaded_at',
     'used_in_posts',
@@ -121,9 +150,9 @@ export async function GET(request: NextRequest) {
   const { data } = await res.json();
 
   const filtered = q
-    ? data.filter((item: { tags: string[] | null; original_filename: string | null }) => {
+    ? data.filter((item: { tags: string[] | null; display_name: string | null }) => {
         const tagMatch = (item.tags || []).some((t: string) => t.toLowerCase().includes(q));
-        const nameMatch = (item.original_filename || '').toLowerCase().includes(q);
+        const nameMatch = (item.display_name || '').toLowerCase().includes(q);
         return tagMatch || nameMatch;
       })
     : data;
@@ -172,7 +201,6 @@ export async function POST(request: NextRequest) {
           folder: folderId,
           file: fileId,
           display_name: file.name,
-          original_filename: file.name,
           tags: [],
           uploaded_at: new Date().toISOString(),
           used_in_posts: [],
@@ -241,7 +269,7 @@ export async function DELETE(request: NextRequest) {
   const checkRes = await fetch(`${DIRECTUS_URL}/items/media_library/${id}?fields=id,used_in_posts,file`, { headers });
   if (checkRes.ok) {
     const { data } = await checkRes.json();
-    if ((data?.used_in_posts || []).length > 0) {
+    if (normalizeIdArray(data?.used_in_posts).length > 0) {
       return NextResponse.json(
         { error: 'Bild wird in einem Beitrag verwendet und kann nicht gelöscht werden.' },
         { status: 409 }
