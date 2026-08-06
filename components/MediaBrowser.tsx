@@ -16,6 +16,76 @@ type MediaItem = {
 };
 type DragPayload = { id: string; type: 'folder' | 'media' };
 
+// Eingebettete SVGs statt der externen Tabler-Icons-Schrift -- analog zu
+// Header.tsx: stroke="currentColor" erbt die Textfarbe direkt, unabhängig
+// davon, ob/wie das extern geladene CDN-Stylesheet gerade lädt oder nicht.
+function IconUpload({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d="M12 3v12" />
+      <path d="M7 8l5-5 5 5" />
+      <path d="M5 21h14" />
+    </svg>
+  );
+}
+function IconFolderPlus({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
+      <path d="M12 11v4" />
+      <path d="M10 13h4" />
+    </svg>
+  );
+}
+function IconFolder({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
+    </svg>
+  );
+}
+function IconSend({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d="M22 2L11 13" />
+      <path d="M22 2l-7 20-4-9-9-4 20-7z" />
+    </svg>
+  );
+}
+function IconBack({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d="M19 12H5" />
+      <path d="M11 18l-6-6 6-6" />
+    </svg>
+  );
+}
+function IconX({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d="M18 6L6 18" />
+      <path d="M6 6l12 12" />
+    </svg>
+  );
+}
+function IconEdit({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
+    </svg>
+  );
+}
+function IconPhotoPlus({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <circle cx="8.5" cy="8.5" r="1.5" />
+      <path d="M21 15l-5-5L5 21" />
+    </svg>
+  );
+}
+
 export default function MediaBrowser({
   currentFolderId,
   parentFolderId,
@@ -31,7 +101,7 @@ export default function MediaBrowser({
   const { confirm } = useDialog();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [selected, setSelected] = useState<DragPayload | null>(null);
+  const [selectedMediaId, setSelectedMediaId] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<(DragPayload & { value: string }) | null>(null);
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
@@ -45,10 +115,6 @@ export default function MediaBrowser({
   }
 
   // ── Upload ────────────────────────────────────────────────────────────
-  // targetFolderId ist bewusst ein eigener Parameter statt currentFolderId
-  // zu verwenden -- so kann sowohl "auf die Fläche fallen lassen" (aktueller
-  // Ordner) als auch "direkt auf eine Ordner-Kachel fallen lassen" (dieser
-  // Unterordner) dieselbe Funktion nutzen.
   async function uploadFiles(files: File[], targetFolderId: string | null) {
     if (files.length === 0) return;
     setBusy(true);
@@ -110,6 +176,11 @@ export default function MediaBrowser({
   }
 
   // ── Umbenennen ────────────────────────────────────────────────────────
+  function startRenameFolder(e: React.MouseEvent, folder: SubFolder) {
+    e.stopPropagation();
+    setRenaming({ id: folder.id, type: 'folder', value: folder.name });
+  }
+
   async function submitRename() {
     if (!renaming) return;
     const value = renaming.value.trim();
@@ -169,8 +240,6 @@ export default function MediaBrowser({
 
   // Drop auf eine Ordner-Kachel: entweder Dateien vom Desktop (Direkt-
   // Upload in genau diesen Ordner) oder eine andere Kachel (Verschieben).
-  // stopPropagation ist hier wichtig -- sonst läuft ein Datei-Drop zusätzlich
-  // zum Grid-Handler durch und landet im FALSCHEN (aktuell offenen) Ordner.
   function handleDropOnFolderTile(e: React.DragEvent, targetId: string | null) {
     e.preventDefault();
     e.stopPropagation();
@@ -213,8 +282,8 @@ export default function MediaBrowser({
           const body = await res.json().catch(() => ({}));
           throw new Error(body.error ?? 'Löschen fehlgeschlagen.');
         }
+        if (selectedMediaId === target.id) setSelectedMediaId(null);
       }
-      if (selected?.id === target.id) setSelected(null);
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Löschen fehlgeschlagen.');
@@ -233,7 +302,7 @@ export default function MediaBrowser({
           disabled={busy}
           className="flex items-center gap-2 rounded-md bg-ink px-4 py-2.5 text-[13px] font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
         >
-          <i className="ti ti-upload text-[15px]" aria-hidden="true" />
+          <IconUpload className="h-[15px] w-[15px]" />
           Hochladen
         </button>
         <input ref={fileInputRef} type="file" multiple accept="image/*" hidden onChange={handleFileInputChange} />
@@ -244,17 +313,17 @@ export default function MediaBrowser({
           disabled={busy}
           className="flex items-center gap-2 rounded-md border border-line-strong px-4 py-2.5 text-[13px] font-semibold text-ink transition-colors hover:border-ink disabled:opacity-50"
         >
-          <i className="ti ti-folder-plus text-[15px]" aria-hidden="true" />
+          <IconFolderPlus className="h-[15px] w-[15px]" />
           Neuer Ordner
         </button>
 
-        {selected?.type === 'media' && (
+        {selectedMediaId && (
           <button
             type="button"
-            onClick={() => router.push(`/intern/upload?mediaId=${selected.id}`)}
+            onClick={() => router.push(`/intern/upload?mediaId=${selectedMediaId}`)}
             className="ml-auto flex items-center gap-2 rounded-md bg-signal-deep px-4 py-2.5 text-[13px] font-semibold text-white hover:opacity-90"
           >
-            <i className="ti ti-send text-[15px]" aria-hidden="true" />
+            <IconSend className="h-[15px] w-[15px]" />
             Veröffentlichen
           </button>
         )}
@@ -286,12 +355,12 @@ export default function MediaBrowser({
             onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOverId('ROOT'); }}
             onDragLeave={() => setDragOverId(null)}
             onDrop={(e) => handleDropOnFolderTile(e, parentFolderId)}
-            className={`flex flex-col items-center gap-2 rounded-xl p-3 text-center transition-colors hover:bg-panel ${
+            className={`flex flex-col items-center gap-2 rounded-xl p-3 text-center text-ink-3 transition-colors hover:bg-panel ${
               dragOverId === 'ROOT' ? 'bg-panel outline outline-2 outline-ink' : ''
             }`}
           >
             <div className="flex h-[92px] w-[92px] items-center justify-center rounded-2xl bg-panel">
-              <i className="ti ti-corner-left-up text-[36px] text-ink-3" aria-hidden="true" />
+              <IconBack className="h-[32px] w-[32px]" />
             </div>
             <span className="text-[12px] font-medium text-ink-2">Zurück</span>
           </button>
@@ -299,8 +368,8 @@ export default function MediaBrowser({
 
         {creatingFolder && (
           <div className="flex flex-col items-center gap-2 rounded-xl p-3 text-center">
-            <div className="flex h-[92px] w-[92px] items-center justify-center rounded-2xl bg-panel">
-              <i className="ti ti-folder text-[44px] text-ink-2" aria-hidden="true" />
+            <div className="flex h-[92px] w-[92px] items-center justify-center rounded-2xl bg-panel text-ink-2">
+              <IconFolder className="h-[40px] w-[40px]" />
             </div>
             <input
               autoFocus
@@ -322,24 +391,33 @@ export default function MediaBrowser({
             onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOverId(folder.id); }}
             onDragLeave={() => setDragOverId(null)}
             onDrop={(e) => handleDropOnFolderTile(e, folder.id)}
-            onClick={() => setSelected({ id: folder.id, type: 'folder' })}
-            onDoubleClick={() => openFolder(folder.id)}
-            title="Bilder hierher ziehen, um sie in diesem Ordner abzulegen"
+            onClick={() => openFolder(folder.id)}
+            title="Klick zum Öffnen — Bilder hierher ziehen zum Ablegen"
             className={`group relative flex cursor-pointer flex-col items-center gap-2 rounded-xl p-3 text-center transition-colors hover:bg-panel ${
-              selected?.id === folder.id ? 'bg-panel outline outline-2 outline-ink' : ''
-            } ${dragOverId === folder.id ? 'bg-panel outline outline-2 outline-ink' : ''}`}
+              dragOverId === folder.id ? 'bg-panel outline outline-2 outline-ink' : ''
+            }`}
           >
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); deleteItem({ id: folder.id, type: 'folder' }, folder.name); }}
-              title="Ordner löschen"
-              className="absolute right-1.5 top-1.5 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-white text-ink-2 opacity-0 shadow-sm ring-1 ring-line-strong transition-opacity group-hover:opacity-100 hover:bg-signal-deep hover:text-white hover:ring-signal-deep"
-            >
-              <i className="ti ti-x text-[13px]" aria-hidden="true" />
-            </button>
+            <div className="absolute right-1.5 top-1.5 z-10 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+              <button
+                type="button"
+                onClick={(e) => startRenameFolder(e, folder)}
+                title="Ordner umbenennen"
+                className="flex h-6 w-6 items-center justify-center rounded-full bg-white text-ink-2 shadow-sm ring-1 ring-line-strong hover:bg-panel hover:text-ink"
+              >
+                <IconEdit className="h-[12px] w-[12px]" />
+              </button>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); deleteItem({ id: folder.id, type: 'folder' }, folder.name); }}
+                title="Ordner löschen"
+                className="flex h-6 w-6 items-center justify-center rounded-full bg-white text-ink-2 shadow-sm ring-1 ring-line-strong hover:bg-signal-deep hover:text-white hover:ring-signal-deep"
+              >
+                <IconX className="h-[12px] w-[12px]" />
+              </button>
+            </div>
 
-            <div className="flex h-[92px] w-[92px] items-center justify-center rounded-2xl bg-panel">
-              <i className="ti ti-folder text-[44px] text-ink-2" aria-hidden="true" />
+            <div className="flex h-[92px] w-[92px] items-center justify-center rounded-2xl bg-panel text-ink-2">
+              <IconFolder className="h-[40px] w-[40px]" />
             </div>
             {renaming?.id === folder.id ? (
               <input
@@ -352,12 +430,7 @@ export default function MediaBrowser({
                 className="w-full rounded-md border border-ink px-1.5 py-0.5 text-center text-[12px] outline-none"
               />
             ) : (
-              <span
-                onDoubleClick={(e) => { e.stopPropagation(); setRenaming({ id: folder.id, type: 'folder', value: folder.name }); }}
-                className="line-clamp-2 text-[12px] font-medium text-ink"
-              >
-                {folder.name}
-              </span>
+              <span className="line-clamp-2 text-[12px] font-medium text-ink">{folder.name}</span>
             )}
           </div>
         ))}
@@ -369,9 +442,9 @@ export default function MediaBrowser({
               key={item.id}
               draggable
               onDragStart={(e) => handleDragStart(e, { id: item.id, type: 'media' })}
-              onClick={() => setSelected({ id: item.id, type: 'media' })}
+              onClick={() => setSelectedMediaId(item.id)}
               className={`group relative flex cursor-pointer flex-col items-center gap-2 rounded-xl p-3 text-center transition-colors hover:bg-panel ${
-                selected?.id === item.id ? 'bg-panel outline outline-2 outline-ink' : ''
+                selectedMediaId === item.id ? 'bg-panel outline outline-2 outline-ink' : ''
               }`}
             >
               <button
@@ -380,7 +453,7 @@ export default function MediaBrowser({
                 title="Bild löschen"
                 className="absolute right-1.5 top-1.5 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-white text-ink-2 opacity-0 shadow-sm ring-1 ring-line-strong transition-opacity group-hover:opacity-100 hover:bg-signal-deep hover:text-white hover:ring-signal-deep"
               >
-                <i className="ti ti-x text-[13px]" aria-hidden="true" />
+                <IconX className="h-[12px] w-[12px]" />
               </button>
 
               <div className="relative h-[92px] w-[92px] overflow-hidden rounded-2xl bg-panel">
@@ -414,8 +487,8 @@ export default function MediaBrowser({
         })}
 
         {subfolders.length === 0 && items.length === 0 && !creatingFolder && (
-          <div className="col-span-full flex flex-col items-center gap-3 py-16 text-center">
-            <i className="ti ti-photo-plus text-[40px] text-ink-3" aria-hidden="true" />
+          <div className="col-span-full flex flex-col items-center gap-3 py-16 text-center text-ink-3">
+            <IconPhotoPlus className="h-[36px] w-[36px]" />
             <p className="text-[13px] text-ink-2">
               Noch leer — zieh Bilder hierher oder klick auf „Hochladen".
             </p>
