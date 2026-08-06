@@ -46,14 +46,6 @@ async function uploadBuffer(
 
 // GET /api/intern/library?q=tag&folder=&limit=48&offset=0
 //     /api/intern/library?original=<mediaId>
-//
-// Zwei Aufgaben in einer Route:
-// 1. Ohne "original"-Parameter: Bibliotheksliste laden (Freitextsuche über
-//    Tags/Dateinamen, optional nach Ordner gefiltert).
-// 2. Mit "original"-Parameter: Same-Origin-Proxy, der die Originaldatei
-//    eines Bibliothekseintrags durchreicht. Wird beim Veröffentlichen
-//    gebraucht, damit der Browser das Bild fürs Wasserzeichen (Canvas) laden
-//    kann, ohne eine Cross-Origin-Anfrage direkt gegen Directus zu stellen.
 export async function GET(request: NextRequest) {
   const session = getSession(request);
   if (!session) return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
@@ -128,7 +120,6 @@ export async function GET(request: NextRequest) {
 
   const { data } = await res.json();
 
-  // Client-seitige Tag-Filterung -- Directus JSON-Array-Suche ist limitiert.
   const filtered = q
     ? data.filter((item: { tags: string[] | null; original_filename: string | null }) => {
         const tagMatch = (item.tags || []).some((t: string) => t.toLowerCase().includes(q));
@@ -142,6 +133,13 @@ export async function GET(request: NextRequest) {
 
 // POST /api/intern/library — Direkt-Upload in die Bibliothek, KEIN Beitrag.
 // FormData: folder (optional), image_count, file_0..N
+//
+// WICHTIG: jeder einzelne Schritt (Datei-Upload zu Directus, media_library-
+// Eintrag anlegen) wird jetzt geprüft und Fehler werden gesammelt statt
+// verschluckt -- vorher konnte die Originaldatei erfolgreich in Directus
+// landen, während das Anlegen des media_library-Eintrags (z.B. wegen eines
+// fehlenden Feldes oder einer Berechtigung) lautlos scheiterte, sodass die
+// Datei in Directus sichtbar war, aber nirgends in der Bibliothek auftauchte.
 export async function POST(request: NextRequest) {
   const session = getSession(request);
   if (!session) return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
@@ -154,33 +152,52 @@ export async function POST(request: NextRequest) {
   const imageCount = Number(formData.get('image_count') || 0);
   const headers = { Authorization: `Bearer ${session.accessToken}`, 'Content-Type': 'application/json' };
   const created: string[] = [];
+  const errors: string[] = [];
 
   for (let i = 0; i < imageCount; i++) {
     const file = formData.get(`file_${i}`) as File | null;
     if (!file) continue;
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const fileId = await uploadBuffer(session.accessToken, buffer, file.type || 'application/octet-stream', file.name);
 
-    const itemId = randomUUID();
-    await fetch(`${DIRECTUS_URL}/items/media_library`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        id: itemId,
-        organization: user.organization.id,
-        folder: folderId,
-        file: fileId,
-        display_name: file.name,
-        original_filename: file.name,
-        tags: [],
-        uploaded_at: new Date().toISOString(),
-        used_in_posts: [],
-      }),
-    });
-    created.push(itemId);
+    try {
+      const buffer = Buffer.from(await file.arrayBuffer());
+      const fileId = await uploadBuffer(session.accessToken, buffer, file.type || 'application/octet-stream', file.name);
+
+      const itemId = randomUUID();
+      const itemRes = await fetch(`${DIRECTUS_URL}/items/media_library`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          id: itemId,
+          organization: user.organization.id,
+          folder: folderId,
+          file: fileId,
+          display_name: file.name,
+          original_filename: file.name,
+          tags: [],
+          uploaded_at: new Date().toISOString(),
+          used_in_posts: [],
+        }),
+      });
+
+      if (!itemRes.ok) {
+        const body = await itemRes.text().catch(() => '');
+        console.error(`media_library-Eintrag anlegen fehlgeschlagen (${itemRes.status}) für "${file.name}":`, body);
+        errors.push(`${file.name}: ${body || `Status ${itemRes.status}`}`);
+        continue;
+      }
+
+      created.push(itemId);
+    } catch (err) {
+      console.error(`Upload fehlgeschlagen für "${file.name}":`, err);
+      errors.push(`${file.name}: ${err instanceof Error ? err.message : 'Unbekannter Fehler'}`);
+    }
   }
 
-  return NextResponse.json({ ok: true, created });
+  if (created.length === 0 && errors.length > 0) {
+    return NextResponse.json({ error: errors.join(' | ') }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true, created, errors: errors.length ? errors : undefined });
 }
 
 // PATCH /api/intern/library — umbenennen oder verschieben
@@ -204,7 +221,11 @@ export async function PATCH(request: NextRequest) {
     },
     body: JSON.stringify(patch),
   });
-  if (!res.ok) return NextResponse.json({ error: 'Aktualisieren fehlgeschlagen.' }, { status: 500 });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    console.error(`media_library-Eintrag aktualisieren fehlgeschlagen (${res.status}):`, body);
+    return NextResponse.json({ error: body || 'Aktualisieren fehlgeschlagen.' }, { status: 500 });
+  }
   return NextResponse.json({ ok: true });
 }
 
