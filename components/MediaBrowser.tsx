@@ -16,9 +16,6 @@ type MediaItem = {
 };
 type DragPayload = { id: string; type: 'folder' | 'media' };
 
-// Eingebettete SVGs statt der externen Tabler-Icons-Schrift -- analog zu
-// Header.tsx: stroke="currentColor" erbt die Textfarbe direkt, unabhängig
-// davon, ob/wie das extern geladene CDN-Stylesheet gerade lädt oder nicht.
 function IconUpload({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
@@ -114,7 +111,6 @@ export default function MediaBrowser({
     router.push(id ? `/intern/medien?folder=${id}` : '/intern/medien');
   }
 
-  // ── Upload ────────────────────────────────────────────────────────────
   async function uploadFiles(files: File[], targetFolderId: string | null) {
     if (files.length === 0) return;
     setBusy(true);
@@ -126,9 +122,12 @@ export default function MediaBrowser({
       files.forEach((file, i) => formData.append(`file_${i}`, file, file.name));
 
       const res = await fetch('/api/intern/library', { method: 'POST', body: formData });
+      const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
         throw new Error(body.error ?? 'Upload fehlgeschlagen.');
+      }
+      if (body.errors?.length) {
+        setError(`Teilweise fehlgeschlagen: ${body.errors.join(' | ')}`);
       }
       router.refresh();
     } catch (err) {
@@ -153,7 +152,6 @@ export default function MediaBrowser({
     if (e.dataTransfer.files?.length) uploadFiles(Array.from(e.dataTransfer.files), currentFolderId);
   }
 
-  // ── Neuer Ordner ─────────────────────────────────────────────────────
   async function submitNewFolder() {
     const name = newFolderName.trim();
     if (!name) { setCreatingFolder(false); return; }
@@ -175,7 +173,6 @@ export default function MediaBrowser({
     }
   }
 
-  // ── Umbenennen ────────────────────────────────────────────────────────
   function startRenameFolder(e: React.MouseEvent, folder: SubFolder) {
     e.stopPropagation();
     setRenaming({ id: folder.id, type: 'folder', value: folder.name });
@@ -207,7 +204,6 @@ export default function MediaBrowser({
     }
   }
 
-  // ── Verschieben per Drag & Drop (Kachel auf Kachel) ─────────────────
   async function moveItem(dragged: DragPayload, targetFolderId: string | null) {
     if (dragged.type === 'folder' && dragged.id === targetFolderId) return;
     setBusy(true);
@@ -238,8 +234,6 @@ export default function MediaBrowser({
     e.dataTransfer.setData('application/x-media-item', JSON.stringify(payload));
   }
 
-  // Drop auf eine Ordner-Kachel: entweder Dateien vom Desktop (Direkt-
-  // Upload in genau diesen Ordner) oder eine andere Kachel (Verschieben).
   function handleDropOnFolderTile(e: React.DragEvent, targetId: string | null) {
     e.preventDefault();
     e.stopPropagation();
@@ -253,7 +247,6 @@ export default function MediaBrowser({
     if (raw) moveItem(JSON.parse(raw), targetId);
   }
 
-  // ── Löschen (Hover-X auf der Kachel, keine Browser-Meldung) ─────────
   async function deleteItem(target: DragPayload, name: string) {
     const confirmed = await confirm({
       title: target.type === 'folder' ? 'Ordner wirklich löschen?' : 'Bild wirklich löschen?',
@@ -294,7 +287,6 @@ export default function MediaBrowser({
 
   return (
     <div>
-      {/* Toolbar */}
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <button
           type="button"
@@ -339,7 +331,6 @@ export default function MediaBrowser({
         </p>
       )}
 
-      {/* Grid */}
       <div
         onDragOver={handleGridDragOver}
         onDragLeave={() => setIsDraggingFiles(false)}
