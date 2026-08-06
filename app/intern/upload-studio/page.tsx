@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { SESSION_COOKIE } from "@/lib/auth";
+import { SESSION_COOKIE, getCurrentUser } from "@/lib/auth";
 import { DIRECTUS_URL } from "@/lib/directus";
 import UploadStudio from "@/components/UploadStudio";
 
@@ -27,16 +27,21 @@ export default async function UploadStudioPage({
   const token = session.accessToken;
   const headers = { Authorization: `Bearer ${token}` };
 
-  // User + Org laden
-  const userRes = await fetch(
-    `${DIRECTUS_URL}/users/me?fields=id,organization,organization.name`,
-    { headers }
-  );
-  if (!userRes.ok) redirect("/login");
-  const { data: user } = await userRes.json();
+  // User + Org über getCurrentUser laden
+  const user = await getCurrentUser(token);
+  if (!user) redirect("/login");
+
   const organizationId = user?.organization?.id as string | undefined;
   if (!organizationId) {
-    throw new Error("Keine Organisation gefunden.");
+    // Kein Org-Zugriff → Hinweis statt Exception
+    return (
+      <div className="mx-auto max-w-3xl px-4 py-6">
+        <h1 className="mb-4 font-display text-[24px] font-bold">Studio</h1>
+        <p className="text-[13px] text-signal-deep">
+          Deinem Konto ist keine Organisation zugeordnet. Bitte melde dich mit einem anderen Account oder kontaktiere den Support.
+        </p>
+      </div>
+    );
   }
 
   // Tags laden
@@ -92,29 +97,19 @@ export default async function UploadStudioPage({
           id: mainImage.id,
           file: mainImage.file_original,
           file_preview: mainImage.file_public_preview_watermarked ?? null,
-          file_preview_watermarked:
-            mainImage.file_public_preview_watermarked ?? null,
-          file_download_watermarked:
-            mainImage.file_public_preview_watermarked ?? null,
+          file_preview_watermarked: mainImage.file_public_preview_watermarked ?? null,
+          file_download_watermarked: mainImage.file_public_preview_watermarked ?? null,
           display_name: mainImage.caption ?? null,
           tags: post.tags ?? [],
         };
       }
     } catch (err) {
-      console.error(
-        "[upload-studio] Fehler beim Laden des Beitrags:",
-        err
-      );
+      console.error("[upload-studio] Fehler beim Laden des Beitrags:", err);
       // Wir lassen UploadStudio selbst den Fehler anzeigen (es ruft /api/intern/posts/detail auf).
     }
   }
 
-  // Fallback: Wenn kein postId oder kein Bild im Beitrag, dann müssen wir hier nicht weitermachen –
-  // UploadStudio selbst ist für den Fall ausgelegt, dass es von der Media-Bibliothek aus geöffnet wird.
-  // In diesem Setup erwarten wir aber, dass immer ein postId + Bild da ist.
-
   if (!initialSourceMedia) {
-    // Kein Beitrag/Bild gefunden → zurück zur Übersicht mit Hinweis
     return (
       <div className="mx-auto max-w-3xl px-4 py-6">
         <h1 className="mb-4 font-display text-[24px] font-bold">Studio</h1>
