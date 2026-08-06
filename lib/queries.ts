@@ -554,3 +554,62 @@ export async function getMediaShareByToken(token: string): Promise<PublicMediaSh
     return null;
   }
 }
+
+// Ordnerinhalt (Unterordner + Medien) + Breadcrumb-Pfad für die neue
+// Kachel-Ansicht unter /intern/medien. folderId = null → Wurzel der
+// Organisation. Läuft bewusst über direkten fetch() statt Directus-SDK,
+// analog zu den anderen accessToken-basierten Funktionen oben.
+export async function getFolderContents(
+  accessToken: string,
+  organizationId: string,
+  folderId: string | null
+): Promise<{
+  folder: { id: string; name: string; parent_folder: string | null } | null;
+  breadcrumb: { id: string; name: string }[];
+  subfolders: { id: string; name: string }[];
+  items: {
+    id: string;
+    display_name: string | null;
+    original_filename: string | null;
+    file: string;
+    file_preview: string | null;
+  }[];
+}> {
+  const headers = { Authorization: `Bearer ${accessToken}` };
+
+  const breadcrumb: { id: string; name: string }[] = [];
+  let currentId = folderId;
+  let currentFolder: { id: string; name: string; parent_folder: string | null } | null = null;
+  let guard = 0;
+  while (currentId && guard < 8) {
+    guard++;
+    const res = await fetch(`${DIRECTUS_URL}/items/folders/${currentId}?fields=id,name,parent_folder`, {
+      headers,
+      cache: 'no-store',
+    });
+    if (!res.ok) break;
+    const { data } = await res.json();
+    if (!currentFolder) currentFolder = data;
+    breadcrumb.unshift({ id: data.id, name: data.name });
+    currentId = data.parent_folder;
+  }
+
+  const parentFilter = folderId ? `filter[parent_folder][_eq]=${folderId}` : `filter[parent_folder][_null]=true`;
+  const folderFilter = folderId ? `filter[folder][_eq]=${folderId}` : `filter[folder][_null]=true`;
+
+  const [subfoldersRes, itemsRes] = await Promise.all([
+    fetch(
+      `${DIRECTUS_URL}/items/folders?filter[organization][_eq]=${organizationId}&${parentFilter}&fields=id,name&sort=name&limit=200`,
+      { headers, cache: 'no-store' }
+    ),
+    fetch(
+      `${DIRECTUS_URL}/items/media_library?filter[organization][_eq]=${organizationId}&${folderFilter}&fields=id,display_name,original_filename,file,file_preview&sort=-uploaded_at&limit=200`,
+      { headers, cache: 'no-store' }
+    ),
+  ]);
+
+  const subfolders = subfoldersRes.ok ? (await subfoldersRes.json()).data : [];
+  const items = itemsRes.ok ? (await itemsRes.json()).data : [];
+
+  return { folder: currentFolder, breadcrumb, subfolders, items };
+}
