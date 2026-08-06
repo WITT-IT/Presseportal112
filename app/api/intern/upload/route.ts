@@ -70,8 +70,20 @@ export async function GET(request: NextRequest) {
     if (item.organization !== user.organization.id) {
       return NextResponse.json({ error: 'Keine Berechtigung.' }, { status: 403 });
     }
+    if (!item.file) {
+      return NextResponse.json({ error: 'Diesem Eintrag ist keine Datei zugeordnet.' }, { status: 404 });
+    }
 
-    const assetRes = await fetch(directusAssetUrl(item.file), {
+    // Optionale Transform-Parameter (Thumbnails) durchreichen -- Directus
+    // skaliert/komprimiert das Original on-the-fly, wir laden es nicht
+    // mehrfach in unterschiedlichen Größen vor.
+    const width = searchParams.get('width');
+    const quality = searchParams.get('quality');
+    const transform = [width ? `width=${width}` : null, quality ? `quality=${quality}` : null]
+      .filter(Boolean)
+      .join('&');
+
+    const assetRes = await fetch(directusAssetUrl(item.file, transform || undefined), {
       headers: { Authorization: `Bearer ${session.accessToken}` },
     });
     if (!assetRes.ok) {
