@@ -1,7 +1,8 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
+import Link from 'next/link';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
-import { getAllUsedTags, getAlarmcodes, getMyFolders } from '@/lib/queries';
+import { getAllUsedTags, getAlarmcodes, getMediaLibraryItem } from '@/lib/queries';
 import Breadcrumbs from '@/components/Breadcrumbs';
 import UploadStudio from '@/components/UploadStudio';
 
@@ -10,9 +11,9 @@ export const dynamic = 'force-dynamic';
 export default async function UploadPage({
   searchParams,
 }: {
-  searchParams: Promise<{ folderId?: string }>;
+  searchParams: Promise<{ mediaId?: string }>;
 }) {
-  const { folderId } = await searchParams;
+  const { mediaId } = await searchParams;
 
   const cookieStore = await cookies();
   const raw = cookieStore.get(SESSION_COOKIE)?.value;
@@ -30,45 +31,55 @@ export default async function UploadPage({
   if (!user.organization?.id) redirect('/intern');
   if (user.organization.organization_type === 'press') redirect('/intern');
 
-  const [existingTags, alarmcodes, folders] = await Promise.all([
+  const watermarkText = user.organization.branding_label || `Foto: ${user.organization.name ?? ''}`;
+
+  // Ohne mediaId gibt's hier nichts zu tun -- Upload passiert ausschließlich
+  // in der Medienbibliothek, diese Seite ist nur noch der letzte Schritt
+  // ("wie veröffentliche ich ein vorhandenes Bild").
+  if (!mediaId) {
+    return (
+      <div>
+        <Breadcrumbs items={[{ label: 'Übersicht', href: '/intern' }, { label: 'Veröffentlichen' }]} />
+        <h1 className="mb-2 font-display text-[28px] font-bold">Veröffentlichen</h1>
+        <p className="mb-6 max-w-[480px] text-[13.5px] leading-[1.6] text-ink-2">
+          Wähl zuerst ein Bild in der Medienbibliothek aus und klick dort auf
+          „Veröffentlichen".
+        </p>
+        <Link
+          href="/intern/medien"
+          className="inline-flex items-center gap-2 rounded-md bg-ink px-4 py-2.5 text-[13px] font-semibold text-white hover:opacity-90"
+        >
+          Zur Medienbibliothek
+        </Link>
+      </div>
+    );
+  }
+
+  const [existingTags, alarmcodes, sourceMedia] = await Promise.all([
     getAllUsedTags(),
     getAlarmcodes(),
-    getMyFolders(session.accessToken, user.organization.id),
+    getMediaLibraryItem(session.accessToken, mediaId),
   ]);
 
-  const targetFolder = folderId ? folders.find((f) => f.id === folderId) ?? null : null;
-  const watermarkText =
-    user.organization.branding_label || `Foto: ${user.organization.name ?? ''}`;
+  if (!sourceMedia || sourceMedia.organization !== user.organization.id) {
+    redirect('/intern/medien');
+  }
 
   return (
     <div>
       <Breadcrumbs
-        items={
-          targetFolder
-            ? [
-                { label: 'Übersicht', href: '/intern' },
-                { label: 'Ordner', href: '/intern/ordner' },
-                { label: targetFolder.name, href: `/intern/ordner/${targetFolder.id}` },
-                { label: 'Hochladen' },
-              ]
-            : [{ label: 'Übersicht', href: '/intern' }, { label: 'Hochladen' }]
-        }
+        items={[
+          { label: 'Übersicht', href: '/intern' },
+          { label: 'Medien', href: '/intern/medien' },
+          { label: 'Veröffentlichen' },
+        ]}
       />
-
-      <h1 className="mb-2 font-display text-[28px] font-bold">Neuer Beitrag</h1>
-      {targetFolder && (
-        <p className="mb-6 flex items-center gap-1.5 text-[13px] text-ink-2">
-          <i className="ti ti-folder text-[15px]" aria-hidden="true" />
-          Wird direkt zu <strong className="text-ink">{targetFolder.name}</strong> hinzugefügt
-        </p>
-      )}
-
+      <h1 className="mb-6 font-display text-[28px] font-bold">Veröffentlichen</h1>
       <UploadStudio
         watermarkText={watermarkText}
         existingTags={existingTags}
         alarmcodes={alarmcodes}
-        folders={folders}
-        preselectedFolderId={targetFolder?.id ?? null}
+        sourceMedia={sourceMedia}
       />
     </div>
   );
