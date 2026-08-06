@@ -1,67 +1,93 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
-import { DIRECTUS_URL } from '@/lib/directus';
+import { NextRequest, NextResponse } from "next/server";
+import { getCurrentUser, SESSION_COOKIE } from "@/lib/auth";
+import { DIRECTUS_URL } from "@/lib/directus";
 
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-async function fetchJSON(url: string, token: string) {
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-  if (!res.ok) throw new Error(`Directus request failed (${res.status})`);
-  return res.json();
+async function fetchJSON(label: string, url: string, token: string) {
+  try {
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      console.error("[dashboard] Directus-Request fehlgeschlagen:", {
+        label,
+        url,
+        status: res.status,
+        body: text,
+      });
+      throw new Error(`Directus request failed (${res.status})`);
+    }
+    return res.json();
+  } catch (error) {
+    console.error("[dashboard] Netzwerk-/Parsefehler:", { label, url, error });
+    throw error;
+  }
 }
 
 export async function GET(request: NextRequest) {
   const raw = request.cookies.get(SESSION_COOKIE)?.value;
-  if (!raw) return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
+  if (!raw) return NextResponse.json({ error: "Nicht angemeldet." }, { status: 401 });
 
   let session: { accessToken: string };
   try {
     session = JSON.parse(raw);
   } catch {
-    return NextResponse.json({ error: 'Sitzung ungültig.' }, { status: 401 });
+    return NextResponse.json({ error: "Sitzung ungültig." }, { status: 401 });
   }
 
   const user = await getCurrentUser(session.accessToken);
   const organizationId = user?.organization?.id;
   if (!organizationId) {
-    return NextResponse.json({ error: 'Keine Organisation.' }, { status: 403 });
+    return NextResponse.json({ error: "Keine Organisation." }, { status: 403 });
   }
 
-  const url = new URL(request.url);
-  const publicPage = Number(url.searchParams.get('publicPage') || '1');
-  const privatePage = Number(url.searchParams.get('privatePage') || '1');
-  const pageSize = Number(url.searchParams.get('pageSize') || '12');
+  const urlObj = new URL(request.url);
+  const publicPage = Number(urlObj.searchParams.get("publicPage") || "1");
+  const privatePage = Number(urlObj.searchParams.get("privatePage") || "1");
+  const pageSize = Number(urlObj.searchParams.get("pageSize") || "12");
 
   const token = session.accessToken;
 
   try {
-    const [statsUploads, statsPublic, statsPrivate, statsShares, publicPosts, privatePosts] = await Promise.all([
-      fetchJSON(
-        `${DIRECTUS_URL}/items/images?filter[post.organization][_eq]=${organizationId}&aggregate[count]=id`,
-        token,
-      ),
-      fetchJSON(
-        `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${organizationId}&filter[is_public][_eq]=true&aggregate[count]=id`,
-        token,
-      ),
-      fetchJSON(
-        `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${organizationId}&filter[is_public][_eq]=false&aggregate[count]=id`,
-        token,
-      ),
-      fetchJSON(
-        `${DIRECTUS_URL}/items/media_shares?filter[organization][_eq]=${organizationId}&filter[expires_at][_gte]=${new Date().toISOString()}&aggregate[count]=id`,
-        token,
-      ),
-      fetchJSON(
-        `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${organizationId}&filter[is_public][_eq]=true&limit=${pageSize}&page=${publicPage}&sort[]=-published_at&fields[]=id&fields[]=post_type&fields[]=title&fields[]=event_date&fields[]=alarm_code&fields[]=location&fields[]=is_public&fields[]=published_at&fields[]=tags&fields[]=images.id&fields[]=images.caption&fields[]=images.file_public_preview_watermarked`,
-        token,
-      ),
-      fetchJSON(
-        `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${organizationId}&filter[is_public][_eq]=false&limit=${pageSize}&page=${privatePage}&sort[]=-created_at&fields[]=id&fields[]=post_type&fields[]=title&fields[]=event_date&fields[]=alarm_code&fields[]=location&fields[]=is_public&fields[]=published_at&fields[]=tags&fields[]=images.id&fields[]=images.caption&fields[]=images.file_public_preview_watermarked`,
-        token,
-      ),
-    ]);
+    // Jede Abfrage mit eigenem Label loggen
+    const statsUploads = await fetchJSON(
+      "statsUploads",
+      `${DIRECTUS_URL}/items/images?filter[post.organization][_eq]=${organizationId}&aggregate[count]=id`,
+      token
+    );
+
+    const statsPublic = await fetchJSON(
+      "statsPublic",
+      `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${organizationId}&filter[is_public][_eq]=true&aggregate[count]=id`,
+      token
+    );
+
+    const statsPrivate = await fetchJSON(
+      "statsPrivate",
+      `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${organizationId}&filter[is_public][_eq]=false&aggregate[count]=id`,
+      token
+    );
+
+    const statsShares = await fetchJSON(
+      "statsShares",
+      `${DIRECTUS_URL}/items/media_shares?filter[organization][_eq]=${organizationId}&filter[expires_at][_gte]=${new Date().toISOString()}&aggregate[count]=id`,
+      token
+    );
+
+    const publicPosts = await fetchJSON(
+      "publicPosts",
+      `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${organizationId}&filter[is_public][_eq]=true&limit=${pageSize}&page=${publicPage}&sort[]=-published_at&fields[]=id&fields[]=post_type&fields[]=title&fields[]=event_date&fields[]=alarm_code&fields[]=location&fields[]=is_public&fields[]=published_at&fields[]=tags&fields[]=images.id&fields[]=images.caption&fields[]=images.file_public_preview_watermarked`,
+      token
+    );
+
+    const privatePosts = await fetchJSON(
+      "privatePosts",
+      `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${organizationId}&filter[is_public][_eq]=false&limit=${pageSize}&page=${privatePage}&sort[]=-created_at&fields[]=id&fields[]=post_type&fields[]=title&fields[]=event_date&fields[]=alarm_code&fields[]=location&fields[]=is_public&fields[]=published_at&fields[]=tags&fields[]=images.id&fields[]=images.caption&fields[]=images.file_public_preview_watermarked`,
+      token
+    );
 
     const totalUploads = statsUploads?.meta?.aggregate?.[0]?.count?.id || 0;
     const publicCount = statsPublic?.meta?.aggregate?.[0]?.count?.id || 0;
@@ -71,7 +97,10 @@ export async function GET(request: NextRequest) {
     const mapPosts = (collection: any) => {
       const items = collection?.data || [];
       return items.map((post: any) => {
-        const mainImage = Array.isArray(post.images) && post.images.length > 0 ? post.images[0] : null;
+        const mainImage =
+          Array.isArray(post.images) && post.images.length > 0
+            ? post.images[0]
+            : null;
         return {
           postId: post.id,
           postType: post.post_type,
@@ -120,7 +149,10 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('[dashboard] Fehler beim Laden der Übersicht:', error);
-    return NextResponse.json({ error: 'Übersicht konnte nicht geladen werden.' }, { status: 500 });
+    console.error("[dashboard] Fehler beim Laden der Übersicht (gesamt):", error);
+    return NextResponse.json(
+      { error: "Übersicht konnte nicht geladen werden." },
+      { status: 500 }
+    );
   }
 }
