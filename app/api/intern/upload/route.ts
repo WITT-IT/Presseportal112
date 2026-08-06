@@ -8,6 +8,15 @@ import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
 import { DIRECTUS_URL, directusAssetUrl } from '@/lib/directus';
 import sanitizeHtml from 'sanitize-html';
 
+// Erzwingt Node.js-Runtime statt Edge -- Buffer, node:crypto und große
+// Multipart-Bodies funktionieren im Edge-Runtime nicht zuverlässig.
+export const runtime = 'nodejs';
+// Verhindert, dass Next.js diese Route statisch cached/optimiert.
+export const dynamic = 'force-dynamic';
+// Kein künstliches Zeit-Limit durch Next.js selbst (Coolify/Traefik-Limits
+// separat prüfen, siehe Begleittext).
+export const maxDuration = 60;
+
 const ARTICLE_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
   allowedTags: ['p', 'br', 'strong', 'em', 'ul', 'ol', 'li', 'a', 'h2', 'h3'],
   allowedAttributes: { a: ['href', 'target', 'rel'] },
@@ -26,12 +35,24 @@ async function uploadBuffer(token: string, buffer: Buffer, mimeType: string, fil
   parts.push(buffer);
   parts.push(Buffer.from(`\r\n--${boundary}--\r\n`));
   const body = Buffer.concat(parts);
-  const res = await fetch(`${DIRECTUS_URL}/files`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': `multipart/form-data; boundary=${boundary}`, 'Content-Length': String(body.length) },
-    body,
-  });
-  if (!res.ok) throw new Error(`Datei-Upload fehlgeschlagen (${res.status}): ${await res.text()}`);
+
+  let res: Response;
+  try {
+    res = await fetch(`${DIRECTUS_URL}/files`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': `multipart/form-data; boundary=${boundary}`, 'Content-Length': String(body.length) },
+      body,
+    });
+  } catch (networkError) {
+    console.error('[upload] Netzwerkfehler beim Datei-Upload zu Directus:', networkError, { DIRECTUS_URL, filename, size: body.length });
+    throw new Error(`Verbindung zu Directus fehlgeschlagen (Datei-Upload): ${networkError instanceof Error ? networkError.message : String(networkError)}`);
+  }
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '(kein Response-Body)');
+    console.error('[upload] Directus /files lehnte Upload ab:', { status: res.status, errText, filename, size: body.length });
+    throw new Error(`Datei-Upload fehlgeschlagen (${res.status}): ${errText}`);
+  }
   return fileId;
 }
 
@@ -54,14 +75,19 @@ function normalizeIdArray(raw: unknown): string[] {
 }
 
 async function getSystemFolders(token: string, orgId: string) {
-  const res = await fetch(`${DIRECTUS_URL}/items/folders?filter[organization][_eq]=${orgId}&fields=id,name,system_role&limit=100`, { headers: { Authorization: `Bearer ${token}` } });
-  if (!res.ok) return { publicFolderId: null, unsortedFolderId: null };
-  const { data } = await res.json();
-  const rows = data as { id: string; name: string; system_role?: string | null }[];
-  return {
-    publicFolderId: rows.find((r) => r.system_role === 'public')?.id ?? rows.find((r) => r.name === 'Öffentlich')?.id ?? null,
-    unsortedFolderId: rows.find((r) => r.system_role === 'unsorted')?.id ?? rows.find((r) => r.name === 'Unsortiert')?.id ?? null,
-  };
+  try {
+    const res = await fetch(`${DIRECTUS_URL}/items/folders?filter[organization][_eq]=${orgId}&fields=id,name,system_role&limit=100`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) return { publicFolderId: null, unsortedFolderId: null };
+    const { data } = await res.json();
+    const rows = data as { id: string; name: string; system_role?: string | null }[];
+    return {
+      publicFolderId: rows.find((r) => r.system_role === 'public')?.id ?? rows.find((r) => r.name === 'Öffentlich')?.id ?? null,
+      unsortedFolderId: rows.find((r) => r.system_role === 'unsorted')?.id ?? rows.find((r) => r.name === 'Unsortiert')?.id ?? null,
+    };
+  } catch (error) {
+    console.error('[upload] getSystemFolders fehlgeschlagen:', error);
+    return { publicFolderId: null, unsortedFolderId: null };
+  }
 }
 
 async function assignToFolder(token: string, folderId: string, postId: string) {
@@ -69,7 +95,7 @@ async function assignToFolder(token: string, folderId: string, postId: string) {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ folders_id: folderId, posts_id: postId }),
-  }).catch(() => {});
+  }).catch((error) => console.error('[upload] assignToFolder fehlgeschlagen (ignoriert):', error));
 }
 
 // ── Modus A: Veröffentlichen aus der Medienbibliothek ──────────────────────
@@ -107,114 +133,157 @@ async function handlePublishFromLibrary(
 
   const authHeaders = { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' };
 
-  const itemRes = await fetch(
-    `${DIRECTUS_URL}/items/media_library/${sourceMediaId}?fields=id,organization,file,file_preview_watermarked,file_download_watermarked,used_in_posts`,
-    { headers: { Authorization: `Bearer ${accessToken}` } }
-  );
+  let itemRes: Response;
+  try {
+    itemRes = await fetch(
+      `${DIRECTUS_URL}/items/media_library/${sourceMediaId}?fields=id,organization,file,file_preview_watermarked,file_download_watermarked,used_in_posts`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+  } catch (networkError) {
+    console.error('[upload] Netzwerkfehler beim Laden des media_library-Items:', networkError, { sourceMediaId, DIRECTUS_URL });
+    return NextResponse.json({ error: 'Verbindung zu Directus fehlgeschlagen. Bitte erneut versuchen.' }, { status: 502 });
+  }
+
   if (!itemRes.ok) {
+    const errText = await itemRes.text().catch(() => '');
+    console.error('[upload] media_library-Item nicht gefunden:', { sourceMediaId, status: itemRes.status, errText });
     return NextResponse.json({ error: 'Bild nicht gefunden.' }, { status: 404 });
   }
   const { data: item } = await itemRes.json();
   if (item.organization !== organizationId) {
+    console.error('[upload] Berechtigungsfehler:', { sourceMediaId, itemOrg: item.organization, requestOrg: organizationId });
     return NextResponse.json({ error: 'Keine Berechtigung.' }, { status: 403 });
   }
 
-  const originalId: string = await (async () => {
-    // Eigene Kopie der Originaldatei für den Beitrag anlegen, statt sie
-    // aus der Bibliothek direkt zu verlinken -- sonst reißt jede ältere,
-    // von der Bibliothek unabhängige Lösch-Routine (Kontolöschung, Beitrag
-    // zurückziehen etc.), die die Dateien eines gelöschten Beitrags entfernt,
-    // versehentlich auch die Originaldatei der Bibliothek mit weg.
-    const origAssetRes = await fetch(directusAssetUrl(item.file), {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    if (!origAssetRes.ok) {
-      throw new Error(`Originaldatei konnte nicht geladen werden (Status ${origAssetRes.status}).`);
-    }
-    const origBuffer = Buffer.from(await origAssetRes.arrayBuffer());
-    const uidOrig = randomUUID().slice(0, 8);
-    return uploadBuffer(
-      accessToken,
-      origBuffer,
-      origAssetRes.headers.get('content-type') || 'image/jpeg',
-      `${uidOrig}-orig.jpg`
-    );
-  })();
+  let originalId: string;
+  try {
+    originalId = await (async () => {
+      // Eigene Kopie der Originaldatei für den Beitrag anlegen, statt sie
+      // aus der Bibliothek direkt zu verlinken -- sonst reißt jede ältere,
+      // von der Bibliothek unabhängige Lösch-Routine (Kontolöschung, Beitrag
+      // zurückziehen etc.), die die Dateien eines gelöschten Beitrags entfernt,
+      // versehentlich auch die Originaldatei der Bibliothek mit weg.
+      const origAssetRes = await fetch(directusAssetUrl(item.file), {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!origAssetRes.ok) {
+        throw new Error(`Originaldatei konnte nicht geladen werden (Status ${origAssetRes.status}).`);
+      }
+      const origBuffer = Buffer.from(await origAssetRes.arrayBuffer());
+      const uidOrig = randomUUID().slice(0, 8);
+      return uploadBuffer(
+        accessToken,
+        origBuffer,
+        origAssetRes.headers.get('content-type') || 'image/jpeg',
+        `${uidOrig}-orig.jpg`
+      );
+    })();
+  } catch (error) {
+    console.error('[upload] Originaldatei-Kopie fehlgeschlagen:', error, { sourceMediaId, file: item.file });
+    return NextResponse.json({ error: 'Originalbild konnte nicht verarbeitet werden. Bitte erneut versuchen.' }, { status: 502 });
+  }
+
   let previewId: string;
   let downloadId: string;
 
-  if (useCached && item.file_preview_watermarked && item.file_download_watermarked) {
-    previewId = item.file_preview_watermarked;
-    downloadId = item.file_download_watermarked;
-  } else {
-    const previewFile = formData.get('preview_0') as File | null;
-    const downloadFile = formData.get('download_0') as File | null;
-    if (!previewFile || !downloadFile) {
-      return NextResponse.json({ error: 'Wasserzeichen-Varianten fehlen.' }, { status: 400 });
-    }
-    const [prevBuf, dlBuf] = await Promise.all([
-      previewFile.arrayBuffer().then(Buffer.from),
-      downloadFile.arrayBuffer().then(Buffer.from),
-    ]);
-    const uid = randomUUID().slice(0, 8);
-    previewId = await uploadBuffer(accessToken, prevBuf, previewFile.type || 'image/jpeg', `${uid}-prev.jpg`, PUBLIC_FOLDER_ID);
-    downloadId = await uploadBuffer(accessToken, dlBuf, downloadFile.type || 'image/jpeg', `${uid}-dl.jpg`, PUBLIC_FOLDER_ID);
+  try {
+    if (useCached && item.file_preview_watermarked && item.file_download_watermarked) {
+      previewId = item.file_preview_watermarked;
+      downloadId = item.file_download_watermarked;
+    } else {
+      const previewFile = formData.get('preview_0') as File | null;
+      const downloadFile = formData.get('download_0') as File | null;
+      if (!previewFile || !downloadFile) {
+        console.error('[upload] Wasserzeichen-Dateien fehlen im FormData:', {
+          hasPreview: !!previewFile,
+          hasDownload: !!downloadFile,
+          useCached,
+        });
+        return NextResponse.json({ error: 'Wasserzeichen-Varianten fehlen.' }, { status: 400 });
+      }
+      const [prevBuf, dlBuf] = await Promise.all([
+        previewFile.arrayBuffer().then(Buffer.from),
+        downloadFile.arrayBuffer().then(Buffer.from),
+      ]);
+      const uid = randomUUID().slice(0, 8);
+      previewId = await uploadBuffer(accessToken, prevBuf, previewFile.type || 'image/jpeg', `${uid}-prev.jpg`, PUBLIC_FOLDER_ID);
+      downloadId = await uploadBuffer(accessToken, dlBuf, downloadFile.type || 'image/jpeg', `${uid}-dl.jpg`, PUBLIC_FOLDER_ID);
 
-    // Für zukünftige Veröffentlichungen desselben Bildes cachen.
-    await fetch(`${DIRECTUS_URL}/items/media_library/${sourceMediaId}`, {
-      method: 'PATCH',
-      headers: authHeaders,
-      body: JSON.stringify({ file_preview_watermarked: previewId, file_download_watermarked: downloadId }),
-    }).catch(() => {});
+      // Für zukünftige Veröffentlichungen desselben Bildes cachen.
+      await fetch(`${DIRECTUS_URL}/items/media_library/${sourceMediaId}`, {
+        method: 'PATCH',
+        headers: authHeaders,
+        body: JSON.stringify({ file_preview_watermarked: previewId, file_download_watermarked: downloadId }),
+      }).catch((error) => console.error('[upload] Wasserzeichen-Cache-Update fehlgeschlagen (ignoriert):', error));
+    }
+  } catch (error) {
+    console.error('[upload] Wasserzeichen-Verarbeitung fehlgeschlagen:', error, { sourceMediaId, useCached });
+    return NextResponse.json({ error: 'Wasserzeichen konnten nicht hochgeladen werden. Bitte erneut versuchen.' }, { status: 502 });
   }
 
   const postId = randomUUID();
   const now = new Date().toISOString();
 
-  const postRes = await fetch(`${DIRECTUS_URL}/items/posts`, {
-    method: 'POST',
-    headers: authHeaders,
-    body: JSON.stringify({
-      id: postId,
-      organization: organizationId,
-      post_type: postTypeRaw,
-      title,
-      article_body: articleBody,
-      event_date: eventDate || null,
-      alarm_code: alarmCode || null,
-      location: location || null,
-      tags,
-      is_public: makePublic,
-      published_at: makePublic ? now : null,
-    }),
-  });
-  if (!postRes.ok) {
-    return NextResponse.json({ error: `Beitrag anlegen fehlgeschlagen: ${await postRes.text()}` }, { status: 500 });
+  let postRes: Response;
+  try {
+    postRes = await fetch(`${DIRECTUS_URL}/items/posts`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({
+        id: postId,
+        organization: organizationId,
+        post_type: postTypeRaw,
+        title,
+        article_body: articleBody,
+        event_date: eventDate || null,
+        alarm_code: alarmCode || null,
+        location: location || null,
+        tags,
+        is_public: makePublic,
+        published_at: makePublic ? now : null,
+      }),
+    });
+  } catch (networkError) {
+    console.error('[upload] Netzwerkfehler beim Anlegen des Beitrags:', networkError);
+    return NextResponse.json({ error: 'Verbindung zu Directus fehlgeschlagen. Bitte erneut versuchen.' }, { status: 502 });
   }
 
-  await fetch(`${DIRECTUS_URL}/items/images`, {
-    method: 'POST',
-    headers: authHeaders,
-    body: JSON.stringify({
-      id: randomUUID(),
-      post: postId,
-      file_original: originalId,
-      file_public_preview: makePublic ? previewId : null,
-      file_download: makePublic ? downloadId : null,
-      file_public_preview_watermarked: previewId,
-      file_download_watermarked: downloadId,
-      no_watermark: false,
-      caption,
-      sort: 0,
-    }),
-  });
+  if (!postRes.ok) {
+    const errText = await postRes.text().catch(() => '');
+    console.error('[upload] Beitrag anlegen fehlgeschlagen:', { status: postRes.status, errText, postId, postTypeRaw, alarmCode, tags });
+    return NextResponse.json({ error: `Beitrag anlegen fehlgeschlagen: ${errText}` }, { status: 500 });
+  }
+
+  try {
+    await fetch(`${DIRECTUS_URL}/items/images`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({
+        id: randomUUID(),
+        post: postId,
+        file_original: originalId,
+        file_public_preview: makePublic ? previewId : null,
+        file_download: makePublic ? downloadId : null,
+        file_public_preview_watermarked: previewId,
+        file_download_watermarked: downloadId,
+        no_watermark: false,
+        caption,
+        sort: 0,
+      }),
+    });
+  } catch (error) {
+    console.error('[upload] images-Eintrag anlegen fehlgeschlagen:', error, { postId, originalId, previewId, downloadId });
+    // Beitrag existiert bereits -- trotzdem als Erfolg zurückgeben, damit der
+    // Nutzer nicht doppelt veröffentlicht. Bild fehlt dann sichtbar in der
+    // Übersicht und kann manuell nachgetragen werden.
+  }
 
   const usedInPosts: string[] = normalizeIdArray(item.used_in_posts);
   await fetch(`${DIRECTUS_URL}/items/media_library/${sourceMediaId}`, {
     method: 'PATCH',
     headers: authHeaders,
     body: JSON.stringify({ used_in_posts: [...usedInPosts, postId] }),
-  }).catch(() => {});
+  }).catch((error) => console.error('[upload] used_in_posts-Update fehlgeschlagen (ignoriert):', error));
 
   return NextResponse.json({ ok: true, id: postId });
 }
@@ -222,13 +291,48 @@ async function handlePublishFromLibrary(
 export async function POST(request: NextRequest) {
   const raw = request.cookies.get(SESSION_COOKIE)?.value;
   if (!raw) return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
+
   let session: { accessToken: string };
-  try { session = JSON.parse(raw); } catch { return NextResponse.json({ error: 'Sitzung ungültig.' }, { status: 401 }); }
+  try {
+    session = JSON.parse(raw);
+  } catch (error) {
+    console.error('[upload] Session-Cookie ungültig:', error);
+    return NextResponse.json({ error: 'Sitzung ungültig.' }, { status: 401 });
+  }
 
-  const user = await getCurrentUser(session.accessToken);
-  if (!user?.organization?.id) return NextResponse.json({ error: 'Keine Organisation.' }, { status: 403 });
+  // ── Zuvor ungeschützt: Netzwerk-/Auth-Fehler hier haben bislang die
+  // gesamte Route mit einer nicht abgefangenen Exception abstürzen lassen
+  // (das "at C ... at F ... at G" Muster in den Coolify-Logs). Jetzt
+  // abgesichert, damit immer eine saubere JSON-Antwort zurückkommt und der
+  // echte Fehler im Server-Log sichtbar wird.
+  let user: Awaited<ReturnType<typeof getCurrentUser>>;
+  try {
+    user = await getCurrentUser(session.accessToken);
+  } catch (error) {
+    console.error('[upload] getCurrentUser fehlgeschlagen:', error);
+    return NextResponse.json({ error: 'Anmeldung konnte nicht überprüft werden. Bitte neu einloggen.' }, { status: 401 });
+  }
+  if (!user?.organization?.id) {
+    console.error('[upload] Kein organization.id am User:', { userId: (user as { id?: string } | null)?.id });
+    return NextResponse.json({ error: 'Keine Organisation.' }, { status: 403 });
+  }
 
-  const formData = await request.formData();
+  let formData: FormData;
+  try {
+    formData = await request.formData();
+  } catch (error) {
+    // Häufigste Ursache: Multipart-Body wurde von einem vorgeschalteten
+    // Reverse-Proxy (Traefik/Coolify) wegen Größenlimit abgeschnitten, oder
+    // die Verbindung brach während des Uploads ab.
+    console.error('[upload] formData()-Parsing fehlgeschlagen:', error, {
+      contentType: request.headers.get('content-type'),
+      contentLength: request.headers.get('content-length'),
+    });
+    return NextResponse.json(
+      { error: 'Upload-Daten konnten nicht verarbeitet werden. Möglicherweise ist die Datei zu groß.' },
+      { status: 413 }
+    );
+  }
 
   // ── Modus A: Veröffentlichen aus der Medienbibliothek ──────────────────
   const sourceMediaId = formData.get('source_media_id') as string | null;
@@ -236,7 +340,7 @@ export async function POST(request: NextRequest) {
     try {
       return await handlePublishFromLibrary(formData, session.accessToken, user.organization.id);
     } catch (error) {
-      console.error('Veröffentlichen fehlgeschlagen:', error);
+      console.error('[upload] Veröffentlichen fehlgeschlagen (unerwartet):', error);
       return NextResponse.json({ error: 'Veröffentlichen fehlgeschlagen. Bitte erneut versuchen.' }, { status: 500 });
     }
   }
@@ -348,7 +452,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ ok: true, id: postId, final_folder_id: finalFolderId, origin_folder_id: originFolderId });
   } catch (error) {
-    console.error('Upload fehlgeschlagen:', error);
+    console.error('[upload] Upload fehlgeschlagen (Modus B):', error);
     return NextResponse.json({ error: 'Upload fehlgeschlagen. Bitte erneut versuchen.' }, { status: 500 });
   }
 }
