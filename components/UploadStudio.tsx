@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { createWatermarkedVariants } from '@/lib/watermark';
 import AlarmCodeInput from '@/components/AlarmCodeInput';
-import { directusAssetUrl } from '@/lib/directus';
 import type { Alarmcode } from '@/lib/types';
 
 type SourceMedia = {
@@ -147,10 +146,11 @@ export default function UploadStudio({
       <div className="flex items-center gap-3 rounded-[10px] border border-line bg-white p-3">
         <div className="relative h-16 w-16 flex-shrink-0 overflow-hidden rounded-lg bg-panel">
           <Image
-            src={directusAssetUrl(sourceMedia.file_preview || sourceMedia.file, 'width=160&quality=70')}
+            src={`/api/intern/library?original=${sourceMedia.id}&width=160&quality=70`}
             alt=""
             fill
             className="object-cover"
+            unoptimized
           />
         </div>
         <div className="min-w-0">
