@@ -29,7 +29,8 @@ async function fetchJSON(label: string, url: string, token: string) {
 
 export async function GET(request: NextRequest) {
   const raw = request.cookies.get(SESSION_COOKIE)?.value;
-  if (!raw) return NextResponse.json({ error: "Nicht angemeldet." }, { status: 401 });
+  if (!raw)
+    return NextResponse.json({ error: "Nicht angemeldet." }, { status: 401 });
 
   let session: { accessToken: string };
   try {
@@ -52,47 +53,42 @@ export async function GET(request: NextRequest) {
   const token = session.accessToken;
 
   try {
-    // Jede Abfrage mit eigenem Label loggen
-    const statsUploads = await fetchJSON(
-      "statsUploads",
-      `${DIRECTUS_URL}/items/images?filter[post.organization][_eq]=${organizationId}&aggregate[count]=id`,
-      token
-    );
+    // Nur posts + media_shares, keine images-Filter mehr
+    const [statsPublic, statsPrivate, statsShares, publicPosts, privatePosts] =
+      await Promise.all([
+        fetchJSON(
+          "statsPublic",
+          `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${organizationId}&filter[is_public][_eq]=true&aggregate[count]=id`,
+          token
+        ),
+        fetchJSON(
+          "statsPrivate",
+          `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${organizationId}&filter[is_public][_eq]=false&aggregate[count]=id`,
+          token
+        ),
+        fetchJSON(
+          "statsShares",
+          `${DIRECTUS_URL}/items/media_shares?filter[organization][_eq]=${organizationId}&filter[expires_at][_gte]=${new Date().toISOString()}&aggregate[count]=id`,
+          token
+        ),
+        fetchJSON(
+          "publicPosts",
+          `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${organizationId}&filter[is_public][_eq]=true&limit=${pageSize}&page=${publicPage}&sort[]=-published_at&fields[]=id&fields[]=post_type&fields[]=title&fields[]=event_date&fields[]=alarm_code&fields[]=location&fields[]=is_public&fields[]=published_at&fields[]=tags&fields[]=images.id&fields[]=images.caption&fields[]=images.file_public_preview_watermarked`,
+          token
+        ),
+        fetchJSON(
+          "privatePosts",
+          `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${organizationId}&filter[is_public][_eq]=false&limit=${pageSize}&page=${privatePage}&sort[]=-created_at&fields[]=id&fields[]=post_type&fields[]=title&fields[]=event_date&fields[]=alarm_code&fields[]=location&fields[]=is_public&fields[]=published_at&fields[]=tags&fields[]=images.id&fields[]=images.caption&fields[]=images.file_public_preview_watermarked`,
+          token
+        ),
+      ]);
 
-    const statsPublic = await fetchJSON(
-      "statsPublic",
-      `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${organizationId}&filter[is_public][_eq]=true&aggregate[count]=id`,
-      token
-    );
-
-    const statsPrivate = await fetchJSON(
-      "statsPrivate",
-      `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${organizationId}&filter[is_public][_eq]=false&aggregate[count]=id`,
-      token
-    );
-
-    const statsShares = await fetchJSON(
-      "statsShares",
-      `${DIRECTUS_URL}/items/media_shares?filter[organization][_eq]=${organizationId}&filter[expires_at][_gte]=${new Date().toISOString()}&aggregate[count]=id`,
-      token
-    );
-
-    const publicPosts = await fetchJSON(
-      "publicPosts",
-      `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${organizationId}&filter[is_public][_eq]=true&limit=${pageSize}&page=${publicPage}&sort[]=-published_at&fields[]=id&fields[]=post_type&fields[]=title&fields[]=event_date&fields[]=alarm_code&fields[]=location&fields[]=is_public&fields[]=published_at&fields[]=tags&fields[]=images.id&fields[]=images.caption&fields[]=images.file_public_preview_watermarked`,
-      token
-    );
-
-    const privatePosts = await fetchJSON(
-      "privatePosts",
-      `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${organizationId}&filter[is_public][_eq]=false&limit=${pageSize}&page=${privatePage}&sort[]=-created_at&fields[]=id&fields[]=post_type&fields[]=title&fields[]=event_date&fields[]=alarm_code&fields[]=location&fields[]=is_public&fields[]=published_at&fields[]=tags&fields[]=images.id&fields[]=images.caption&fields[]=images.file_public_preview_watermarked`,
-      token
-    );
-
-    const totalUploads = statsUploads?.meta?.aggregate?.[0]?.count?.id || 0;
     const publicCount = statsPublic?.meta?.aggregate?.[0]?.count?.id || 0;
     const privateCount = statsPrivate?.meta?.aggregate?.[0]?.count?.id || 0;
     const activeShares = statsShares?.meta?.aggregate?.[0]?.count?.id || 0;
+
+    // totalUploads vorläufig als Summe der Beiträge
+    const totalUploads = publicCount + privateCount;
 
     const mapPosts = (collection: any) => {
       const items = collection?.data || [];
@@ -149,7 +145,10 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error("[dashboard] Fehler beim Laden der Übersicht (gesamt):", error);
+    console.error(
+      "[dashboard] Fehler beim Laden der Übersicht (gesamt):",
+      error
+    );
     return NextResponse.json(
       { error: "Übersicht konnte nicht geladen werden." },
       { status: 500 }
