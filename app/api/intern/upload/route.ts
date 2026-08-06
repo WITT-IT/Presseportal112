@@ -5,7 +5,7 @@
 import { randomUUID } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
-import { DIRECTUS_URL } from '@/lib/directus';
+import { DIRECTUS_URL, directusAssetUrl } from '@/lib/directus';
 import sanitizeHtml from 'sanitize-html';
 
 const ARTICLE_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
@@ -119,7 +119,27 @@ async function handlePublishFromLibrary(
     return NextResponse.json({ error: 'Keine Berechtigung.' }, { status: 403 });
   }
 
-  const originalId: string = item.file;
+  const originalId: string = await (async () => {
+    // Eigene Kopie der Originaldatei für den Beitrag anlegen, statt sie
+    // aus der Bibliothek direkt zu verlinken -- sonst reißt jede ältere,
+    // von der Bibliothek unabhängige Lösch-Routine (Kontolöschung, Beitrag
+    // zurückziehen etc.), die die Dateien eines gelöschten Beitrags entfernt,
+    // versehentlich auch die Originaldatei der Bibliothek mit weg.
+    const origAssetRes = await fetch(directusAssetUrl(item.file), {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!origAssetRes.ok) {
+      throw new Error(`Originaldatei konnte nicht geladen werden (Status ${origAssetRes.status}).`);
+    }
+    const origBuffer = Buffer.from(await origAssetRes.arrayBuffer());
+    const uidOrig = randomUUID().slice(0, 8);
+    return uploadBuffer(
+      accessToken,
+      origBuffer,
+      origAssetRes.headers.get('content-type') || 'image/jpeg',
+      `${uidOrig}-orig.jpg`
+    );
+  })();
   let previewId: string;
   let downloadId: string;
 
