@@ -1,20 +1,19 @@
-// v3 - zwei Modi: (a) Veröffentlichen eines bestehenden Medienbibliothek-
-// Items (source_media_id gesetzt, neuer Weg über /intern/medien), (b) alter
-// sequenzieller Datei-Upload-Flow (unverändert erhalten, falls noch irgendwo
-// referenziert -- ungefährlich als toter Pfad).
+// v4 - vereinfacht: (a) Veröffentlichen eines bestehenden Medienbibliothek-
+// Items (source_media_id gesetzt, Weg über /intern/medien) -- das Original
+// wird NICHT mehr kopiert/neu hochgeladen, sondern direkt verlinkt. Nur die
+// Wasserzeichen-Varianten sind wirklich neue Dateien, und die werden pro
+// Bild gecacht, damit ein erneuter Veröffentlichen-Klick keine Duplikate
+// mehr in Directus erzeugt. (b) alter sequenzieller Datei-Upload-Flow
+// (unverändert erhalten, falls noch irgendwo referenziert -- ungefährlich
+// als toter Pfad).
 import { randomUUID } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
 import { DIRECTUS_URL, directusAssetUrl } from '@/lib/directus';
 import sanitizeHtml from 'sanitize-html';
 
-// Erzwingt Node.js-Runtime statt Edge -- Buffer, node:crypto und große
-// Multipart-Bodies funktionieren im Edge-Runtime nicht zuverlässig.
 export const runtime = 'nodejs';
-// Verhindert, dass Next.js diese Route statisch cached/optimiert.
 export const dynamic = 'force-dynamic';
-// Kein künstliches Zeit-Limit durch Next.js selbst (Coolify/Traefik-Limits
-// separat prüfen, siehe Begleittext).
 export const maxDuration = 60;
 
 const ARTICLE_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
@@ -23,14 +22,11 @@ const ARTICLE_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
   allowedSchemes: ['https', 'mailto'],
 };
 
-const PUBLIC_FOLDER_ID = process.env.DIRECTUS_PUBLIC_FOLDER_ID;
-
-async function uploadBuffer(token: string, buffer: Buffer, mimeType: string, filename: string, folderId?: string): Promise<string> {
+async function uploadBuffer(token: string, buffer: Buffer, mimeType: string, filename: string): Promise<string> {
   const fileId = randomUUID();
   const boundary = `----FormBoundary${randomUUID().replace(/-/g, '')}`;
   const parts: Buffer[] = [];
   parts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="id"\r\n\r\n${fileId}\r\n`));
-  if (folderId) parts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="folder"\r\n\r\n${folderId}\r\n`));
   parts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: ${mimeType}\r\n\r\n`));
   parts.push(buffer);
   parts.push(Buffer.from(`\r\n--${boundary}--\r\n`));
@@ -74,6 +70,14 @@ function normalizeIdArray(raw: unknown): string[] {
   return [];
 }
 
+async function assignToFolder(token: string, folderId: string, postId: string) {
+  await fetch(`${DIRECTUS_URL}/items/folders_posts`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ folders_id: folderId, posts_id: postId }),
+  }).catch((error) => console.error('[upload] assignToFolder fehlgeschlagen (ignoriert):', error));
+}
+
 async function getSystemFolders(token: string, orgId: string) {
   try {
     const res = await fetch(`${DIRECTUS_URL}/items/folders?filter[organization][_eq]=${orgId}&fields=id,name,system_role&limit=100`, { headers: { Authorization: `Bearer ${token}` } });
@@ -90,27 +94,19 @@ async function getSystemFolders(token: string, orgId: string) {
   }
 }
 
-async function assignToFolder(token: string, folderId: string, postId: string) {
-  await fetch(`${DIRECTUS_URL}/items/folders_posts`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ folders_id: folderId, posts_id: postId }),
-  }).catch((error) => console.error('[upload] assignToFolder fehlgeschlagen (ignoriert):', error));
-}
-
 // ── Modus A: Veröffentlichen aus der Medienbibliothek ──────────────────────
-// Das Bild liegt schon in Directus (media_library.file). Das Original wird
-// NICHT erneut hochgeladen -- nur die Wasserzeichen-Varianten (preview_0 /
-// download_0), die der Browser per Canvas erzeugt hat. Wurden für dieses
-// Bild schon einmal Wasserzeichen erzeugt (use_cached_watermark=true), auch
-// die nicht -- dann werden die auf dem media_library-Eintrag gecachten
-// Datei-IDs wiederverwendet.
+// Vereinfacht: das Original (media_library.file) wird NICHT mehr kopiert --
+// es wird direkt als file_original am images-Eintrag verlinkt. Das war der
+// Grund, warum bei jedem Klick auf "Veröffentlichen" eine komplette Dublette
+// der Originaldatei in Directus entstand. Nur die Wasserzeichen-Varianten
+// (preview_0 / download_0) sind echte neue Dateien -- die werden weiterhin
+// auf dem media_library-Eintrag gecacht (file_preview_watermarked /
+// file_download_watermarked), damit ein erneuter Klick auf dasselbe Bild
+// sie wiederverwendet statt neu zu erzeugen.
 //
-// Bewusst KEINE Ordner-Zuweisung (folders_posts) mehr -- der Ort des Bildes
-// im Medienbaum ist vom Veröffentlichungs-Status entkoppelt. Betrifft nur
-// die alte /intern/ordner-Ansicht und "ganzen Ordner zu einer Freigabe
-// hinzufügen", nicht die öffentliche Seite (die filtert direkt auf
-// posts.is_public).
+// Keine Ordner-Zuweisung mehr beim Directus-Datei-Upload (kein
+// DIRECTUS_PUBLIC_FOLDER_ID mehr nötig) -- Dateien landen einfach im Root
+// der File Library. Das war die Quelle des Foreign-Key-Fehlers.
 async function handlePublishFromLibrary(
   formData: FormData,
   accessToken: string,
@@ -155,33 +151,8 @@ async function handlePublishFromLibrary(
     return NextResponse.json({ error: 'Keine Berechtigung.' }, { status: 403 });
   }
 
-  let originalId: string;
-  try {
-    originalId = await (async () => {
-      // Eigene Kopie der Originaldatei für den Beitrag anlegen, statt sie
-      // aus der Bibliothek direkt zu verlinken -- sonst reißt jede ältere,
-      // von der Bibliothek unabhängige Lösch-Routine (Kontolöschung, Beitrag
-      // zurückziehen etc.), die die Dateien eines gelöschten Beitrags entfernt,
-      // versehentlich auch die Originaldatei der Bibliothek mit weg.
-      const origAssetRes = await fetch(directusAssetUrl(item.file), {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      if (!origAssetRes.ok) {
-        throw new Error(`Originaldatei konnte nicht geladen werden (Status ${origAssetRes.status}).`);
-      }
-      const origBuffer = Buffer.from(await origAssetRes.arrayBuffer());
-      const uidOrig = randomUUID().slice(0, 8);
-      return uploadBuffer(
-        accessToken,
-        origBuffer,
-        origAssetRes.headers.get('content-type') || 'image/jpeg',
-        `${uidOrig}-orig.jpg`
-      );
-    })();
-  } catch (error) {
-    console.error('[upload] Originaldatei-Kopie fehlgeschlagen:', error, { sourceMediaId, file: item.file });
-    return NextResponse.json({ error: 'Originalbild konnte nicht verarbeitet werden. Bitte erneut versuchen.' }, { status: 502 });
-  }
+  // ── Original einfach direkt verlinken -- keine Kopie, kein Duplikat. ────
+  const originalId: string = item.file;
 
   let previewId: string;
   let downloadId: string;
@@ -206,10 +177,12 @@ async function handlePublishFromLibrary(
         downloadFile.arrayBuffer().then(Buffer.from),
       ]);
       const uid = randomUUID().slice(0, 8);
-      previewId = await uploadBuffer(accessToken, prevBuf, previewFile.type || 'image/jpeg', `${uid}-prev.jpg`, PUBLIC_FOLDER_ID);
-      downloadId = await uploadBuffer(accessToken, dlBuf, downloadFile.type || 'image/jpeg', `${uid}-dl.jpg`, PUBLIC_FOLDER_ID);
+      previewId = await uploadBuffer(accessToken, prevBuf, previewFile.type || 'image/jpeg', `${uid}-prev.jpg`);
+      downloadId = await uploadBuffer(accessToken, dlBuf, downloadFile.type || 'image/jpeg', `${uid}-dl.jpg`);
 
-      // Für zukünftige Veröffentlichungen desselben Bildes cachen.
+      // Für zukünftige Veröffentlichungen desselben Bildes cachen, damit ein
+      // erneuter Klick (oder ein zweiter Beitrag mit demselben Quellbild)
+      // diese Dateien wiederverwendet statt sie erneut hochzuladen.
       await fetch(`${DIRECTUS_URL}/items/media_library/${sourceMediaId}`, {
         method: 'PATCH',
         headers: authHeaders,
@@ -273,9 +246,6 @@ async function handlePublishFromLibrary(
     });
   } catch (error) {
     console.error('[upload] images-Eintrag anlegen fehlgeschlagen:', error, { postId, originalId, previewId, downloadId });
-    // Beitrag existiert bereits -- trotzdem als Erfolg zurückgeben, damit der
-    // Nutzer nicht doppelt veröffentlicht. Bild fehlt dann sichtbar in der
-    // Übersicht und kann manuell nachgetragen werden.
   }
 
   const usedInPosts: string[] = normalizeIdArray(item.used_in_posts);
@@ -300,11 +270,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Sitzung ungültig.' }, { status: 401 });
   }
 
-  // ── Zuvor ungeschützt: Netzwerk-/Auth-Fehler hier haben bislang die
-  // gesamte Route mit einer nicht abgefangenen Exception abstürzen lassen
-  // (das "at C ... at F ... at G" Muster in den Coolify-Logs). Jetzt
-  // abgesichert, damit immer eine saubere JSON-Antwort zurückkommt und der
-  // echte Fehler im Server-Log sichtbar wird.
   let user: Awaited<ReturnType<typeof getCurrentUser>>;
   try {
     user = await getCurrentUser(session.accessToken);
@@ -321,9 +286,6 @@ export async function POST(request: NextRequest) {
   try {
     formData = await request.formData();
   } catch (error) {
-    // Häufigste Ursache: Multipart-Body wurde von einem vorgeschalteten
-    // Reverse-Proxy (Traefik/Coolify) wegen Größenlimit abgeschnitten, oder
-    // die Verbindung brach während des Uploads ab.
     console.error('[upload] formData()-Parsing fehlgeschlagen:', error, {
       contentType: request.headers.get('content-type'),
       contentLength: request.headers.get('content-length'),
@@ -345,7 +307,7 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // ── Modus B: alter sequenzieller Datei-Upload-Flow (unverändert) ───────
+  // ── Modus B: alter sequenzieller Datei-Upload-Flow (unverändert, toter Pfad) ──
   const imageIndex = Number(formData.get('image_index') ?? 0);
   const isLast = formData.get('is_last') === 'true';
   const existingPostId = (formData.get('post_id') as string) || null;
@@ -360,7 +322,6 @@ export async function POST(request: NextRequest) {
     let originFolderId: string | null = null;
 
     if (imageIndex === 0) {
-      // ── Erstes Bild: Beitrag anlegen ──────────────────────────────────
       const postTypeRaw = (formData.get('post_type') as string) || 'einsatz';
       const isStock = postTypeRaw === 'stockfoto';
       const title = isStock ? null : ((formData.get('title') as string) || null);
@@ -405,14 +366,12 @@ export async function POST(request: NextRequest) {
         if (!postRes.ok) throw new Error(`Beitrag anlegen fehlgeschlagen: ${await postRes.text()}`);
       }
     } else {
-      // ── Folgebild: bestehenden Beitrag verwenden ───────────────────────
       if (!existingPostId) return NextResponse.json({ error: 'post_id fehlt.' }, { status: 400 });
       postId = existingPostId;
       finalFolderId = (formData.get('final_folder_id') as string) || null;
       originFolderId = (formData.get('origin_folder_id') as string) || null;
     }
 
-    // ── Bild hochladen ─────────────────────────────────────────────────
     const originalFile = formData.get('original_0') as File | null;
     const previewFile = formData.get('preview_0') as File | null;
     const downloadFile = formData.get('download_0') as File | null;
@@ -427,8 +386,8 @@ export async function POST(request: NextRequest) {
       const uid = randomUUID().slice(0, 8);
       const baseName = originalFile.name.replace(/\.[^.]+$/, '');
       const originalId = await uploadBuffer(session.accessToken, origBuf, originalFile.type || 'image/jpeg', `${uid}-orig-${baseName}`);
-      const previewId = await uploadBuffer(session.accessToken, prevBuf, previewFile.type || 'image/jpeg', `${uid}-prev-${baseName}.jpg`, PUBLIC_FOLDER_ID);
-      const downloadId = await uploadBuffer(session.accessToken, dlBuf, downloadFile.type || 'image/jpeg', `${uid}-dl-${baseName}.jpg`, PUBLIC_FOLDER_ID);
+      const previewId = await uploadBuffer(session.accessToken, prevBuf, previewFile.type || 'image/jpeg', `${uid}-prev-${baseName}.jpg`);
+      const downloadId = await uploadBuffer(session.accessToken, dlBuf, downloadFile.type || 'image/jpeg', `${uid}-dl-${baseName}.jpg`);
 
       await fetch(`${DIRECTUS_URL}/items/images`, {
         method: 'POST', headers: authHeaders,
@@ -444,7 +403,6 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // ── Letztes Bild: Ordner-Zuweisung ────────────────────────────────
     if (isLast) {
       if (finalFolderId) await assignToFolder(session.accessToken, finalFolderId, postId);
       if (originFolderId && originFolderId !== finalFolderId) await assignToFolder(session.accessToken, originFolderId, postId);
