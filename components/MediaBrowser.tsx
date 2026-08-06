@@ -4,6 +4,7 @@ import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { directusAssetUrl } from '@/lib/directus';
+import { useDialog } from './DialogProvider';
 
 type SubFolder = { id: string; name: string };
 type MediaItem = {
@@ -27,6 +28,7 @@ export default function MediaBrowser({
   items: MediaItem[];
 }) {
   const router = useRouter();
+  const { confirm } = useDialog();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [selected, setSelected] = useState<DragPayload | null>(null);
@@ -167,23 +169,43 @@ export default function MediaBrowser({
     if (raw) moveItem(JSON.parse(raw), targetId);
   }
 
-  // ── Löschen ──────────────────────────────────────────────────────────
-  async function deleteSelected() {
-    if (!selected) return;
-    if (selected.type === 'folder') {
-      if (!confirm('Ordner wirklich löschen? Er muss dafür leer sein.')) return;
-      await fetch(`/api/intern/folders?id=${selected.id}`, { method: 'DELETE' });
-    } else {
-      if (!confirm('Bild wirklich löschen?')) return;
-      const res = await fetch(`/api/intern/library?id=${selected.id}`, { method: 'DELETE' });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        setError(body.error ?? 'Löschen fehlgeschlagen.');
-        return;
+  // ── Löschen (Hover-X auf der Kachel, keine Browser-Meldung) ─────────
+  async function deleteItem(target: DragPayload, name: string) {
+    const confirmed = await confirm({
+      title: target.type === 'folder' ? 'Ordner wirklich löschen?' : 'Bild wirklich löschen?',
+      message:
+        target.type === 'folder'
+          ? `„${name}" muss leer sein, damit das Löschen klappt.`
+          : `„${name}" wird dauerhaft aus der Bibliothek entfernt.`,
+      confirmLabel: 'Löschen',
+      cancelLabel: 'Abbrechen',
+      danger: true,
+    });
+    if (!confirmed) return;
+
+    setBusy(true);
+    setError(null);
+    try {
+      if (target.type === 'folder') {
+        const res = await fetch(`/api/intern/folders?id=${target.id}`, { method: 'DELETE' });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error ?? 'Löschen fehlgeschlagen.');
+        }
+      } else {
+        const res = await fetch(`/api/intern/library?id=${target.id}`, { method: 'DELETE' });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error ?? 'Löschen fehlgeschlagen.');
+        }
       }
+      if (selected?.id === target.id) setSelected(null);
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Löschen fehlgeschlagen.');
+    } finally {
+      setBusy(false);
     }
-    setSelected(null);
-    router.refresh();
   }
 
   return (
@@ -211,27 +233,15 @@ export default function MediaBrowser({
           Neuer Ordner
         </button>
 
-        {selected && (
-          <div className="ml-auto flex items-center gap-2">
-            {selected.type === 'media' && (
-              <button
-                type="button"
-                onClick={() => router.push(`/intern/upload?mediaId=${selected.id}`)}
-                className="flex items-center gap-2 rounded-md bg-signal-deep px-4 py-2.5 text-[13px] font-semibold text-white hover:opacity-90"
-              >
-                <i className="ti ti-send text-[15px]" aria-hidden="true" />
-                Veröffentlichen
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={deleteSelected}
-              className="flex h-[38px] w-[38px] items-center justify-center rounded-md border border-line-strong text-ink-2 hover:border-signal-deep hover:text-signal-deep"
-              title="Löschen"
-            >
-              <i className="ti ti-trash text-[15px]" aria-hidden="true" />
-            </button>
-          </div>
+        {selected?.type === 'media' && (
+          <button
+            type="button"
+            onClick={() => router.push(`/intern/upload?mediaId=${selected.id}`)}
+            className="ml-auto flex items-center gap-2 rounded-md bg-signal-deep px-4 py-2.5 text-[13px] font-semibold text-white hover:opacity-90"
+          >
+            <i className="ti ti-send text-[15px]" aria-hidden="true" />
+            Veröffentlichen
+          </button>
         )}
       </div>
 
@@ -295,10 +305,19 @@ export default function MediaBrowser({
             onDrop={(e) => handleDropOnFolder(e, folder.id)}
             onClick={() => setSelected({ id: folder.id, type: 'folder' })}
             onDoubleClick={() => openFolder(folder.id)}
-            className={`group flex cursor-pointer flex-col items-center gap-2 rounded-xl p-3 text-center transition-colors hover:bg-panel ${
+            className={`group relative flex cursor-pointer flex-col items-center gap-2 rounded-xl p-3 text-center transition-colors hover:bg-panel ${
               selected?.id === folder.id ? 'bg-panel outline outline-2 outline-ink' : ''
             } ${dragOverId === folder.id ? 'bg-panel outline outline-2 outline-ink' : ''}`}
           >
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); deleteItem({ id: folder.id, type: 'folder' }, folder.name); }}
+              title="Ordner löschen"
+              className="absolute right-1.5 top-1.5 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-white text-ink-2 opacity-0 shadow-sm ring-1 ring-line-strong transition-opacity group-hover:opacity-100 hover:bg-signal-deep hover:text-white hover:ring-signal-deep"
+            >
+              <i className="ti ti-x text-[13px]" aria-hidden="true" />
+            </button>
+
             <div className="flex h-[92px] w-[92px] items-center justify-center rounded-2xl bg-panel">
               <i className="ti ti-folder-filled text-[44px] text-ink-2" aria-hidden="true" />
             </div>
@@ -331,10 +350,19 @@ export default function MediaBrowser({
               draggable
               onDragStart={(e) => handleDragStart(e, { id: item.id, type: 'media' })}
               onClick={() => setSelected({ id: item.id, type: 'media' })}
-              className={`group flex cursor-pointer flex-col items-center gap-2 rounded-xl p-3 text-center transition-colors hover:bg-panel ${
+              className={`group relative flex cursor-pointer flex-col items-center gap-2 rounded-xl p-3 text-center transition-colors hover:bg-panel ${
                 selected?.id === item.id ? 'bg-panel outline outline-2 outline-ink' : ''
               }`}
             >
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); deleteItem({ id: item.id, type: 'media' }, label); }}
+                title="Bild löschen"
+                className="absolute right-1.5 top-1.5 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-white text-ink-2 opacity-0 shadow-sm ring-1 ring-line-strong transition-opacity group-hover:opacity-100 hover:bg-signal-deep hover:text-white hover:ring-signal-deep"
+              >
+                <i className="ti ti-x text-[13px]" aria-hidden="true" />
+              </button>
+
               <div className="relative h-[92px] w-[92px] overflow-hidden rounded-2xl bg-panel">
                 <Image
                   src={directusAssetUrl(item.file_preview || item.file, 'width=200&quality=70')}
