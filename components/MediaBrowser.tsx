@@ -10,7 +10,6 @@ type SubFolder = { id: string; name: string };
 type MediaItem = {
   id: string;
   display_name: string | null;
-  original_filename: string | null;
   file: string;
   file_preview: string | null;
 };
@@ -427,7 +426,7 @@ export default function MediaBrowser({
         ))}
 
         {items.map((item) => {
-          const label = item.display_name || item.original_filename || 'Bild';
+          const label = item.display_name || 'Bild';
           return (
             <div
               key={item.id}
