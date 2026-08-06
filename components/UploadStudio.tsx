@@ -15,7 +15,6 @@ type SourceMedia = {
   file_preview_watermarked: string | null;
   file_download_watermarked: string | null;
   display_name: string | null;
-  original_filename: string | null;
   tags: string[] | null;
 };
 
@@ -95,7 +94,7 @@ export default function UploadStudio({
         const assetRes = await fetch(`/api/intern/library?original=${sourceMedia.id}`);
         if (!assetRes.ok) throw new Error('Originalbild konnte nicht geladen werden.');
         const blob = await assetRes.blob();
-        const file = new File([blob], sourceMedia.original_filename || 'bild.jpg', {
+        const file = new File([blob], sourceMedia.display_name || 'bild.jpg', {
           type: blob.type || 'image/jpeg',
         });
         const { preview, download } = await createWatermarkedVariants(file, watermarkText);
@@ -122,7 +121,7 @@ export default function UploadStudio({
 
   const inp = 'w-full rounded border border-line-strong bg-white px-2.5 py-1.5 text-[13px] outline-none focus:border-ink';
   const lbl = 'mb-1 block text-[11.5px] font-medium text-ink-2';
-  const label = sourceMedia.display_name || sourceMedia.original_filename || 'Bild';
+  const label = sourceMedia.display_name || 'Bild';
 
   if (status === 'done') {
     return (
