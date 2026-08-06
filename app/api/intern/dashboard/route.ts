@@ -29,8 +29,9 @@ async function fetchJSON(label: string, url: string, token: string) {
 
 export async function GET(request: NextRequest) {
   const raw = request.cookies.get(SESSION_COOKIE)?.value;
-  if (!raw)
+  if (!raw) {
     return NextResponse.json({ error: "Nicht angemeldet." }, { status: 401 });
+  }
 
   let session: { accessToken: string };
   try {
@@ -53,7 +54,6 @@ export async function GET(request: NextRequest) {
   const token = session.accessToken;
 
   try {
-    // Nur posts + media_shares, keine images-Filter mehr
     const [statsPublic, statsPrivate, statsShares, publicPosts, privatePosts] =
       await Promise.all([
         fetchJSON(
@@ -71,14 +71,16 @@ export async function GET(request: NextRequest) {
           `${DIRECTUS_URL}/items/media_shares?filter[organization][_eq]=${organizationId}&filter[expires_at][_gte]=${new Date().toISOString()}&aggregate[count]=id`,
           token
         ),
+        // Öffentliche Beiträge: sortiert nach published_at
         fetchJSON(
           "publicPosts",
           `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${organizationId}&filter[is_public][_eq]=true&limit=${pageSize}&page=${publicPage}&sort[]=-published_at&fields[]=id&fields[]=post_type&fields[]=title&fields[]=event_date&fields[]=alarm_code&fields[]=location&fields[]=is_public&fields[]=published_at&fields[]=tags&fields[]=images.id&fields[]=images.caption&fields[]=images.file_public_preview_watermarked`,
           token
         ),
+        // Private Beiträge: ebenfalls sortiert nach published_at (oder ohne Sort)
         fetchJSON(
           "privatePosts",
-          `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${organizationId}&filter[is_public][_eq]=false&limit=${pageSize}&page=${privatePage}&sort[]=-created_at&fields[]=id&fields[]=post_type&fields[]=title&fields[]=event_date&fields[]=alarm_code&fields[]=location&fields[]=is_public&fields[]=published_at&fields[]=tags&fields[]=images.id&fields[]=images.caption&fields[]=images.file_public_preview_watermarked`,
+          `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${organizationId}&filter[is_public][_eq]=false&limit=${pageSize}&page=${privatePage}&sort[]=-published_at&fields[]=id&fields[]=post_type&fields[]=title&fields[]=event_date&fields[]=alarm_code&fields[]=location&fields[]=is_public&fields[]=published_at&fields[]=tags&fields[]=images.id&fields[]=images.caption&fields[]=images.file_public_preview_watermarked`,
           token
         ),
       ]);
