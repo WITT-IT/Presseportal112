@@ -48,9 +48,7 @@ export default function UploadStudio({
   const existingPostId = searchParams.get("postId");
 
   const [existingPost, setExistingPost] = useState<ExistingPost | null>(null);
-  const [loadingExisting, setLoadingExisting] = useState(
-    !!existingPostId
-  );
+  const [loadingExisting, setLoadingExisting] = useState(!!existingPostId);
 
   // Form-States (re-used für Neu + Bearbeiten)
   const [postMode, setPostMode] = useState<PostMode>("einsatz");
@@ -63,11 +61,15 @@ export default function UploadStudio({
   const [caption, setCaption] = useState("");
   const [makePublic, setMakePublic] = useState(true);
   const [contentConfirmed, setContentConfirmed] = useState(false);
-  const [status, setStatus] = useState<
-    "idle" | "working" | "done" | "error"
-  >("idle");
+  const [status, setStatus] = useState<"idle" | "working" | "done" | "error">(
+    "idle"
+  );
   const [progress, setProgress] = useState("");
   const [error, setError] = useState<string | null>(null);
+
+  // UI-Lösch-Dialog
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deleteWorking, setDeleteWorking] = useState(false);
 
   // Vorbefüllung, wenn ein bestehender Beitrag bearbeitet wird
   useEffect(() => {
@@ -157,18 +159,16 @@ export default function UploadStudio({
     }
   }
 
-  async function handleDelete() {
+  function handleDelete() {
     if (!existingPost) return;
-    if (
-      !window.confirm(
-        "Diesen Beitrag inklusive Bilder wirklich löschen?"
-      )
-    ) {
-      return;
-    }
+    setShowDeleteDialog(true);
+  }
 
+  async function confirmDelete() {
+    if (!existingPost || deleteWorking) return;
+    setDeleteWorking(true);
+    setError(null);
     try {
-      setError(null);
       setProgress("Beitrag wird gelöscht …");
       const res = await fetch("/api/intern/delete", {
         method: "POST",
@@ -181,13 +181,17 @@ export default function UploadStudio({
       }
       setStatus("done");
       setProgress("");
-      router.push("/intern"); // zurück zur Übersicht
+      setShowDeleteDialog(false);
+      setDeleteWorking(false);
+      router.push("/intern");
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Löschen fehlgeschlagen."
       );
       setStatus("error");
       setProgress("");
+      setShowDeleteDialog(false);
+      setDeleteWorking(false);
     }
   }
 
@@ -250,9 +254,7 @@ export default function UploadStudio({
         const file = new File(
           [blob],
           sourceMedia.display_name || "bild.jpg",
-          {
-            type: blob.type || "image/jpeg",
-          }
+          { type: blob.type || "image/jpeg" }
         );
         const { preview, download } =
           await createWatermarkedVariants(file, watermarkText);
@@ -587,6 +589,39 @@ export default function UploadStudio({
           </div>
         )}
       </div>
+
+      {/* UI-Lösch-Dialog (Modal) */}
+      {showDeleteDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="w-full max-w-sm rounded-[10px] border border-line bg-white p-4">
+            <h3 className="mb-2 font-display text-[18px] font-bold">
+              Beitrag löschen?
+            </h3>
+            <p className="mb-4 text-[13px] text-ink-2">
+              Diesen Beitrag inklusive Bilder wirklich löschen? Diese
+              Aktion kann nicht rückgängig gemacht werden.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowDeleteDialog(false)}
+                disabled={deleteWorking}
+                className="rounded-md border border-line-strong bg-panel px-4 py-2 text-[12px] font-semibold text-ink hover:bg-line disabled:opacity-60"
+              >
+                Abbrechen
+              </button>
+              <button
+                type="button"
+                onClick={confirmDelete}
+                disabled={deleteWorking}
+                className="rounded-md bg-signal-deep px-4 py-2 text-[12px] font-semibold text-white hover:bg-signal-deep/90 disabled:opacity-60"
+              >
+                {deleteWorking ? "Wird gelöscht …" : "Löschen"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </form>
   );
 }
