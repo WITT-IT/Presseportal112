@@ -97,25 +97,37 @@ export function normalizeTags(raw: unknown): string[] {
   return [];
 }
 
-// Ordner -- mit Systemordner-Feldern.
+// Ordner -- mit Systemordner-Feldern und echter Verschachtelung.
 // is_system_folder und system_role sind optional bis zur Directus-Migration.
+// parent_folder: null/undefined = Wurzel der Organisation, sonst ID des
+// übergeordneten Ordners -- ermöglicht Ordner-in-Ordner (Kachel-Ansicht
+// unter /intern/medien).
 export type Folder = {
   id: string;
   name: string;
   organization?: string | null;
+  parent_folder?: string | null;
   is_system_folder?: boolean;
   system_role?: 'public' | 'unsorted' | null;
   postCount?: number;
   coverImage?: string | null;
 };
 
-// Medienbibliothek -- jedes hochgeladene Bild landet hier.
+// Medienbibliothek -- jedes hochgeladene Bild landet hier, unabhängig
+// davon ob/wie es später veröffentlicht wird.
+// folder: aktueller Ort im Ordnerbaum (null = Wurzel der Organisation).
+// display_name: frei umbenennbarer Anzeigename, unabhängig vom
+// ursprünglichen original_filename beim Upload.
 export type MediaLibraryItem = {
   id: string;
   organization: string;
+  folder: string | null;
+  display_name: string | null;
   file: string;
   file_preview: string | null;
   file_download: string | null;
+  file_preview_watermarked?: string | null;
+  file_download_watermarked?: string | null;
   original_filename: string | null;
   tags: string[] | null;
   uploaded_at: string;
