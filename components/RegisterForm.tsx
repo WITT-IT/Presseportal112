@@ -224,7 +224,7 @@ export default function RegisterForm({
             </p>
 
             <div className="mb-3">
-              <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">
+              {/* <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">
                 Website
               </label>
               <input
@@ -233,7 +233,7 @@ export default function RegisterForm({
                 onChange={(e) => setWebsite(e.target.value)}
                 placeholder="https://…"
                 className="w-full rounded-md border border-line-strong bg-white px-3 py-2 text-[14px] outline-none focus:border-ink"
-              />
+              /> {*/
             </div>
 
             <div className="grid grid-cols-2 gap-3">
