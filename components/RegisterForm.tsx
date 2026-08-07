@@ -218,7 +218,7 @@ export default function RegisterForm({
             </select>
           </div>
 
-          <div className="rounded-md border border-line bg-panel p-3.5">
+         {/* <div className="rounded-md border border-line bg-panel p-3.5">
             <p className="mb-3 text-[12px] font-semibold uppercase tracking-[0.05em] text-ink-2">
               Für euren Auftritt (optional)
             </p>
@@ -274,7 +274,7 @@ export default function RegisterForm({
                 placeholder="https://…"
                 className="w-full rounded-md border border-line-strong bg-white px-3 py-2 text-[14px] outline-none focus:border-ink"
               />
-            </div>
+            </div> {*/
 
             <p className="mt-2.5 text-[11px] text-ink-3">
               Landet zunächst bei der Redaktion und wird bei der Freigabe in
