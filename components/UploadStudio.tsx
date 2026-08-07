@@ -41,7 +41,6 @@ export default function UploadStudio({
   const [tags, setTags] = useState<string[]>(normalizeTags(sourceMedia.tags));
   const [tagInput, setTagInput] = useState('');
   const [caption, setCaption] = useState('');
-  const [makePublic, setMakePublic] = useState(true);
   const [contentConfirmed, setContentConfirmed] = useState(false);
   const [status, setStatus] = useState<'idle' | 'working' | 'done' | 'error'>('idle');
   const [progress, setProgress] = useState('');
@@ -77,7 +76,9 @@ export default function UploadStudio({
       formData.append('source_media_id', sourceMedia.id);
       formData.append('post_type', postMode);
       formData.append('tags', tags.join(','));
-      formData.append('make_public', String(makePublic));
+      // Wer hier ist, hat aktiv aus der Bibliothek gewählt und will
+      // veröffentlichen -- kein Entwurfs-Zwischenzustand mehr.
+      formData.append('make_public', 'true');
       formData.append('content_confirmed', 'true');
       formData.append('caption', caption);
       if (postMode === 'einsatz') {
@@ -127,9 +128,7 @@ export default function UploadStudio({
     return (
       <div className="rounded-[10px] border border-line bg-white p-8 text-center">
         <h2 className="mb-1 font-display text-[20px] font-bold">Veröffentlicht</h2>
-        <p className="mb-4 text-[13px] text-ink-2">
-          {makePublic ? 'Beitrag ist jetzt öffentlich sichtbar.' : 'Als Entwurf gespeichert — noch nicht öffentlich.'}
-        </p>
+        <p className="mb-4 text-[13px] text-ink-2">Beitrag ist jetzt öffentlich sichtbar.</p>
         <button
           type="button"
           onClick={() => router.push('/intern/medien')}
@@ -269,19 +268,6 @@ export default function UploadStudio({
             Ich bestätige, dass ich die Rechte an diesem Bild habe *
           </span>
         </label>
-      </div>
-
-      <div className="flex items-center gap-2 rounded-[10px] border border-line bg-white p-3">
-        <div onClick={() => setMakePublic((v) => !v)} className="cursor-pointer">
-          <div
-            className={`relative h-5 w-9 flex-shrink-0 rounded-full transition-colors ${makePublic ? 'bg-ink' : 'bg-line-strong'}`}
-          >
-            <div
-              className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${makePublic ? 'translate-x-4' : 'translate-x-0.5'}`}
-            />
-          </div>
-        </div>
-        <span className="text-[12px] font-medium">{makePublic ? 'Direkt öffentlich' : 'Als Entwurf'}</span>
       </div>
 
       {error && <p className="text-[12px] text-signal-deep">{error}</p>}
