@@ -112,7 +112,7 @@ export default async function PostArticlePage({ params }: Props) {
       />
 
       <div className="border-b border-line px-8 py-14">
-        <div className="mx-[360px] max-w-[760px]">
+        <div className="mx-auto max-w-[760px]">
           <Link
             href="/bildarchiv"
             className="mb-6 inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-ink-2 hover:text-ink"
