@@ -158,14 +158,16 @@ async function collectSubtree(
 // DELETE /api/intern/folders?id=... — Ordner löschen, inklusive allem
 // darin: Unterordner, Medienbibliothek-Items und deren physische Dateien.
 //
-// Wird IRGENDEIN Medienbibliothek-Item im ganzen Unterbaum noch in einem
-// Beitrag verwendet, bricht die komplette Löschung ab, bevor irgendwas
-// angefasst wird -- lieber räumt der Nutzer den betroffenen Beitrag zuerst
-// auf, als dass ein Beitrag plötzlich sein Foto verliert.
+// Prüft nicht blind auf used_in_posts, sondern ob die referenzierten
+// Post-IDs überhaupt noch existieren -- eine tote Referenz aus einer
+// älteren Löschung soll die Ordner-Löschung nicht grundlos blockieren.
 //
-// Läuft der Check durch: erst alle Dateien in Directus löschen (das gibt
-// den Speicherplatz frei), dann die media_library-Datensätze, dann die
-// Ordner selbst -- tiefste zuerst.
+// Wird IRGENDEIN Medienbibliothek-Item im ganzen Unterbaum noch in einem
+// WIRKLICH existierenden Beitrag verwendet, bricht die komplette Löschung
+// ab, bevor irgendwas angefasst wird.
+//
+// Läuft der Check durch: erst alle Dateien in Directus löschen, dann die
+// media_library-Datensätze, dann die Ordner selbst -- tiefste zuerst.
 export async function DELETE(request: NextRequest) {
   const session = getSession(request);
   if (!session) return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
@@ -174,6 +176,7 @@ export async function DELETE(request: NextRequest) {
   if (!folderId) return NextResponse.json({ error: 'Keine ID.' }, { status: 400 });
 
   const headers = { Authorization: `Bearer ${session.accessToken}` };
+  const jsonHeaders = { ...headers, 'Content-Type': 'application/json' };
 
   let subtree: { folderIds: string[]; mediaItems: MediaLeaf[] };
   try {
@@ -183,7 +186,27 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: 'Ordnerinhalt konnte nicht geprüft werden.' }, { status: 502 });
   }
 
-  const blocked = subtree.mediaItems.filter((item) => normalizeIdArray(item.used_in_posts).length > 0);
+  const allReferencedPostIds = Array.from(
+    new Set(subtree.mediaItems.flatMap((item) => normalizeIdArray(item.used_in_posts)))
+  );
+
+  let existingPostIds = new Set<string>();
+  if (allReferencedPostIds.length > 0) {
+    const postsRes = await fetch(
+      `${DIRECTUS_URL}/items/posts?filter[id][_in]=${allReferencedPostIds.join(',')}&fields=id`,
+      { headers }
+    );
+    if (postsRes.ok) {
+      const { data } = await postsRes.json();
+      existingPostIds = new Set((data as { id: string }[]).map((p) => p.id));
+    } else {
+      existingPostIds = new Set(allReferencedPostIds);
+    }
+  }
+
+  const blocked = subtree.mediaItems.filter((item) =>
+    normalizeIdArray(item.used_in_posts).some((postId) => existingPostIds.has(postId))
+  );
   if (blocked.length > 0) {
     return NextResponse.json(
       {
@@ -208,7 +231,7 @@ export async function DELETE(request: NextRequest) {
   if (subtree.mediaItems.length > 0) {
     await fetch(`${DIRECTUS_URL}/items/media_library`, {
       method: 'DELETE',
-      headers: { ...headers, 'Content-Type': 'application/json' },
+      headers: jsonHeaders,
       body: JSON.stringify(subtree.mediaItems.map((item) => item.id)),
     }).catch(() => {});
   }
