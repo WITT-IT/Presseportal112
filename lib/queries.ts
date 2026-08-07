@@ -310,9 +310,10 @@ export async function getAlarmcodes(): Promise<Alarmcode[]> {
   ) as Promise<Alarmcode[]>;
 }
 
-// getMyFolders -- fragt is_system_folder und system_role nur ab wenn die
-// Felder in Directus existieren. Schlägt der Request fehl, Fallback auf
-// einfache Felder ohne die neuen Systemordner-Infos.
+// getMyFolders -- rein noch echte, selbst angelegte Ordner. Kein
+// is_system_folder/system_role mehr, keine Fallback-Abfrage mehr nötig --
+// das war nur für die alten Öffentlich/Unsortiert-Systemordner gedacht,
+// die es nicht mehr gibt.
 export async function getMyFolders(
   accessToken: string,
   organizationId: string
@@ -321,58 +322,25 @@ export async function getMyFolders(
   name: string;
   postCount: number;
   coverImage: string | null;
-  is_system_folder: boolean;
-  system_role: 'public' | 'unsorted' | null;
 }[]> {
-  const headers = { Authorization: `Bearer ${accessToken}` };
-
-  // Erst mit neuen Feldern versuchen -- schlägt fehl wenn sie noch nicht
-  // in Directus angelegt wurden, dann Fallback ohne sie.
-  const fieldsWithNew = [
-    'id', 'name', 'is_system_folder', 'system_role',
-    'posts.posts_id.id',
-    'posts.posts_id.images.file_public_preview',
-    'posts.posts_id.images.sort',
-  ].join(',');
-
-  const fieldsWithoutNew = [
+  const fields = [
     'id', 'name',
     'posts.posts_id.id',
     'posts.posts_id.images.file_public_preview',
     'posts.posts_id.images.sort',
   ].join(',');
-
-  let data: unknown[];
-  let hasSystemFields = true;
-
-  const resNew = await fetch(
-    `${DIRECTUS_URL}/items/folders?filter[organization][_eq]=${organizationId}&fields=${fieldsWithNew}&sort=name`,
-    { headers, cache: 'no-store' }
+  const res = await fetch(
+    `${DIRECTUS_URL}/items/folders?filter[organization][_eq]=${organizationId}&fields=${fields}&sort=name`,
+    { headers: { Authorization: `Bearer ${accessToken}` }, cache: 'no-store' }
   );
-
-  if (!resNew.ok) {
-    // Neue Felder noch nicht in Directus -- Fallback ohne sie.
-    hasSystemFields = false;
-    const resFallback = await fetch(
-      `${DIRECTUS_URL}/items/folders?filter[organization][_eq]=${organizationId}&fields=${fieldsWithoutNew}&sort=name`,
-      { headers, cache: 'no-store' }
-    );
-    if (!resFallback.ok) {
-      console.error(`getMyFolders fehlgeschlagen (Status ${resFallback.status}):`, await resFallback.text().catch(() => ''));
-      return [];
-    }
-    const json = await resFallback.json();
-    data = json.data;
-  } else {
-    const json = await resNew.json();
-    data = json.data;
+  if (!res.ok) {
+    console.error(`getMyFolders fehlgeschlagen (Status ${res.status}):`, await res.text().catch(() => ''));
+    return [];
   }
-
+  const { data } = await res.json();
   return (data as {
     id: string;
     name: string;
-    is_system_folder?: boolean | null;
-    system_role?: 'public' | 'unsorted' | null;
     posts?: { posts_id: { id: string; images?: { file_public_preview: string | null; sort: number }[] } | null }[];
   }[]).map((f) => {
     const posts = (f.posts || []).map((p) => p.posts_id).filter((p): p is NonNullable<typeof p> => !!p);
@@ -381,16 +349,12 @@ export async function getMyFolders(
       const images = post.images || [];
       if (images.length === 0) continue;
       const sorted = [...images].sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0));
-      if (sorted[0]?.file_public_preview) { coverImage = sorted[0].file_public_preview; break; }
+      if (sorted[0]?.file_public_preview) {
+        coverImage = sorted[0].file_public_preview;
+        break;
+      }
     }
-    return {
-      id: f.id,
-      name: f.name,
-      is_system_folder: hasSystemFields ? (f.is_system_folder ?? false) : false,
-      system_role: hasSystemFields ? (f.system_role ?? null) : null,
-      postCount: posts.length,
-      coverImage,
-    };
+    return { id: f.id, name: f.name, postCount: posts.length, coverImage };
   });
 }
 
