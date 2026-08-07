@@ -21,7 +21,6 @@ export default function EditPostForm({
   existingTags,
   watermarkText,
   alarmcodes,
-  hasFolder = false,
   folders = [],
   assignedFolderIds = [],
 }: {
@@ -29,7 +28,6 @@ export default function EditPostForm({
   existingTags: string[];
   watermarkText: string;
   alarmcodes: Alarmcode[];
-  hasFolder?: boolean;
   folders?: { id: string; name: string }[];
   assignedFolderIds?: string[];
 }) {
@@ -128,7 +126,7 @@ export default function EditPostForm({
     setFolderBusy(false);
   }
 
-  // ── Beitrag zurückziehen (nicht löschen, in Unsortiert) ─────────────────
+  // ── Beitrag zurückziehen: wird privat, Ordner-Zuordnung bleibt erhalten ──
   async function handleRetire() {
     setRetiring(true);
     setError(null);
@@ -136,13 +134,13 @@ export default function EditPostForm({
       const res = await fetch('/api/intern/posts/toggle-public', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ postId: post.id, retire: true }),
+        body: JSON.stringify({ postId: post.id, makePublic: false }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error ?? 'Zurückziehen fehlgeschlagen.');
       }
-      router.push('/intern/ordner');
+      router.push('/intern');
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Zurückziehen fehlgeschlagen.');
@@ -165,7 +163,7 @@ export default function EditPostForm({
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error ?? 'Löschen fehlgeschlagen.');
       }
-      router.push('/intern/ordner');
+      router.push('/intern');
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Löschen fehlgeschlagen.');
@@ -244,10 +242,8 @@ export default function EditPostForm({
             Was soll mit dem Beitrag passieren?
           </p>
           <p className="mb-4 text-[12.5px] text-ink-2">
-            {hasFolder
-              ? `Der Beitrag liegt in einem Ordner und wird dort entfernt. Alle ${entries.length} Foto${entries.length === 1 ? '' : 's'} und Dateien werden dauerhaft gelöscht.`
-              : `Dieser Beitrag liegt in keinem eigenen Ordner. Du kannst ihn dauerhaft löschen oder nur zurückziehen — dann bleibt er in "Unsortiert" und die Dateien bleiben erhalten.`
-            }
+            Du kannst ihn dauerhaft löschen — dann sind alle {entries.length} Foto{entries.length === 1 ? '' : 's'} und Dateien unwiderruflich weg —
+            oder nur zurückziehen: dann wird er privat, bleibt aber erhalten, taucht im Dashboard unter „Privat" auf und behält seine Ordner-Zuordnung.
           </p>
           <div className="flex flex-wrap gap-2">
             <button
@@ -258,16 +254,14 @@ export default function EditPostForm({
             >
               {status === 'deleting' ? 'Wird gelöscht …' : 'Dauerhaft löschen'}
             </button>
-            {!hasFolder && (
-              <button
-                type="button"
-                onClick={handleRetire}
-                disabled={busy}
-                className="rounded-md border border-line-strong bg-panel px-4 py-2.5 text-[13px] font-semibold text-ink transition-colors hover:border-ink disabled:opacity-60"
-              >
-                {retiring ? 'Wird verschoben …' : 'In Unsortiert verschieben'}
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={handleRetire}
+              disabled={busy}
+              className="rounded-md border border-line-strong bg-panel px-4 py-2.5 text-[13px] font-semibold text-ink transition-colors hover:border-ink disabled:opacity-60"
+            >
+              {retiring ? 'Wird zurückgezogen …' : 'Zurückziehen'}
+            </button>
             <button
               type="button"
               onClick={() => setShowDeleteConfirm(false)}
@@ -425,7 +419,6 @@ export default function EditPostForm({
             </button>
           </div>
 
-          {/* Beitrag löschen */}
           {!showDeleteConfirm && (
             <button
               type="button"
