@@ -19,11 +19,10 @@ export default function RemoveFromFolderButton({
     setBusy(true);
 
     if (isPublicFolder) {
-      // Nutzt toggle-public mit removeFromPublic=true statt separater Route
       await fetch('/api/intern/posts/toggle-public', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ postId, removeFromPublic: true, folderId }),
+        body: JSON.stringify({ postId, makePublic: false }),
       });
     } else {
       await fetch('/api/intern/folders/assign', {
