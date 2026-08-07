@@ -382,14 +382,14 @@ export default function UploadStudio({
               disabled={toggleWorking}
               className="rounded-md border border-line-strong bg-panel px-4 py-2 text-[12px] font-semibold text-ink hover:bg-line disabled:opacity-50"
             >
-              {toggleWorking ? 'Wird geändert …' : isPublic ? 'Privat schalten' : 'Öffentlich schalten'}
+              {toggleWorking ? 'Wird geändert …' : isPublic ? 'Öffentlich geschaltet' : 'Privat geschaltet'}
             </button>
             <button
               type="button"
               onClick={() => setShowDeleteDialog(true)}
               className="rounded-md border border-line-strong bg-white px-4 py-2 text-[12px] font-semibold text-signal-deep hover:bg-signal-light"
             >
-              Löschen
+              Beitrag-Löschen
             </button>
           </div>
         )}
