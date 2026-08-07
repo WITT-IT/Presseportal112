@@ -14,25 +14,14 @@ export default function RegisterForm({
 }) {
   const [accountType, setAccountType] = useState<AccountType>(defaultType);
 
-  // Geteilte Felder -- unabhängig davon, welcher Kontotyp gewählt ist.
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
-  // Ein einziges Feld für "Name der Organisation" bzw. "Redaktion /
-  // Publikation" -- beides landet im selben Directus-Feld
-  // (requested_organization_name), nur Label/Platzhalter unterscheiden
-  // sich unten je nach accountType.
   const [organizationName, setOrganizationName] = useState('');
-  // Nur für Organisationen relevant.
   const [gewerkId, setGewerkId] = useState(gewerke[0]?.id ?? '');
-  // Website wird von beiden Typen genutzt (bei Organisationen zusätzlich
-  // eingebettet im "Für euren Auftritt"-Block mit Social Links).
   const [website, setWebsite] = useState('');
-  const [facebook, setFacebook] = useState('');
-  const [instagram, setInstagram] = useState('');
-  const [otherSocial, setOtherSocial] = useState('');
 
   const [status, setStatus] = useState<'idle' | 'sending' | 'done' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -51,20 +40,9 @@ export default function RegisterForm({
         email,
         password,
         requested_organization_name: organizationName,
-        // Gewerk und Social Links ergeben nur bei einer BOS-Organisation
-        // Sinn -- bei Presse bewusst null, damit im Backend nichts
-        // Halbgares landet. /api/auth/register validiert und verarbeitet
-        // beide Fälle bereits korrekt, hier wird nur sauber vorsortiert.
         requested_gewerk: accountType === 'organization' ? gewerkId : null,
         requested_website: website || null,
-        requested_social_links:
-          accountType === 'organization'
-            ? {
-                facebook: facebook || undefined,
-                instagram: instagram || undefined,
-                sonstiges: otherSocial || undefined,
-              }
-            : null,
+        requested_social_links: null,
         requested_account_type: accountType,
       }),
     });
@@ -97,9 +75,6 @@ export default function RegisterForm({
       onSubmit={handleSubmit}
       className="flex flex-col gap-4 rounded-[10px] border border-line bg-white p-6"
     >
-      {/* Umschalter zuerst -- bestimmt, welche Felder weiter unten
-          eingeblendet werden. Beide Buttons bewusst type="button", damit
-          sie das Formular nicht versehentlich absenden. */}
       <div>
         <div className="grid grid-cols-2 gap-1 rounded-md border border-line-strong bg-panel p-1">
           <button
@@ -216,70 +191,6 @@ export default function RegisterForm({
                 </option>
               ))}
             </select>
-          </div>
-
-          <div className="rounded-md border border-line bg-panel p-3.5">
-            <p className="mb-3 text-[12px] font-semibold uppercase tracking-[0.05em] text-ink-2">
-              Für euren Auftritt (optional)
-            </p>
-
-            <div className="mb-3">
-               <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">
-                Website
-              </label>
-              <input
-                type="url"
-                value={website}
-                onChange={(e) => setWebsite(e.target.value)}
-                placeholder="https://…"
-                className="w-full rounded-md border border-line-strong bg-white px-3 py-2 text-[14px] outline-none focus:border-ink"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">
-                  Facebook
-                </label>
-                <input
-                  type="url"
-                  value={facebook}
-                  onChange={(e) => setFacebook(e.target.value)}
-                  placeholder="https://facebook.com/…"
-                  className="w-full rounded-md border border-line-strong bg-white px-3 py-2 text-[14px] outline-none focus:border-ink"
-                />
-              </div>
-              <div>
-                <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">
-                  Instagram
-                </label>
-                <input
-                  type="url"
-                  value={instagram}
-                  onChange={(e) => setInstagram(e.target.value)}
-                  placeholder="https://instagram.com/…"
-                  className="w-full rounded-md border border-line-strong bg-white px-3 py-2 text-[14px] outline-none focus:border-ink"
-                />
-              </div>
-            </div>
-
-            <div className="mt-3">
-              <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">
-                Weiterer Link (z. B. X, YouTube, TikTok)
-              </label>
-              <input
-                type="url"
-                value={otherSocial}
-                onChange={(e) => setOtherSocial(e.target.value)}
-                placeholder="https://…"
-                className="w-full rounded-md border border-line-strong bg-white px-3 py-2 text-[14px] outline-none focus:border-ink"
-              />
-            </div>
-
-            <p className="mt-2.5 text-[11px] text-ink-3">
-              Landet zunächst bei der Redaktion und wird bei der Freigabe in
-              euer Organisationsprofil übernommen.
-            </p>
           </div>
         </>
       ) : (
