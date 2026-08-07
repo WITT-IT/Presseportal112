@@ -29,10 +29,10 @@ export default function RegisterForm({
   const [gewerkId, setGewerkId] = useState(gewerke[0]?.id ?? '');
   // Website wird von beiden Typen genutzt (bei Organisationen zusätzlich
   // eingebettet im "Für euren Auftritt"-Block mit Social Links).
-  const [website, setWebsite] = useState('');
-  const [facebook, setFacebook] = useState('');
-  const [instagram, setInstagram] = useState('');
-  const [otherSocial, setOtherSocial] = useState('');
+  //const [website, setWebsite] = useState('');
+  //const [facebook, setFacebook] = useState('');
+  //const [instagram, setInstagram] = useState('');
+  //const [otherSocial, setOtherSocial] = useState('');
 
   const [status, setStatus] = useState<'idle' | 'sending' | 'done' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
