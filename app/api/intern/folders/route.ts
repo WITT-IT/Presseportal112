@@ -40,8 +40,7 @@ export async function POST(request: NextRequest) {
       id,
       name: String(name).trim(),
       parent_folder: parent_folder || null,
-      is_system_folder: false,
-      system_role: null,
+      organization: user.organization.id,
     }),
   });
 
@@ -91,28 +90,16 @@ export async function PATCH(request: NextRequest) {
   return NextResponse.json({ ok: true });
 }
 
-// DELETE /api/intern/folders?id=... — Ordner löschen (Systemordner sind geschützt)
+// DELETE /api/intern/folders?id=... — Ordner löschen.
+// Kein Systemordner-Schutz mehr nötig -- es gibt keine Systemordner mehr.
+// Die Organisation-Policy in Directus prüft automatisch, ob der Ordner
+// überhaupt zur eigenen Organisation gehört.
 export async function DELETE(request: NextRequest) {
   const session = getSession(request);
   if (!session) return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
 
   const folderId = request.nextUrl.searchParams.get('id');
   if (!folderId) return NextResponse.json({ error: 'Keine ID.' }, { status: 400 });
-
-  // Systemordner-Schutz: erst prüfen ob is_system_folder=true.
-  const checkRes = await fetch(
-    `${DIRECTUS_URL}/items/folders/${folderId}?fields=id,is_system_folder,system_role`,
-    { headers: { Authorization: `Bearer ${session.accessToken}` } }
-  );
-  if (checkRes.ok) {
-    const { data } = await checkRes.json();
-    if (data?.is_system_folder) {
-      return NextResponse.json(
-        { error: 'Systemordner können nicht gelöscht werden.' },
-        { status: 403 }
-      );
-    }
-  }
 
   const res = await fetch(`${DIRECTUS_URL}/items/folders/${folderId}`, {
     method: 'DELETE',
