@@ -112,13 +112,13 @@ export default async function PostArticlePage({ params }: Props) {
       />
 
       <div className="border-b border-line px-8 py-14">
-        <div className="mx-auto max-w-[760px]">
+        <div className="mx-auto max-w-[300px]">
           <Link
             href="/bildarchiv"
             className="mb-6 inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-ink-2 hover:text-ink"
           >
             <i className="ti ti-arrow-left text-[14px]" aria-hidden="true" />
-            Zurück zum Bildarchiv
+            Zurück zur Übersicht
           </Link>
 
           <div className="mb-4 flex items-center gap-2.5 font-mono text-[11.5px] font-medium uppercase tracking-[0.04em] text-ink-2">
