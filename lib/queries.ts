@@ -186,11 +186,13 @@ export async function getPublicImagesByOrganization(
   };
 }
 
+// Vollständiger Beitrag fürs Studio im Bearbeiten-Modus -- inkl. post_type
+// und der watermarked Vorschau, die als Thumbnail im Formular-Header dient.
 export async function getPostForEdit(accessToken: string, id: string): Promise<Post | null> {
   const fields = [
-    'id', 'title', 'article_body', 'event_date', 'alarm_code', 'location', 'tags', 'is_public',
+    'id', 'post_type', 'title', 'article_body', 'event_date', 'alarm_code', 'location', 'tags', 'is_public',
     'organization.id', 'organization.name', 'organization.gewerk',
-    'images.id', 'images.file_public_preview', 'images.caption', 'images.sort', 'images.no_watermark',
+    'images.id', 'images.file_public_preview', 'images.file_public_preview_watermarked', 'images.caption', 'images.sort', 'images.no_watermark',
   ].join(',');
   const res = await fetch(`${DIRECTUS_URL}/items/posts/${id}?fields=${fields}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
@@ -310,10 +312,7 @@ export async function getAlarmcodes(): Promise<Alarmcode[]> {
   ) as Promise<Alarmcode[]>;
 }
 
-// getMyFolders -- rein noch echte, selbst angelegte Ordner. Kein
-// is_system_folder/system_role mehr, keine Fallback-Abfrage mehr nötig --
-// das war nur für die alten Öffentlich/Unsortiert-Systemordner gedacht,
-// die es nicht mehr gibt.
+// Echte, selbst angelegte Ordner der Organisation. Keine Systemordner mehr.
 export async function getMyFolders(
   accessToken: string,
   organizationId: string
@@ -384,6 +383,9 @@ export async function getFolderWithPosts(
   return { id: data.id, name: data.name, posts };
 }
 
+// Noch von keinem aktuellen Consumer aufgerufen, seit die alte
+// Bearbeiten-Seite raus ist -- absichtlich noch drin gelassen, falls die
+// Ordner-Zuordnungsliste später an anderer Stelle gebraucht wird.
 export async function getMyFoldersWithPostIds(
   accessToken: string,
   organizationId: string
