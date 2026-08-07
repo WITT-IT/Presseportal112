@@ -40,9 +40,15 @@ export type Organization = {
   banner_image?: string | null;
 };
 
+// source_media_id verweist auf die Medienbibliothek (media_library.id) --
+// gesetzt, wenn das Foto über das Studio veröffentlicht wurde. Ist es leer,
+// wurde das Foto direkt hochgeladen (alte Flows) und gehört exklusiv diesem
+// Bild-Datensatz. Diese Unterscheidung entscheidet beim Löschen, ob die
+// physische Datei mitgelöscht werden darf oder der Bibliothek gehört.
 export type PostImage = {
   id: string;
   post: Post | string | null;
+  source_media_id?: string | null;
   file_original: string | null;
   file_public_preview: string | null;
   file_public_preview_watermarked?: string | null;
@@ -56,8 +62,6 @@ export type PostImage = {
 // post_type ist optional mit Fallback auf 'einsatz' -- das Feld existiert
 // erst nach der Directus-Migration. Bestehende Beiträge ohne das Feld
 // werden automatisch als Einsatzbeiträge behandelt.
-// origin_folder_id merkt sich aus welchem Ordner ein Beitrag stammt,
-// bevor er öffentlich gemacht wurde.
 export type Post = {
   id: string;
   organization: Organization | string | null;
@@ -71,7 +75,6 @@ export type Post = {
   tags: string[] | null;
   is_public: boolean;
   published_at: string | null;
-  origin_folder_id?: string | null;
   images?: PostImage[];
 };
 
@@ -97,8 +100,9 @@ export function normalizeTags(raw: unknown): string[] {
   return [];
 }
 
-// Ordner -- mit Systemordner-Feldern und echter Verschachtelung.
-// is_system_folder und system_role sind optional bis zur Directus-Migration.
+// Ordner -- eigene, frei anlegbare Ordner der Organisation, mit echter
+// Verschachtelung. Keine Systemordner mehr (Öffentlich/Unsortiert sind
+// Geschichte, is_public am Post ist die einzige Quelle der Wahrheit).
 // parent_folder: null/undefined = Wurzel der Organisation, sonst ID des
 // übergeordneten Ordners -- ermöglicht Ordner-in-Ordner (Kachel-Ansicht
 // unter /intern/medien).
@@ -107,8 +111,6 @@ export type Folder = {
   name: string;
   organization?: string | null;
   parent_folder?: string | null;
-  is_system_folder?: boolean;
-  system_role?: 'public' | 'unsorted' | null;
   postCount?: number;
   coverImage?: string | null;
 };
@@ -118,6 +120,9 @@ export type Folder = {
 // folder: aktueller Ort im Ordnerbaum (null = Wurzel der Organisation).
 // display_name: frei umbenennbarer Anzeigename, unabhängig vom
 // ursprünglichen original_filename beim Upload.
+// used_in_posts: Liste der Beitrags-IDs, die dieses Bild aktuell
+// referenzieren -- solange die nicht leer ist, blockt das Löschen in
+// /api/intern/library, weil Beiträge sonst ihr Foto verlieren würden.
 export type MediaLibraryItem = {
   id: string;
   organization: string;
