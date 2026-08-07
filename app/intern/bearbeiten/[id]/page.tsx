@@ -44,18 +44,17 @@ export default async function EditPostPage({
   const watermarkText =
     user?.organization?.branding_label || `Foto: ${user?.organization?.name ?? ''}`;
 
-  // Nur echte (nicht-System-)Ordner für die Zuordnung anzeigen
+  // Name-Filter bleibt als Sicherheitsnetz, bis die alten Öffentlich-/
+  // Unsortiert-Zeilen in Directus manuell gelöscht sind (siehe unten).
+  // Danach greift der Filter einfach ins Leere.
   const realFolders = allFolders
-    .filter((f) => !f.is_system_folder && f.name !== 'Öffentlich' && f.name !== 'Unsortiert')
+    .filter((f) => f.name !== 'Öffentlich' && f.name !== 'Unsortiert')
     .map((f) => ({ id: f.id, name: f.name }));
 
-  // Aktuelle Ordner-Zuordnungen des Beitrags (nur echte Ordner)
   const assignedFolderIds = foldersWithPosts
     .filter((f) => f.name !== 'Öffentlich' && f.name !== 'Unsortiert')
     .filter((f) => f.postIds.includes(id))
     .map((f) => f.id);
-
-  const hasFolder = assignedFolderIds.length > 0;
 
   return (
     <section className="px-8 py-14">
@@ -71,7 +70,6 @@ export default async function EditPostPage({
           existingTags={existingTags}
           watermarkText={watermarkText}
           alarmcodes={alarmcodes}
-          hasFolder={hasFolder}
           folders={realFolders}
           assignedFolderIds={assignedFolderIds}
         />
