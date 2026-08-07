@@ -53,11 +53,6 @@ export default function UploadStudio({
   const [eventDate, setEventDate] = useState(existingPost?.event_date?.slice(0, 10) ?? '');
   const [alarmCode, setAlarmCode] = useState(existingPost?.alarm_code ?? '');
   const [location, setLocation] = useState(existingPost?.location ?? '');
-  // normalizeTags hier nochmal defensiv drüberlaufen lassen, unabhängig
-  // davon ob der Aufrufer schon normalisiert hat -- Directus liefert tags
-  // je nach Alter des Datensatzes mal als Array, mal als JSON-String.
-  // normalizeTags ist idempotent: ein sauberes Array kommt unverändert
-  // wieder raus, ein String wird geparst.
   const [tags, setTags] = useState<string[]>(
     normalizeTags(existingPost ? existingPost.tags : sourceMedia?.tags ?? [])
   );
@@ -179,7 +174,9 @@ export default function UploadStudio({
           const assetRes = await fetch(`/api/intern/library?original=${sourceMedia.id}`);
           if (!assetRes.ok) throw new Error('Originalbild konnte nicht geladen werden.');
           const blob = await assetRes.blob();
-          const file = new File([blob], sourceMedia.display_name || 'bild.jpg', { type: blob.type || 'image/jpeg' });
+          const file = new File([blob], sourceMedia.display_name || 'bild.jpg', {
+            type: blob.type || 'image/jpeg',
+          });
           const { preview, download } = await createWatermarkedVariants(file, watermarkText);
           formData.append('preview_0', preview, 'preview.jpg');
           formData.append('download_0', download, 'download.jpg');
@@ -211,8 +208,8 @@ export default function UploadStudio({
   const thumbnailSrc = isEditMode
     ? existingPost?.thumbnailUrl
     : sourceMedia
-    ? `/api/intern/library?original=${sourceMedia.id}&width=160&quality=70`
-    : null;
+      ? `/api/intern/library?original=${sourceMedia.id}&width=160&quality=70`
+      : null;
 
   if (status === 'done') {
     return (
@@ -236,7 +233,6 @@ export default function UploadStudio({
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-      {/* Bild-Header -- nur Anzeige */}
       <div className="flex items-center gap-3 rounded-[10px] border border-line bg-white p-3">
         <div className="relative h-16 w-16 flex-shrink-0 overflow-hidden rounded-lg bg-panel">
           {thumbnailSrc && <Image src={thumbnailSrc} alt="" fill className="object-cover" unoptimized />}
@@ -249,7 +245,6 @@ export default function UploadStudio({
         </div>
       </div>
 
-      {/* Modus-Umschalter */}
       <div className="flex items-center gap-2">
         <span className="text-[12px] font-semibold text-ink-2">Typ:</span>
         <div className="flex gap-1 rounded-md border border-line-strong bg-panel p-0.5">
@@ -375,7 +370,7 @@ export default function UploadStudio({
         </button>
 
         {isEditMode && existingPost && (
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               role="switch"
@@ -383,18 +378,21 @@ export default function UploadStudio({
               aria-label="Sichtbarkeit umschalten"
               onClick={handleTogglePublic}
               disabled={toggleWorking}
-              className={`inline-flex items-center gap-3 rounded-md border px-4 py-2 text-[12px] font-semibold transition-colors disabled:opacity-50 ${
-                isPublic
-                  ? 'border-emerald-300 bg-emerald-50 text-emerald-900'
-                  : 'border-line-strong bg-panel text-ink hover:bg-line'
-              }`}
+              className="inline-flex items-center gap-2 rounded-md px-1 py-1 disabled:opacity-50"
             >
-              <span>{toggleWorking ? 'Wird geändert …' : isPublic ? 'Öffentlich' : 'Privat'}</span>
+              <span
+                aria-hidden="true"
+                className={`text-[12px] font-semibold transition-colors ${
+                  isPublic ? 'text-gray-400' : 'text-gray-700'
+                }`}
+              >
+                Privat
+              </span>
 
               <span
                 aria-hidden="true"
                 className={`relative h-6 w-11 rounded-full transition-colors ${
-                  isPublic ? 'bg-emerald-500' : 'bg-ink-3'
+                  isPublic ? 'bg-emerald-500' : 'bg-gray-400'
                 }`}
               >
                 <span
@@ -402,6 +400,15 @@ export default function UploadStudio({
                     isPublic ? 'translate-x-5' : 'translate-x-0.5'
                   }`}
                 />
+              </span>
+
+              <span
+                aria-hidden="true"
+                className={`text-[12px] font-semibold transition-colors ${
+                  isPublic ? 'text-emerald-700' : 'text-gray-400'
+                }`}
+              >
+                Öffentlich
               </span>
             </button>
 
