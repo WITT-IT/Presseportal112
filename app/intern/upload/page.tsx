@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
 import { getAllUsedTags, getAlarmcodes, getMediaLibraryItem, getPostForEdit } from '@/lib/queries';
 import { directusAssetUrl } from '@/lib/directus';
+import { normalizeTags } from '@/lib/types';
 import Breadcrumbs from '@/components/Breadcrumbs';
 import UploadStudio from '@/components/UploadStudio';
 
@@ -70,7 +71,10 @@ export default async function UploadPage({
             event_date: post.event_date,
             alarm_code: post.alarm_code,
             location: post.location,
-            tags: post.tags ?? [],
+            // Ältere Beiträge (vor der Umstellung) liefern tags gelegentlich
+            // als rohen JSON-String statt echtem Array -- normalizeTags
+            // macht das an der Quelle robust, egal wie alt der Datensatz ist.
+            tags: normalizeTags(post.tags),
             is_public: post.is_public,
             caption: heroImage?.caption ?? null,
             thumbnailUrl: thumbnailSrc,
