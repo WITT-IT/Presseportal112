@@ -15,6 +15,29 @@ type PostForDeletion = {
   }[];
 };
 
+// Collections, auf denen dieser Nutzer als user_created/user_updated
+// (Directus-Systemfelder) stehen könnte. Diese Liste ist der eigentliche
+// Grund, warum Konto-Löschungen bisher manuelles Aufräumen in Directus
+// brauchten -- jede Collection, die hier fehlt, blockt die finale
+// User-Löschung mit einem Fremdschlüssel-Fehler, sobald der Nutzer
+// irgendwas in dieser Collection angelegt hat.
+//
+// Fehlt das Feld auf einer Collection (weil sie ohne die optionalen
+// Systemfelder angelegt wurde), bricht nullifyReferences() dafür einfach
+// lautlos ab -- diese Liste großzügig zu halten ist also gefahrlos.
+const USER_FIELD_COLLECTIONS: { collection: string; field: string }[] = [
+  { collection: 'media_library', field: 'user_created' },
+  { collection: 'media_library', field: 'user_updated' },
+  { collection: 'folders', field: 'user_created' },
+  { collection: 'folders', field: 'user_updated' },
+  { collection: 'posts', field: 'user_created' },
+  { collection: 'posts', field: 'user_updated' },
+  { collection: 'images', field: 'user_created' },
+  { collection: 'images', field: 'user_updated' },
+  { collection: 'media_shares', field: 'user_created' },
+  { collection: 'media_shares', field: 'user_updated' },
+];
+
 export async function POST(request: NextRequest) {
   const raw = request.cookies.get(SESSION_COOKIE)?.value;
   if (!raw) {
@@ -65,8 +88,8 @@ export async function POST(request: NextRequest) {
   // Kleiner Helfer: alle Datensätze einer Collection finden, die per FK auf
   // diesen Nutzer verweisen, und das Feld auf null setzen -- statt die
   // Datensätze selbst zu löschen. So bleiben z. B. bereits verschickte
-  // Einladungen oder erstellte Freigaben funktionsfähig erhalten, nur der
-  // Bezug zum gelöschten Konto verschwindet.
+  // Einladungen, Freigaben oder Bibliotheks-Einträge funktionsfähig
+  // erhalten, nur der Bezug zum gelöschten Konto verschwindet.
   async function nullifyReferences(collection: string, field: string, userId: string) {
     try {
       const res = await fetch(
@@ -167,14 +190,19 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // NEU: Referenzen aufräumen, die erst nach dem ursprünglichen Bau dieser
-    // Route dazugekommen sind (Einladungssystem, Medienfreigaben) -- ohne
-    // das lehnt Directus das Löschen des Kontos mit einem
-    // Fremdschlüssel-Fehler (500) ab, sobald der Nutzer jemals eine
-    // Einladung erstellt/eingelöst oder eine Freigabe angelegt hat.
+    // Eigene, benannte Felder nullen (Einladungssystem, Medienfreigaben).
     await nullifyReferences('organization_invites', 'created_by', effectiveTargetId);
     await nullifyReferences('organization_invites', 'used_by', effectiveTargetId);
     await nullifyReferences('media_shares', 'created_by', effectiveTargetId);
+
+    // Directus-Systemfelder (user_created/user_updated) auf allen
+    // Collections nullen, auf denen dieser Nutzer je etwas angelegt oder
+    // geändert hat -- ohne das lehnt Directus die finale User-Löschung
+    // unten mit einem Fremdschlüssel-Fehler ab. Das ist der eigentliche
+    // Grund, warum das bisher manuelles Nacharbeiten in Directus brauchte.
+    for (const { collection, field } of USER_FIELD_COLLECTIONS) {
+      await nullifyReferences(collection, field, effectiveTargetId);
+    }
 
     const deleteUserRes = await fetch(`${DIRECTUS_URL}/users/${effectiveTargetId}`, {
       method: 'DELETE',
