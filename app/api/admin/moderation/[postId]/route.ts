@@ -2,6 +2,20 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser, isAdministrator, SESSION_COOKIE } from '@/lib/auth';
 import { DIRECTUS_URL } from '@/lib/directus';
 
+function normalizeIdArray(raw: unknown): string[] {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw.filter((v): v is string => typeof v === 'string');
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed.filter((v): v is string => typeof v === 'string');
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ postId: string }> }
@@ -37,6 +51,7 @@ export async function DELETE(
     const fields = [
       'id',
       'images.id',
+      'images.source_media_id',
       'images.file_original',
       'images.file_public_preview',
       'images.file_download',
@@ -49,7 +64,14 @@ export async function DELETE(
     }
     const { data: post } = await postRes.json();
 
+    // Physische Dateien NUR für direkt hochgeladene Bilder löschen --
+    // Bibliotheks-Bilder (source_media_id gesetzt) gehören der Bibliothek
+    // und werden hier nicht angefasst, nur ihre used_in_posts-Liste
+    // nachgeführt (siehe unten). Genau diese Nachführung hat vorher
+    // gefehlt und exakt die Geister-Referenzen erzeugt, die wir gerade
+    // manuell in Directus gefunden haben.
     for (const img of post.images || []) {
+      if (img.source_media_id) continue;
       const fileIds = [img.file_original, img.file_public_preview, img.file_download].filter(
         (id: string | null): id is string => !!id
       );
@@ -93,6 +115,32 @@ export async function DELETE(
     if (!deletePostRes.ok) {
       throw new Error(`Beitrag konnte nicht gelöscht werden (Status ${deletePostRes.status})`);
     }
+
+    // Bibliotheks-Items nachführen: postId aus used_in_posts entfernen --
+    // das ist der Teil, der vorher komplett fehlte.
+    const mediaLibraryIds = Array.from(
+      new Set(
+        (post.images || [])
+          .map((img: { source_media_id?: string | null }) => img.source_media_id)
+          .filter((v: unknown): v is string => !!v)
+      )
+    );
+
+    await Promise.allSettled(
+      mediaLibraryIds.map(async (mediaId) => {
+        const res = await fetch(`${DIRECTUS_URL}/items/media_library/${mediaId}?fields=used_in_posts`, {
+          headers: adminHeaders,
+        });
+        if (!res.ok) return;
+        const { data } = await res.json();
+        const usedInPosts = normalizeIdArray(data?.used_in_posts);
+        await fetch(`${DIRECTUS_URL}/items/media_library/${mediaId}`, {
+          method: 'PATCH',
+          headers: adminHeaders,
+          body: JSON.stringify({ used_in_posts: usedInPosts.filter((id) => id !== postId) }),
+        }).catch(() => {});
+      })
+    );
   } catch (error) {
     console.error('Beitrag löschen (Moderation) fehlgeschlagen:', error);
     return NextResponse.json({ error: 'Löschen fehlgeschlagen.' }, { status: 500 });
