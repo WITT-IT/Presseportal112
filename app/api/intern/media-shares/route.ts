@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { randomBytes } from 'crypto';
-import { SESSION_COOKIE } from '@/lib/auth';
+import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
 import { DIRECTUS_URL } from '@/lib/directus';
 
 const ALLOWED_VALIDITY_DAYS = [10, 20, 30];
@@ -17,6 +17,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Sitzung ungültig.' }, { status: 401 });
   }
 
+  // organization NICHT mehr über einen Directus-Field-Preset erwarten --
+  // Presets greifen je nach Rollen-/Policy-Konfiguration nicht zuverlässig
+  // bei API-Requests mit Nutzer-Token, und genau das hat hier vermutlich
+  // dazu geführt, dass neu angelegte Freigaben ohne organization landeten
+  // und in der eigenen Liste (gefiltert nach organization) nie auftauchten.
+  // Stattdessen explizit selbst setzen, wie überall sonst im Projekt auch.
+  const user = await getCurrentUser(session.accessToken);
+  if (!user?.organization?.id) {
+    return NextResponse.json({ error: 'Deinem Konto ist keine Organisation zugeordnet.' }, { status: 403 });
+  }
+
   const { name, recipientName, recipientEmail, recipientOrganizationId, validityDays, autoDeleteOnExpiry } =
     await request.json().catch(() => ({}));
 
@@ -28,8 +39,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Ungültige Gültigkeitsdauer.' }, { status: 400 });
   }
 
-  // URL-sicherer Zufallstoken -- 24 Bytes Entropie, in Base64url kodiert
-  // (keine Zeichen, die in einer URL escaped werden müssten).
   const token = randomBytes(24).toString('base64url');
   const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
 
@@ -40,16 +49,11 @@ export async function POST(request: NextRequest) {
         Authorization: `Bearer ${session.accessToken}`,
         'Content-Type': 'application/json',
       },
-      // organization und created_by werden serverseitig über Field Presets
-      // in Directus automatisch gesetzt -- wir schicken sie bewusst nicht
-      // selbst mit.
       body: JSON.stringify({
         name: String(name).trim(),
+        organization: user.organization.id,
         recipient_name: recipientName ? String(recipientName).trim() : null,
         recipient_email: recipientEmail ? String(recipientEmail).trim() : null,
-        // Optional: direkte Zuordnung zu einem registrierten Presse-Konto --
-        // die Freigabe erscheint dann zusätzlich zum Link auch direkt in
-        // deren internem Bereich.
         recipient_organization: recipientOrganizationId || null,
         token,
         active: true,
