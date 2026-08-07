@@ -22,9 +22,7 @@ function getSession(request: NextRequest): { accessToken: string } | null {
   }
 }
 
-// Lädt einen Buffer als neue, eigenständige Datei in Directus hoch.
-// folderId hier meint den DIRECTUS-nativen Datei-Ordner (Berechtigungen für
-// die Public-Policy) -- nicht die eigene "folders"-Collection der App.
+// Lädt einen Buffer als neue Datei in Directus hoch.
 async function uploadBuffer(
   token: string,
   buffer: Buffer,
@@ -60,48 +58,15 @@ async function uploadBuffer(
   return fileId;
 }
 
-// Kopiert eine bestehende Directus-Datei serverseitig (Bytes runterladen,
-// als komplett neue Datei wieder hochladen). So bekommt der Beitrag eine
-// eigenständige Dateireferenz, unabhängig von der Medienbibliothek --
-// löscht man später den Beitrag, bleibt das Bibliotheks-Original unberührt,
-// und umgekehrt.
-async function copyDirectusFile(
-  token: string,
-  sourceFileId: string,
-  filename: string,
-  folderId?: string | null
-): Promise<string> {
-  const assetRes = await fetch(`${DIRECTUS_URL}/assets/${sourceFileId}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!assetRes.ok) {
-    throw new Error(`Quelldatei ${sourceFileId} konnte nicht gelesen werden (${assetRes.status}).`);
-  }
-  const buffer = Buffer.from(await assetRes.arrayBuffer());
-  const mimeType = assetRes.headers.get('content-type') || 'image/jpeg';
-  return uploadBuffer(token, buffer, mimeType, filename, folderId);
-}
-
 // POST /api/intern/upload
 // Veröffentlicht ein vorhandenes Medienbibliothek-Bild als Beitrag.
 //
-// Erwartet FormData:
-//   source_media_id    -- Pflicht, id aus media_library
-//   post_type          -- 'einsatz' | 'stockfoto'
-//   title, event_date, alarm_code, location  -- Pflicht nur bei 'einsatz'
-//   tags               -- Komma-getrennt
-//   make_public        -- 'true' | 'false'
-//   content_confirmed  -- muss 'true' sein
-//   caption
-//   entweder:
-//     preview_0, download_0         -- frisch erzeugte Wasserzeichen-Varianten (File)
-//   oder:
-//     use_cached_watermark = 'true' -- Server nutzt die in media_library
-//                                      bereits gecachten Varianten
-//
-// is_public wird direkt am Beitrag gesetzt -- keine Ordner-Verschieberei
-// mehr. Öffentlich/Privat ist einzig und allein dieses Feld; die
-// öffentliche Website filtert eh direkt danach, nie über Ordner.
+// WICHTIG: Kopiert NICHTS mehr. Der Post referenziert dieselben Directus-
+// Datei-IDs wie die Bibliothek -- Original, Preview und Download gehören
+// der Bibliothek, der Post zeigt nur drauf. Das hält den Speicherverbrauch
+// pro Foto konstant, egal wie oft es veröffentlicht/zurückgezogen wird.
+// Löschen eines Beitrags darf deshalb NIE diese Dateien löschen, nur den
+// images-Datensatz -- siehe /api/intern/delete.
 export async function POST(request: NextRequest) {
   const session = getSession(request);
   if (!session) return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
@@ -146,7 +111,6 @@ export async function POST(request: NextRequest) {
   };
 
   try {
-    // Quell-Item aus der Medienbibliothek laden -- inkl. Berechtigungsprüfung.
     const mediaFields = ['id', 'organization', 'file', 'file_preview_watermarked', 'file_download_watermarked'].join(',');
     const mediaRes = await fetch(`${DIRECTUS_URL}/items/media_library/${sourceMediaId}?fields=${mediaFields}`, {
       headers: { Authorization: `Bearer ${session.accessToken}` },
@@ -159,15 +123,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Keine Berechtigung für dieses Bild.' }, { status: 403 });
     }
 
-    // 1) Wasserzeichen-Cache in der Bibliothek sicherstellen -- entweder
-    //    vorhanden (useCachedWatermark) oder aus frisch mitgeschickten
-    //    Dateien neu anlegen und gleich zurückcachen.
-    let cachedPreviewId: string;
-    let cachedDownloadId: string;
+    // Wasserzeichen-Varianten sicherstellen -- nur beim allerersten
+    // Veröffentlichen dieses Bibliotheks-Items werden sie erzeugt und dort
+    // gecacht. Jedes weitere Veröffentlichen (oder erneute nach Zurückziehen)
+    // nutzt exakt dieselben Datei-IDs wieder.
+    let previewId: string;
+    let downloadId: string;
 
     if (useCachedWatermark && sourceMedia.file_preview_watermarked && sourceMedia.file_download_watermarked) {
-      cachedPreviewId = sourceMedia.file_preview_watermarked;
-      cachedDownloadId = sourceMedia.file_download_watermarked;
+      previewId = sourceMedia.file_preview_watermarked;
+      downloadId = sourceMedia.file_download_watermarked;
     } else {
       const previewFile = formData.get('preview_0') as File | null;
       const downloadFile = formData.get('download_0') as File | null;
@@ -179,7 +144,7 @@ export async function POST(request: NextRequest) {
         downloadFile.arrayBuffer().then(Buffer.from),
       ]);
       const uid = randomUUID().slice(0, 8);
-      [cachedPreviewId, cachedDownloadId] = await Promise.all([
+      [previewId, downloadId] = await Promise.all([
         uploadBuffer(session.accessToken, previewBuf, previewFile.type || 'image/jpeg', `${uid}-preview.jpg`, PUBLIC_FOLDER_ID),
         uploadBuffer(session.accessToken, downloadBuf, downloadFile.type || 'image/jpeg', `${uid}-download.jpg`, PUBLIC_FOLDER_ID),
       ]);
@@ -187,22 +152,13 @@ export async function POST(request: NextRequest) {
         method: 'PATCH',
         headers,
         body: JSON.stringify({
-          file_preview_watermarked: cachedPreviewId,
-          file_download_watermarked: cachedDownloadId,
+          file_preview_watermarked: previewId,
+          file_download_watermarked: downloadId,
         }),
       }).catch(() => {});
     }
 
-    // 2) Eigenständige Kopien für den Beitrag -- unabhängig von der
-    //    Bibliothek, siehe Kommentar bei copyDirectusFile.
-    const uid = randomUUID().slice(0, 8);
-    const [originalId, previewId, downloadId] = await Promise.all([
-      copyDirectusFile(session.accessToken, sourceMedia.file, `${uid}-original.jpg`),
-      copyDirectusFile(session.accessToken, cachedPreviewId, `${uid}-preview.jpg`, PUBLIC_FOLDER_ID),
-      copyDirectusFile(session.accessToken, cachedDownloadId, `${uid}-download.jpg`, PUBLIC_FOLDER_ID),
-    ]);
-
-    // 3) Beitrag anlegen. is_public ist die einzige Quelle der Wahrheit.
+    // Beitrag anlegen.
     const postId = randomUUID();
     const now = new Date().toISOString();
     const postBody: Record<string, unknown> = {
@@ -222,8 +178,6 @@ export async function POST(request: NextRequest) {
     let postRes = await fetch(`${DIRECTUS_URL}/items/posts`, { method: 'POST', headers, body: JSON.stringify(postBody) });
     if (!postRes.ok) {
       const errText = await postRes.text();
-      // Defensiver Fallback für den dokumentierten post_type-Validierungsfall.
-      // Sauberer wäre, die Regel in Directus selbst zu entfernen.
       if (postRes.status === 403 && errText.includes('post_type')) {
         delete postBody.post_type;
         postRes = await fetch(`${DIRECTUS_URL}/items/posts`, { method: 'POST', headers, body: JSON.stringify(postBody) });
@@ -233,14 +187,16 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 4) Bild-Datensatz anlegen und mit dem Beitrag verknüpfen.
+    // Bild-Datensatz anlegen -- zeigt auf dieselben Datei-IDs wie die
+    // Bibliothek, keine eigene Kopie.
     const imageRes = await fetch(`${DIRECTUS_URL}/items/images`, {
       method: 'POST',
       headers,
       body: JSON.stringify({
         id: randomUUID(),
         post: postId,
-        file_original: originalId,
+        source_media_id: sourceMediaId,
+        file_original: sourceMedia.file,
         file_public_preview: makePublic ? previewId : null,
         file_download: makePublic ? downloadId : null,
         file_public_preview_watermarked: previewId,
@@ -254,8 +210,8 @@ export async function POST(request: NextRequest) {
       throw new Error(`Bilddatensatz anlegen fehlgeschlagen: ${await imageRes.text()}`);
     }
 
-    // 5) Bibliotheks-Eintrag nachführen: used_in_posts erweitern, damit
-    //    das Löschen dort korrekt gesperrt bleibt, solange der Beitrag lebt.
+    // Bibliotheks-Eintrag nachführen: used_in_posts erweitern -- das ist
+    // jetzt der zentrale Löschschutz für die physischen Dateien.
     const usedRes = await fetch(`${DIRECTUS_URL}/items/media_library/${sourceMediaId}?fields=used_in_posts`, {
       headers: { Authorization: `Bearer ${session.accessToken}` },
     });
