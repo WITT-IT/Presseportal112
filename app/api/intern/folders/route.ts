@@ -13,6 +13,22 @@ function getSession(request: NextRequest): { accessToken: string } | null {
   }
 }
 
+// used_in_posts kommt manchmal als roher Text statt als echtes JSON-Array
+// zurück -- gleiches Problem wie an anderen Stellen im Projekt.
+function normalizeIdArray(raw: unknown): string[] {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw.filter((v): v is string => typeof v === 'string');
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed.filter((v): v is string => typeof v === 'string');
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 // POST /api/intern/folders — neuen Ordner anlegen
 // Body: { name, parent_folder? }  (parent_folder: null/undefined = Wurzel)
 export async function POST(request: NextRequest) {
@@ -90,10 +106,66 @@ export async function PATCH(request: NextRequest) {
   return NextResponse.json({ ok: true });
 }
 
-// DELETE /api/intern/folders?id=... — Ordner löschen.
-// Kein Systemordner-Schutz mehr nötig -- es gibt keine Systemordner mehr.
-// Die Organisation-Policy in Directus prüft automatisch, ob der Ordner
-// überhaupt zur eigenen Organisation gehört.
+type MediaLeaf = {
+  id: string;
+  used_in_posts: unknown;
+  file: string | null;
+  file_preview: string | null;
+  file_preview_watermarked: string | null;
+  file_download_watermarked: string | null;
+};
+
+// Sammelt den kompletten Unterbaum (Unterordner + Medienbibliothek-Items)
+// ab folderId -- rekursiv, weil Ordner beliebig tief verschachtelt sein
+// können (siehe /intern/medien).
+async function collectSubtree(
+  folderId: string,
+  accessToken: string
+): Promise<{ folderIds: string[]; mediaItems: MediaLeaf[] }> {
+  const headers = { Authorization: `Bearer ${accessToken}` };
+  const folderIds: string[] = [folderId];
+  const mediaItems: MediaLeaf[] = [];
+
+  const queue = [folderId];
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+
+    const [subfoldersRes, mediaRes] = await Promise.all([
+      fetch(`${DIRECTUS_URL}/items/folders?filter[parent_folder][_eq]=${current}&fields=id`, { headers }),
+      fetch(
+        `${DIRECTUS_URL}/items/media_library?filter[folder][_eq]=${current}&fields=id,used_in_posts,file,file_preview,file_preview_watermarked,file_download_watermarked`,
+        { headers }
+      ),
+    ]);
+
+    if (subfoldersRes.ok) {
+      const { data } = await subfoldersRes.json();
+      for (const f of data as { id: string }[]) {
+        folderIds.push(f.id);
+        queue.push(f.id);
+      }
+    }
+
+    if (mediaRes.ok) {
+      const { data } = await mediaRes.json();
+      mediaItems.push(...(data as MediaLeaf[]));
+    }
+  }
+
+  return { folderIds, mediaItems };
+}
+
+// DELETE /api/intern/folders?id=... — Ordner löschen, inklusive allem
+// darin: Unterordner, Medienbibliothek-Items und deren physische Dateien.
+//
+// Wird IRGENDEIN Medienbibliothek-Item im ganzen Unterbaum noch in einem
+// Beitrag verwendet, bricht die komplette Löschung ab, bevor irgendwas
+// angefasst wird -- lieber räumt der Nutzer den betroffenen Beitrag zuerst
+// auf, als dass ein Beitrag plötzlich sein Foto verliert.
+//
+// Läuft der Check durch: erst alle Dateien in Directus löschen (das gibt
+// den Speicherplatz frei), dann die media_library-Datensätze, dann die
+// Ordner selbst -- tiefste zuerst.
 export async function DELETE(request: NextRequest) {
   const session = getSession(request);
   if (!session) return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
@@ -101,14 +173,58 @@ export async function DELETE(request: NextRequest) {
   const folderId = request.nextUrl.searchParams.get('id');
   if (!folderId) return NextResponse.json({ error: 'Keine ID.' }, { status: 400 });
 
-  const res = await fetch(`${DIRECTUS_URL}/items/folders/${folderId}`, {
-    method: 'DELETE',
-    headers: { Authorization: `Bearer ${session.accessToken}` },
-  });
+  const headers = { Authorization: `Bearer ${session.accessToken}` };
 
-  if (!res.ok && res.status !== 204) {
-    return NextResponse.json({ error: 'Löschen fehlgeschlagen.' }, { status: 500 });
+  let subtree: { folderIds: string[]; mediaItems: MediaLeaf[] };
+  try {
+    subtree = await collectSubtree(folderId, session.accessToken);
+  } catch (error) {
+    console.error('Ordnerinhalt konnte nicht ermittelt werden:', error);
+    return NextResponse.json({ error: 'Ordnerinhalt konnte nicht geprüft werden.' }, { status: 502 });
   }
 
-  return NextResponse.json({ ok: true });
+  const blocked = subtree.mediaItems.filter((item) => normalizeIdArray(item.used_in_posts).length > 0);
+  if (blocked.length > 0) {
+    return NextResponse.json(
+      {
+        error: `Dieser Ordner enthält ${blocked.length} Bild${blocked.length === 1 ? '' : 'er'}, die noch in einem Beitrag verwendet werden. Bitte diese Beiträge zuerst löschen oder die Bilder in einen anderen Ordner verschieben.`,
+      },
+      { status: 409 }
+    );
+  }
+
+  const fileIds = subtree.mediaItems
+    .flatMap((item) => [item.file, item.file_preview, item.file_preview_watermarked, item.file_download_watermarked])
+    .filter((v): v is string => typeof v === 'string' && v.length > 0);
+
+  await Promise.allSettled(
+    fileIds.map((fileId) =>
+      fetch(`${DIRECTUS_URL}/files/${fileId}`, { method: 'DELETE', headers }).then((res) => {
+        if (!res.ok) console.error(`Datei ${fileId} konnte nicht gelöscht werden (Status ${res.status}).`);
+      })
+    )
+  );
+
+  if (subtree.mediaItems.length > 0) {
+    await fetch(`${DIRECTUS_URL}/items/media_library`, {
+      method: 'DELETE',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify(subtree.mediaItems.map((item) => item.id)),
+    }).catch(() => {});
+  }
+
+  const deletionOrder = [...subtree.folderIds].reverse();
+  for (const id of deletionOrder) {
+    const res = await fetch(`${DIRECTUS_URL}/items/folders/${id}`, { method: 'DELETE', headers });
+    if (!res.ok && res.status !== 204) {
+      console.error(`Ordner ${id} konnte nicht gelöscht werden (Status ${res.status}).`);
+    }
+  }
+
+  return NextResponse.json({
+    ok: true,
+    deletedFolders: subtree.folderIds.length,
+    deletedMediaItems: subtree.mediaItems.length,
+    deletedFiles: fileIds.length,
+  });
 }
