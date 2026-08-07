@@ -53,8 +53,13 @@ export default function UploadStudio({
   const [eventDate, setEventDate] = useState(existingPost?.event_date?.slice(0, 10) ?? '');
   const [alarmCode, setAlarmCode] = useState(existingPost?.alarm_code ?? '');
   const [location, setLocation] = useState(existingPost?.location ?? '');
+  // normalizeTags hier nochmal defensiv drüberlaufen lassen, unabhängig
+  // davon ob der Aufrufer schon normalisiert hat -- Directus liefert tags
+  // je nach Alter des Datensatzes mal als Array, mal als JSON-String.
+  // normalizeTags ist idempotent: ein sauberes Array kommt unverändert
+  // wieder raus, ein String wird geparst.
   const [tags, setTags] = useState<string[]>(
-    existingPost ? existingPost.tags : normalizeTags(sourceMedia?.tags ?? [])
+    normalizeTags(existingPost ? existingPost.tags : sourceMedia?.tags ?? [])
   );
   const [tagInput, setTagInput] = useState('');
   const [caption, setCaption] = useState(existingPost?.caption ?? '');
