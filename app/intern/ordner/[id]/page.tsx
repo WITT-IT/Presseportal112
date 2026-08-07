@@ -83,7 +83,7 @@ export default async function FolderDetailPage({
             return (
               <Link
                 key={post.id}
-                href={`/intern/bearbeiten/${post.id}`}
+                href={`/intern/upload?postId=${post.id}`}
                 className="group relative overflow-hidden rounded-[10px] border border-line bg-white transition-colors hover:border-line-strong"
               >
                 <div className="relative h-[110px] bg-panel">
