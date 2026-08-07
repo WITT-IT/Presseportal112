@@ -249,7 +249,7 @@ export default function InternPage() {
                           Privat schalten
                         </button>
                         <Link
-                          href={`/intern/bearbeiten/${item.postId}`}
+                          href={`/intern/upload?postId=${item.postId}`}
                           className="text-[12px] font-semibold text-ink hover:underline"
                         >
                           Bearbeiten
@@ -322,7 +322,7 @@ export default function InternPage() {
                           Öffentlich schalten
                         </button>
                         <Link
-                          href={`/intern/bearbeiten/${item.postId}`}
+                          href={`/intern/upload?postId=${item.postId}`}
                           className="text-[12px] font-semibold text-ink hover:underline"
                         >
                           Bearbeiten
