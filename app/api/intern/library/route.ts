@@ -93,9 +93,6 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Diesem Eintrag ist keine Datei zugeordnet.' }, { status: 404 });
     }
 
-    // Optionale Transform-Parameter (Thumbnails) durchreichen -- Directus
-    // skaliert/komprimiert das Original on-the-fly, wir laden es nicht
-    // mehrfach in unterschiedlichen Größen vor.
     const width = searchParams.get('width');
     const quality = searchParams.get('quality');
     const transform = [width ? `width=${width}` : null, quality ? `quality=${quality}` : null]
@@ -171,13 +168,6 @@ export async function GET(request: NextRequest) {
 
 // POST /api/intern/library — Direkt-Upload in die Bibliothek, KEIN Beitrag.
 // FormData: folder (optional), image_count, file_0..N
-//
-// WICHTIG: jeder einzelne Schritt (Datei-Upload zu Directus, media_library-
-// Eintrag anlegen) wird geprüft und Fehler werden gesammelt statt
-// verschluckt -- vorher konnte die Originaldatei erfolgreich in Directus
-// landen, während das Anlegen des media_library-Eintrags (z.B. wegen eines
-// fehlenden Feldes oder einer Berechtigung) lautlos scheiterte, sodass die
-// Datei in Directus sichtbar war, aber nirgends in der Bibliothek auftauchte.
 export async function POST(request: NextRequest) {
   const session = getSession(request);
   if (!session) return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
@@ -266,11 +256,11 @@ export async function PATCH(request: NextRequest) {
   return NextResponse.json({ ok: true });
 }
 
-// DELETE /api/intern/library?id=... — nur wenn in keinem Beitrag verwendet.
-// Löscht ALLE zugehörigen physischen Dateien (Original, Vorschau, beide
-// Wasserzeichen-Varianten) -- vorher wurde nur das Original gelöscht, die
-// Wasserzeichen-Kopien blieben für immer als Datenmüll liegen. Genau das
-// hat den Speicherplatz auf Directus nicht wirklich freigegeben.
+// DELETE /api/intern/library?id=... — nur wenn in einem WIRKLICH noch
+// existierenden Beitrag verwendet. Prüft nicht nur, ob used_in_posts
+// nicht-leer ist, sondern ob die referenzierten Post-IDs überhaupt noch
+// existieren -- verwaiste Referenzen werden automatisch erkannt und
+// aufgeräumt, statt die Löschung für immer zu blockieren.
 export async function DELETE(request: NextRequest) {
   const session = getSession(request);
   if (!session) return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
@@ -279,15 +269,13 @@ export async function DELETE(request: NextRequest) {
   if (!id) return NextResponse.json({ error: 'Keine ID.' }, { status: 400 });
 
   const headers = { Authorization: `Bearer ${session.accessToken}` };
+  const jsonHeaders = { ...headers, 'Content-Type': 'application/json' };
 
   const checkRes = await fetch(
     `${DIRECTUS_URL}/items/media_library/${id}?fields=id,used_in_posts,file,file_preview,file_preview_watermarked,file_download_watermarked`,
     { headers }
   );
   if (!checkRes.ok) {
-    // Vorher: bei fehlgeschlagenem Check lief der Code trotzdem weiter und
-    // löschte den Datensatz -- ohne Schutzprüfung, ohne Dateien zu löschen.
-    // Jetzt: lieber abbrechen und Bescheid geben.
     return NextResponse.json(
       { error: 'Bild konnte nicht geprüft werden. Bitte erneut versuchen.' },
       { status: 502 }
@@ -295,11 +283,35 @@ export async function DELETE(request: NextRequest) {
   }
 
   const { data } = await checkRes.json();
-  if (normalizeIdArray(data?.used_in_posts).length > 0) {
+  const rawUsedInPosts = normalizeIdArray(data?.used_in_posts);
+
+  let validUsedInPosts: string[] = [];
+  if (rawUsedInPosts.length > 0) {
+    const postsRes = await fetch(
+      `${DIRECTUS_URL}/items/posts?filter[id][_in]=${rawUsedInPosts.join(',')}&fields=id`,
+      { headers }
+    );
+    if (postsRes.ok) {
+      const { data: existingPosts } = await postsRes.json();
+      validUsedInPosts = (existingPosts as { id: string }[]).map((p) => p.id);
+    } else {
+      validUsedInPosts = rawUsedInPosts;
+    }
+  }
+
+  if (validUsedInPosts.length > 0) {
     return NextResponse.json(
       { error: 'Bild wird in einem Beitrag verwendet und kann nicht gelöscht werden.' },
       { status: 409 }
     );
+  }
+
+  if (rawUsedInPosts.length > 0) {
+    await fetch(`${DIRECTUS_URL}/items/media_library/${id}`, {
+      method: 'PATCH',
+      headers: jsonHeaders,
+      body: JSON.stringify({ used_in_posts: [] }),
+    }).catch(() => {});
   }
 
   const fileIds = [
