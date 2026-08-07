@@ -383,14 +383,34 @@ export default function UploadStudio({
               className="rounded-md border border-line-strong bg-panel px-4 py-2 text-[12px] font-semibold text-ink hover:bg-line disabled:opacity-50"
             >
               {toggleWorking ? 'Wird geändert …' : isPublic ? 'Öffentlich geschaltet' : 'Privat geschaltet'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowDeleteDialog(true)}
-              className="rounded-md border border-line-strong bg-white px-4 py-2 text-[12px] font-semibold text-signal-deep hover:bg-signal-light"
-            >
-              Beitrag-Löschen
-            </button>
+           <button
+  type="button"
+  role="switch"
+  aria-checked={isPublic}
+  aria-label="Sichtbarkeit umschalten"
+  onClick={handleTogglePublic}
+  disabled={toggleWorking}
+  className={`inline-flex items-center gap-3 rounded-md border px-4 py-2 text-[12px] font-semibold transition-colors disabled:opacity-50 ${
+    isPublic
+      ? 'border-emerald-300 bg-emerald-50 text-emerald-900'
+      : 'border-line-strong bg-panel text-ink hover:bg-line'
+  }`}
+>
+  <span>{toggleWorking ? 'Wird geändert …' : isPublic ? 'Öffentlich' : 'Privat'}</span>
+
+  <span
+    aria-hidden="true"
+    className={`relative h-6 w-11 rounded-full transition-colors ${
+      isPublic ? 'bg-emerald-500' : 'bg-ink-3'
+    }`}
+  >
+    <span
+      className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
+        isPublic ? 'translate-x-5' : 'translate-x-0.5'
+      }`}
+    />
+  </span>
+</button>
           </div>
         )}
       </div>
