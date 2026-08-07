@@ -29,10 +29,10 @@ export default function RegisterForm({
   const [gewerkId, setGewerkId] = useState(gewerke[0]?.id ?? '');
   // Website wird von beiden Typen genutzt (bei Organisationen zusätzlich
   // eingebettet im "Für euren Auftritt"-Block mit Social Links).
-  //const [website, setWebsite] = useState('');
-  //const [facebook, setFacebook] = useState('');
-  //const [instagram, setInstagram] = useState('');
-  //const [otherSocial, setOtherSocial] = useState('');
+  const [website, setWebsite] = useState('');
+  const [facebook, setFacebook] = useState('');
+  const [instagram, setInstagram] = useState('');
+  const [otherSocial, setOtherSocial] = useState('');
 
   const [status, setStatus] = useState<'idle' | 'sending' | 'done' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -224,7 +224,7 @@ export default function RegisterForm({
             </p>
 
             <div className="mb-3">
-              {/* <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">
+               <label className="mb-1.5 block text-[12.5px] font-medium text-ink-2">
                 Website
               </label>
               <input
@@ -233,7 +233,7 @@ export default function RegisterForm({
                 onChange={(e) => setWebsite(e.target.value)}
                 placeholder="https://…"
                 className="w-full rounded-md border border-line-strong bg-white px-3 py-2 text-[14px] outline-none focus:border-ink"
-              /> {*/
+              />
             </div>
 
             <div className="grid grid-cols-2 gap-3">
