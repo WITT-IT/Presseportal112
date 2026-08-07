@@ -53,10 +53,10 @@ export default function UploadStudio({
   const [eventDate, setEventDate] = useState(existingPost?.event_date?.slice(0, 10) ?? '');
   const [alarmCode, setAlarmCode] = useState(existingPost?.alarm_code ?? '');
   const [location, setLocation] = useState(existingPost?.location ?? '');
-  // normalizeTags hier nochmal defensiv drÃ¼berlaufen lassen, unabhÃ¤ngig
+  // normalizeTags hier nochmal defensiv drüberlaufen lassen, unabhängig
   // davon ob der Aufrufer schon normalisiert hat -- Directus liefert tags
   // je nach Alter des Datensatzes mal als Array, mal als JSON-String.
-  // normalizeTags ist idempotent: ein sauberes Array kommt unverÃ¤ndert
+  // normalizeTags ist idempotent: ein sauberes Array kommt unverändert
   // wieder raus, ein String wird geparst.
   const [tags, setTags] = useState<string[]>(
     normalizeTags(existingPost ? existingPost.tags : sourceMedia?.tags ?? [])
@@ -114,11 +114,11 @@ export default function UploadStudio({
         body: JSON.stringify({ id: existingPost.id }),
       });
       const body = await res.json().catch(() => ({}));
-      if (!res.ok || body.error) throw new Error(body.error || 'LÃ¶schen fehlgeschlagen.');
+      if (!res.ok || body.error) throw new Error(body.error || 'Löschen fehlgeschlagen.');
       router.push('/intern');
       router.refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'LÃ¶schen fehlgeschlagen.');
+      setError(err instanceof Error ? err.message : 'Löschen fehlgeschlagen.');
       setDeleteWorking(false);
       setShowDeleteDialog(false);
     }
@@ -129,11 +129,11 @@ export default function UploadStudio({
     setError(null);
 
     if (!contentConfirmed) {
-      setError('Bitte die BestÃ¤tigung ankreuzen.');
+      setError('Bitte die Bestätigung ankreuzen.');
       return;
     }
     if (postMode === 'einsatz' && (!title.trim() || !location.trim() || !alarmCode.trim() || !eventDate)) {
-      setError('Bitte Titel, Ort, Alarmcode und Datum ausfÃ¼llen.');
+      setError('Bitte Titel, Ort, Alarmcode und Datum ausfüllen.');
       return;
     }
 
@@ -141,7 +141,7 @@ export default function UploadStudio({
 
     try {
       if (isEditMode && existingPost) {
-        setProgress('Wird gespeichert â€¦');
+        setProgress('Wird gespeichert …');
         const res = await fetch('/api/intern/update', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -175,7 +175,7 @@ export default function UploadStudio({
 
         const hasCached = !!(sourceMedia.file_preview_watermarked && sourceMedia.file_download_watermarked);
         if (!hasCached) {
-          setProgress('Wasserzeichen wird erzeugt â€¦');
+          setProgress('Wasserzeichen wird erzeugt …');
           const assetRes = await fetch(`/api/intern/library?original=${sourceMedia.id}`);
           if (!assetRes.ok) throw new Error('Originalbild konnte nicht geladen werden.');
           const blob = await assetRes.blob();
@@ -187,10 +187,10 @@ export default function UploadStudio({
           formData.append('use_cached_watermark', 'true');
         }
 
-        setProgress('Wird verÃ¶ffentlicht â€¦');
+        setProgress('Wird veröffentlicht …');
         const res = await fetch('/api/intern/upload', { method: 'POST', body: formData });
         const body = await res.json().catch(() => ({}));
-        if (!res.ok || body.error) throw new Error(body.error || 'VerÃ¶ffentlichen fehlgeschlagen.');
+        if (!res.ok || body.error) throw new Error(body.error || 'Veröffentlichen fehlgeschlagen.');
       }
 
       setStatus('done');
@@ -218,17 +218,17 @@ export default function UploadStudio({
     return (
       <div className="rounded-[10px] border border-line bg-white p-8 text-center">
         <h2 className="mb-1 font-display text-[20px] font-bold">
-          {isEditMode ? 'Gespeichert' : 'VerÃ¶ffentlicht'}
+          {isEditMode ? 'Gespeichert' : 'Veröffentlicht'}
         </h2>
         <p className="mb-4 text-[13px] text-ink-2">
-          {isEditMode ? 'Ã„nderungen wurden Ã¼bernommen.' : 'Beitrag ist jetzt Ã¶ffentlich sichtbar.'}
+          {isEditMode ? 'Änderungen wurden übernommen.' : 'Beitrag ist jetzt öffentlich sichtbar.'}
         </p>
         <button
           type="button"
           onClick={() => router.push('/intern')}
           className="rounded-md bg-ink px-4 py-2.5 text-[13px] font-semibold text-white hover:opacity-90"
         >
-          Zur Ãœbersicht
+          Zur Übersicht
         </button>
       </div>
     );
@@ -288,7 +288,7 @@ export default function UploadStudio({
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               className={inp}
-              placeholder="Zimmerbrand HauptstraÃŸe"
+              placeholder="Zimmerbrand Hauptstraße"
             />
           </div>
           <div>
@@ -319,7 +319,7 @@ export default function UploadStudio({
             >
               {tag}
               <button type="button" onClick={() => removeTag(tag)} className="text-ink-3 hover:text-signal-deep">
-                âœ•
+                ✕
               </button>
             </span>
           ))}
@@ -336,7 +336,7 @@ export default function UploadStudio({
           }}
           onBlur={() => addTag(tagInput)}
           list="tag-suggestions"
-          placeholder="Tag eingeben, Enter zum HinzufÃ¼gen"
+          placeholder="Tag eingeben, Enter zum Hinzufügen"
           className={inp}
         />
         <datalist id="tag-suggestions">
@@ -356,7 +356,7 @@ export default function UploadStudio({
               className="h-4 w-4"
             />
             <span className="text-[12px] font-medium text-ink-2">
-              Ich bestÃ¤tige, dass ich die Rechte an diesem Bild habe *
+              Ich bestätige, dass ich die Rechte an diesem Bild habe *
             </span>
           </label>
         </div>
@@ -371,46 +371,25 @@ export default function UploadStudio({
           disabled={status === 'working'}
           className="w-full rounded-md bg-ink px-5 py-2.5 text-[13.5px] font-semibold text-white transition-colors hover:bg-black disabled:opacity-60"
         >
-          {status === 'working' ? 'Wird verarbeitet â€¦' : isEditMode ? 'Speichern' : 'VerÃ¶ffentlichen'}
+          {status === 'working' ? 'Wird verarbeitet …' : isEditMode ? 'Speichern' : 'Veröffentlichen'}
         </button>
 
         {isEditMode && existingPost && (
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              role="switch"
-              aria-checked={isPublic}
-              aria-label="Sichtbarkeit umschalten"
               onClick={handleTogglePublic}
               disabled={toggleWorking}
-              className={`inline-flex items-center gap-3 rounded-md border px-4 py-2 text-[12px] font-semibold transition-colors disabled:opacity-50 ${
-                isPublic
-                  ? 'border-emerald-300 bg-emerald-50 text-emerald-900'
-                  : 'border-line-strong bg-panel text-ink hover:bg-line'
-              }`}
+              className="rounded-md border border-line-strong bg-panel px-4 py-2 text-[12px] font-semibold text-ink hover:bg-line disabled:opacity-50"
             >
-              <span>{toggleWorking ? 'Wird geÃ¤ndert â€¦' : isPublic ? 'Ã–ffentlich' : 'Privat'}</span>
-
-              <span
-                aria-hidden="true"
-                className={`relative h-6 w-11 rounded-full transition-colors ${
-                  isPublic ? 'bg-emerald-500' : 'bg-ink-3'
-                }`}
-              >
-                <span
-                  className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
-                    isPublic ? 'translate-x-5' : 'translate-x-0.5'
-                  }`}
-                />
-              </span>
+              {toggleWorking ? 'Wird geändert …' : isPublic ? 'Privat schalten' : 'Öffentlich schalten'}
             </button>
-
             <button
               type="button"
               onClick={() => setShowDeleteDialog(true)}
               className="rounded-md border border-line-strong bg-white px-4 py-2 text-[12px] font-semibold text-signal-deep hover:bg-signal-light"
             >
-              Beitrag-LÃ¶schen
+              Löschen
             </button>
           </div>
         )}
@@ -419,7 +398,7 @@ export default function UploadStudio({
       {showDeleteDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="w-full max-w-sm rounded-[10px] border border-line bg-white p-4">
-            <h3 className="mb-2 font-display text-[18px] font-bold">Beitrag lÃ¶schen?</h3>
+            <h3 className="mb-2 font-display text-[18px] font-bold">Beitrag löschen?</h3>
             <p className="mb-4 text-[13px] text-ink-2">
               Der Beitrag wird entfernt. Das Originalfoto bleibt in der Medienbibliothek erhalten.
             </p>
@@ -430,7 +409,7 @@ export default function UploadStudio({
                 disabled={deleteWorking}
                 className="flex-1 rounded-md bg-signal-deep px-4 py-2.5 text-[13px] font-semibold text-white hover:bg-black disabled:opacity-60"
               >
-                {deleteWorking ? 'Wird gelÃ¶scht â€¦' : 'EndgÃ¼ltig lÃ¶schen'}
+                {deleteWorking ? 'Wird gelöscht …' : 'Endgültig löschen'}
               </button>
               <button
                 type="button"
@@ -447,4 +426,3 @@ export default function UploadStudio({
     </form>
   );
 }
-
