@@ -8,43 +8,64 @@ import AlarmCodeInput from '@/components/AlarmCodeInput';
 import { normalizeTags } from '@/lib/types';
 import type { Alarmcode } from '@/lib/types';
 
+type PostMode = 'einsatz' | 'stockfoto';
+
 type SourceMedia = {
   id: string;
   file: string;
-  file_preview: string | null;
   file_preview_watermarked: string | null;
   file_download_watermarked: string | null;
   display_name: string | null;
   tags: string[] | null;
 };
 
-type PostMode = 'einsatz' | 'stockfoto';
+type ExistingPost = {
+  id: string;
+  post_type: PostMode;
+  title: string | null;
+  event_date: string | null;
+  alarm_code: string | null;
+  location: string | null;
+  tags: string[];
+  is_public: boolean;
+  caption: string | null;
+  thumbnailUrl: string | null;
+};
 
 export default function UploadStudio({
   watermarkText,
   existingTags,
   alarmcodes,
   sourceMedia,
+  existingPost,
 }: {
   watermarkText: string;
   existingTags: string[];
   alarmcodes: Alarmcode[];
-  sourceMedia: SourceMedia;
+  sourceMedia?: SourceMedia;
+  existingPost?: ExistingPost;
 }) {
   const router = useRouter();
+  const isEditMode = !!existingPost;
 
-  const [postMode, setPostMode] = useState<PostMode>('einsatz');
-  const [title, setTitle] = useState('');
-  const [eventDate, setEventDate] = useState('');
-  const [alarmCode, setAlarmCode] = useState('');
-  const [location, setLocation] = useState('');
-  const [tags, setTags] = useState<string[]>(normalizeTags(sourceMedia.tags));
+  const [postMode, setPostMode] = useState<PostMode>(existingPost?.post_type ?? 'einsatz');
+  const [title, setTitle] = useState(existingPost?.title ?? '');
+  const [eventDate, setEventDate] = useState(existingPost?.event_date?.slice(0, 10) ?? '');
+  const [alarmCode, setAlarmCode] = useState(existingPost?.alarm_code ?? '');
+  const [location, setLocation] = useState(existingPost?.location ?? '');
+  const [tags, setTags] = useState<string[]>(
+    existingPost ? existingPost.tags : normalizeTags(sourceMedia?.tags ?? [])
+  );
   const [tagInput, setTagInput] = useState('');
-  const [caption, setCaption] = useState('');
-  const [contentConfirmed, setContentConfirmed] = useState(false);
+  const [caption, setCaption] = useState(existingPost?.caption ?? '');
+  const [isPublic, setIsPublic] = useState(existingPost?.is_public ?? true);
+  const [contentConfirmed, setContentConfirmed] = useState(isEditMode);
   const [status, setStatus] = useState<'idle' | 'working' | 'done' | 'error'>('idle');
   const [progress, setProgress] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deleteWorking, setDeleteWorking] = useState(false);
+  const [toggleWorking, setToggleWorking] = useState(false);
 
   function addTag(v: string) {
     const t = v.trim();
@@ -54,6 +75,48 @@ export default function UploadStudio({
 
   function removeTag(tag: string) {
     setTags((prev) => prev.filter((t) => t !== tag));
+  }
+
+  async function handleTogglePublic() {
+    if (!existingPost) return;
+    setToggleWorking(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/intern/posts/toggle-public', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ postId: existingPost.id, makePublic: !isPublic }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body.ok) throw new Error(body.error || 'Statuswechsel fehlgeschlagen.');
+      setIsPublic(!isPublic);
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Statuswechsel fehlgeschlagen.');
+    } finally {
+      setToggleWorking(false);
+    }
+  }
+
+  async function confirmDelete() {
+    if (!existingPost || deleteWorking) return;
+    setDeleteWorking(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/intern/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: existingPost.id }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || body.error) throw new Error(body.error || 'Löschen fehlgeschlagen.');
+      router.push('/intern');
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Löschen fehlgeschlagen.');
+      setDeleteWorking(false);
+      setShowDeleteDialog(false);
+    }
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -72,49 +135,64 @@ export default function UploadStudio({
     setStatus('working');
 
     try {
-      const formData = new FormData();
-      formData.append('source_media_id', sourceMedia.id);
-      formData.append('post_type', postMode);
-      formData.append('tags', tags.join(','));
-      // Wer hier ist, hat aktiv aus der Bibliothek gewählt und will
-      // veröffentlichen -- kein Entwurfs-Zwischenzustand mehr.
-      formData.append('make_public', 'true');
-      formData.append('content_confirmed', 'true');
-      formData.append('caption', caption);
-      if (postMode === 'einsatz') {
-        formData.append('title', title);
-        formData.append('event_date', eventDate);
-        formData.append('alarm_code', alarmCode);
-        formData.append('location', location);
-      }
+      if (isEditMode && existingPost) {
+        setProgress('Wird gespeichert …');
+        const res = await fetch('/api/intern/update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: existingPost.id,
+            post_type: postMode,
+            title: postMode === 'einsatz' ? title : null,
+            event_date: postMode === 'einsatz' ? eventDate : null,
+            alarm_code: postMode === 'einsatz' ? alarmCode : null,
+            location: postMode === 'einsatz' ? location : null,
+            tags,
+            caption,
+          }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok || body.error) throw new Error(body.error || 'Speichern fehlgeschlagen.');
+      } else if (sourceMedia) {
+        const formData = new FormData();
+        formData.append('source_media_id', sourceMedia.id);
+        formData.append('post_type', postMode);
+        formData.append('tags', tags.join(','));
+        formData.append('make_public', 'true');
+        formData.append('content_confirmed', 'true');
+        formData.append('caption', caption);
+        if (postMode === 'einsatz') {
+          formData.append('title', title);
+          formData.append('event_date', eventDate);
+          formData.append('alarm_code', alarmCode);
+          formData.append('location', location);
+        }
 
-      const hasCached = !!(sourceMedia.file_preview_watermarked && sourceMedia.file_download_watermarked);
+        const hasCached = !!(sourceMedia.file_preview_watermarked && sourceMedia.file_download_watermarked);
+        if (!hasCached) {
+          setProgress('Wasserzeichen wird erzeugt …');
+          const assetRes = await fetch(`/api/intern/library?original=${sourceMedia.id}`);
+          if (!assetRes.ok) throw new Error('Originalbild konnte nicht geladen werden.');
+          const blob = await assetRes.blob();
+          const file = new File([blob], sourceMedia.display_name || 'bild.jpg', { type: blob.type || 'image/jpeg' });
+          const { preview, download } = await createWatermarkedVariants(file, watermarkText);
+          formData.append('preview_0', preview, 'preview.jpg');
+          formData.append('download_0', download, 'download.jpg');
+        } else {
+          formData.append('use_cached_watermark', 'true');
+        }
 
-      if (!hasCached) {
-        setProgress('Wasserzeichen wird erzeugt …');
-        const assetRes = await fetch(`/api/intern/library?original=${sourceMedia.id}`);
-        if (!assetRes.ok) throw new Error('Originalbild konnte nicht geladen werden.');
-        const blob = await assetRes.blob();
-        const file = new File([blob], sourceMedia.display_name || 'bild.jpg', { type: blob.type || 'image/jpeg' });
-        const { preview, download } = await createWatermarkedVariants(file, watermarkText);
-        formData.append('preview_0', preview, 'preview.jpg');
-        formData.append('download_0', download, 'download.jpg');
-      } else {
-        formData.append('use_cached_watermark', 'true');
-      }
-
-      setProgress('Wird veröffentlicht …');
-      const res = await fetch('/api/intern/upload', { method: 'POST', body: formData });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok || body.error) {
-        throw new Error(body.error || 'Veröffentlichen fehlgeschlagen.');
+        setProgress('Wird veröffentlicht …');
+        const res = await fetch('/api/intern/upload', { method: 'POST', body: formData });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok || body.error) throw new Error(body.error || 'Veröffentlichen fehlgeschlagen.');
       }
 
       setStatus('done');
       setProgress('');
       router.refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Veröffentlichen fehlgeschlagen.');
+      setError(err instanceof Error ? err.message : 'Fehlgeschlagen.');
       setStatus('error');
       setProgress('');
     }
@@ -122,19 +200,30 @@ export default function UploadStudio({
 
   const inp = 'w-full rounded border border-line-strong bg-white px-2.5 py-1.5 text-[13px] outline-none focus:border-ink';
   const lbl = 'mb-1 block text-[11.5px] font-medium text-ink-2';
-  const label = sourceMedia.display_name || 'Bild';
+  const label = isEditMode
+    ? existingPost?.title || existingPost?.alarm_code || 'Stockfoto'
+    : sourceMedia?.display_name || 'Bild';
+  const thumbnailSrc = isEditMode
+    ? existingPost?.thumbnailUrl
+    : sourceMedia
+    ? `/api/intern/library?original=${sourceMedia.id}&width=160&quality=70`
+    : null;
 
   if (status === 'done') {
     return (
       <div className="rounded-[10px] border border-line bg-white p-8 text-center">
-        <h2 className="mb-1 font-display text-[20px] font-bold">Veröffentlicht</h2>
-        <p className="mb-4 text-[13px] text-ink-2">Beitrag ist jetzt öffentlich sichtbar.</p>
+        <h2 className="mb-1 font-display text-[20px] font-bold">
+          {isEditMode ? 'Gespeichert' : 'Veröffentlicht'}
+        </h2>
+        <p className="mb-4 text-[13px] text-ink-2">
+          {isEditMode ? 'Änderungen wurden übernommen.' : 'Beitrag ist jetzt öffentlich sichtbar.'}
+        </p>
         <button
           type="button"
-          onClick={() => router.push('/intern/medien')}
+          onClick={() => router.push('/intern')}
           className="rounded-md bg-ink px-4 py-2.5 text-[13px] font-semibold text-white hover:opacity-90"
         >
-          Zur Medienbibliothek
+          Zur Übersicht
         </button>
       </div>
     );
@@ -142,20 +231,16 @@ export default function UploadStudio({
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-      {/* Bild-Header */}
+      {/* Bild-Header -- nur Anzeige */}
       <div className="flex items-center gap-3 rounded-[10px] border border-line bg-white p-3">
         <div className="relative h-16 w-16 flex-shrink-0 overflow-hidden rounded-lg bg-panel">
-          <Image
-            src={`/api/intern/library?original=${sourceMedia.id}&width=160&quality=70`}
-            alt=""
-            fill
-            className="object-cover"
-            unoptimized
-          />
+          {thumbnailSrc && <Image src={thumbnailSrc} alt="" fill className="object-cover" unoptimized />}
         </div>
         <div className="min-w-0">
           <p className="truncate text-[13px] font-semibold text-ink">{label}</p>
-          <p className="text-[11.5px] text-ink-2">Aus der Medienbibliothek</p>
+          <p className="text-[11.5px] text-ink-2">
+            {isEditMode ? 'Bestehender Beitrag' : 'Aus der Medienbibliothek'}
+          </p>
         </div>
       </div>
 
@@ -256,30 +341,83 @@ export default function UploadStudio({
         </datalist>
       </div>
 
-      <div className="flex items-center justify-between rounded-[10px] border border-line bg-white p-3">
-        <label className="flex cursor-pointer items-center gap-2">
-          <input
-            type="checkbox"
-            checked={contentConfirmed}
-            onChange={(e) => setContentConfirmed(e.target.checked)}
-            className="h-4 w-4"
-          />
-          <span className="text-[12px] font-medium text-ink-2">
-            Ich bestätige, dass ich die Rechte an diesem Bild habe *
-          </span>
-        </label>
-      </div>
+      {!isEditMode && (
+        <div className="flex items-center justify-between rounded-[10px] border border-line bg-white p-3">
+          <label className="flex cursor-pointer items-center gap-2">
+            <input
+              type="checkbox"
+              checked={contentConfirmed}
+              onChange={(e) => setContentConfirmed(e.target.checked)}
+              className="h-4 w-4"
+            />
+            <span className="text-[12px] font-medium text-ink-2">
+              Ich bestätige, dass ich die Rechte an diesem Bild habe *
+            </span>
+          </label>
+        </div>
+      )}
 
       {error && <p className="text-[12px] text-signal-deep">{error}</p>}
       {progress && <p className="text-[12px] text-ink-2">{progress}</p>}
 
-      <button
-        type="submit"
-        disabled={status === 'working'}
-        className="w-full rounded-md bg-ink px-5 py-2.5 text-[13.5px] font-semibold text-white transition-colors hover:bg-black disabled:opacity-60"
-      >
-        {status === 'working' ? 'Wird verarbeitet …' : 'Veröffentlichen'}
-      </button>
+      <div className="flex flex-col gap-2">
+        <button
+          type="submit"
+          disabled={status === 'working'}
+          className="w-full rounded-md bg-ink px-5 py-2.5 text-[13.5px] font-semibold text-white transition-colors hover:bg-black disabled:opacity-60"
+        >
+          {status === 'working' ? 'Wird verarbeitet …' : isEditMode ? 'Speichern' : 'Veröffentlichen'}
+        </button>
+
+        {isEditMode && existingPost && (
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={handleTogglePublic}
+              disabled={toggleWorking}
+              className="rounded-md border border-line-strong bg-panel px-4 py-2 text-[12px] font-semibold text-ink hover:bg-line disabled:opacity-50"
+            >
+              {toggleWorking ? 'Wird geändert …' : isPublic ? 'Privat schalten' : 'Öffentlich schalten'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowDeleteDialog(true)}
+              className="rounded-md border border-line-strong bg-white px-4 py-2 text-[12px] font-semibold text-signal-deep hover:bg-signal-light"
+            >
+              Löschen
+            </button>
+          </div>
+        )}
+      </div>
+
+      {showDeleteDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="w-full max-w-sm rounded-[10px] border border-line bg-white p-4">
+            <h3 className="mb-2 font-display text-[18px] font-bold">Beitrag löschen?</h3>
+            <p className="mb-4 text-[13px] text-ink-2">
+              Der Beitrag wird entfernt. Das Originalfoto bleibt in der Medienbibliothek erhalten.
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={confirmDelete}
+                disabled={deleteWorking}
+                className="flex-1 rounded-md bg-signal-deep px-4 py-2.5 text-[13px] font-semibold text-white hover:bg-black disabled:opacity-60"
+              >
+                {deleteWorking ? 'Wird gelöscht …' : 'Endgültig löschen'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowDeleteDialog(false)}
+                disabled={deleteWorking}
+                className="flex-1 rounded-md border border-line-strong px-4 py-2.5 text-[13px] font-semibold text-ink hover:border-ink disabled:opacity-60"
+              >
+                Abbrechen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </form>
   );
 }
