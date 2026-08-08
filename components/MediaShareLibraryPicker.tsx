@@ -12,6 +12,23 @@ type LibraryItem = {
 
 type FolderNode = { id: string; name: string };
 
+function IconFolder({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
+    </svg>
+  );
+}
+
 export default function MediaShareLibraryPicker({
   shareId,
   excludeIds,
@@ -109,15 +126,9 @@ export default function MediaShareLibraryPicker({
     }
   }
 
-  function renderGrid(items: LibraryItem[]) {
+  function renderImageGrid(items: LibraryItem[]) {
     const visible = items.filter((item) => !excluded.has(item.id));
-    if (visible.length === 0) {
-      return (
-        <p className="py-8 text-center text-[12.5px] text-ink-3">
-          {items.length === 0 ? 'Keine Bilder hier.' : 'Alle Bilder hier sind bereits angehängt.'}
-        </p>
-      );
-    }
+    if (visible.length === 0) return null;
     return (
       <div className="grid grid-cols-4 gap-2 nav:grid-cols-6">
         {visible.map((item) => (
@@ -148,6 +159,8 @@ export default function MediaShareLibraryPicker({
       </div>
     );
   }
+
+  const visibleFolderImages = folderItems.filter((item) => !excluded.has(item.id));
 
   return (
     <div className="rounded-[10px] border border-line bg-white p-4">
@@ -192,27 +205,51 @@ export default function MediaShareLibraryPicker({
 
           {folderLoading ? (
             <p className="py-8 text-center text-[12.5px] text-ink-3">Lädt …</p>
+          ) : subfolders.length === 0 && visibleFolderImages.length === 0 ? (
+            <p className="py-8 text-center text-[12.5px] text-ink-3">
+              {folderItems.length === 0 ? 'Dieser Ordner ist leer.' : 'Alle Bilder hier sind bereits angehängt.'}
+            </p>
           ) : (
-            <>
-              {subfolders.length > 0 && (
-                <div className="mb-3 grid grid-cols-4 gap-2 nav:grid-cols-6">
-                  {subfolders.map((f) => (
-                    <button
-                      key={f.id}
-                      type="button"
-                      onClick={() => openFolder(f.id)}
-                      className="group flex aspect-square flex-col items-center justify-center gap-1.5 overflow-hidden rounded-md border border-line-strong bg-panel p-2 transition-colors hover:border-ink"
-                    >
-                      <i className="ti ti-folder text-[32px] text-ink-3 transition-colors group-hover:text-ink" aria-hidden="true" />
-                      <span className="line-clamp-2 text-center text-[11px] font-medium leading-tight text-ink-2">
-                        {f.name}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-              {renderGrid(folderItems)}
-            </>
+            <div className="grid grid-cols-4 gap-2 nav:grid-cols-6">
+              {subfolders.map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => openFolder(f.id)}
+                  className="flex aspect-square flex-col items-center justify-center gap-2 rounded-[10px] bg-panel p-2 transition-colors hover:bg-line"
+                >
+                  <IconFolder className="h-8 w-8 text-ink-2" />
+                  <span className="line-clamp-1 text-center text-[12px] font-medium text-ink">
+                    {f.name}
+                  </span>
+                </button>
+              ))}
+              {visibleFolderImages.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => handleAdd(item.id)}
+                  disabled={busyId === item.id}
+                  className="group relative aspect-square overflow-hidden rounded-[10px] border border-line transition-colors hover:border-ink disabled:opacity-50"
+                >
+                  <Image
+                    src={`/api/intern/library?original=${item.id}&width=160&quality=70`}
+                    alt=""
+                    fill
+                    className="object-cover"
+                    unoptimized
+                  />
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/0 transition-colors group-hover:bg-black/40">
+                    <i className="ti ti-plus text-[18px] text-white opacity-0 transition-opacity group-hover:opacity-100" aria-hidden="true" />
+                  </div>
+                  {busyId === item.id && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+                      <span className="text-[10px] font-semibold text-white">Wird hinzugefügt …</span>
+                    </div>
+                  )}
+                </button>
+              ))}
+            </div>
           )}
         </>
       ) : (
@@ -229,8 +266,12 @@ export default function MediaShareLibraryPicker({
           />
           {searchLoading ? (
             <p className="py-8 text-center text-[12.5px] text-ink-3">Lädt …</p>
+          ) : searchItems.filter((i) => !excluded.has(i.id)).length === 0 ? (
+            <p className="py-8 text-center text-[12.5px] text-ink-3">
+              {searchItems.length === 0 ? 'Keine Treffer.' : 'Alle Treffer sind bereits angehängt.'}
+            </p>
           ) : (
-            renderGrid(searchItems)
+            renderImageGrid(searchItems)
           )}
         </>
       )}
