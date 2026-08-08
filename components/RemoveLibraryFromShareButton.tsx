@@ -15,7 +15,7 @@ export default function RemoveLibraryFromShareButton({
 
   async function handleClick() {
     setBusy(true);
-    await fetch('/api/intern/media-shares/assign-media', {
+    await fetch('/api/intern/media-shares/assign', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ shareId, mediaId, action: 'remove' }),
