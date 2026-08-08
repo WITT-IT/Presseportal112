@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { directusAssetUrl } from '@/lib/directus';
 
 type LibraryItem = {
   id: string;
@@ -99,18 +98,17 @@ export default function MediaShareLibraryPicker({
               disabled={busyId === item.id}
               className="group relative aspect-square overflow-hidden rounded-md border border-line transition-colors hover:border-ink disabled:opacity-50"
             >
-              {item.file_preview ? (
-                <Image
-                  src={directusAssetUrl(item.file_preview, 'width=160&quality=70')}
-                  alt=""
-                  fill
-                  className="object-cover"
-                />
-              ) : (
-                <div className="flex h-full w-full items-center justify-center bg-panel">
-                  <i className="ti ti-photo text-[18px] text-ink-3" aria-hidden="true" />
-                </div>
-              )}
+              {/* Nutzt den bestehenden Asset-Proxy auf das Original --
+                  funktioniert immer, unabhängig davon, ob schon eine
+                  separate file_preview-Variante erzeugt wurde (die
+                  entsteht erst beim ersten Veröffentlichen). */}
+              <Image
+                src={`/api/intern/library?original=${item.id}&width=160&quality=70`}
+                alt=""
+                fill
+                className="object-cover"
+                unoptimized
+              />
               <div className="absolute inset-0 flex items-center justify-center bg-black/0 transition-colors group-hover:bg-black/40">
                 <i className="ti ti-plus text-[18px] text-white opacity-0 transition-opacity group-hover:opacity-100" aria-hidden="true" />
               </div>
