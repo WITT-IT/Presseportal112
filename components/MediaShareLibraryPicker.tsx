@@ -195,16 +195,18 @@ export default function MediaShareLibraryPicker({
           ) : (
             <>
               {subfolders.length > 0 && (
-                <div className="mb-3 flex flex-wrap gap-2">
+                <div className="mb-3 grid grid-cols-4 gap-2 nav:grid-cols-6">
                   {subfolders.map((f) => (
                     <button
                       key={f.id}
                       type="button"
                       onClick={() => openFolder(f.id)}
-                      className="flex items-center gap-1.5 rounded-md border border-line-strong bg-panel px-3 py-1.5 text-[12px] font-medium text-ink-2 transition-colors hover:border-ink hover:text-ink"
+                      className="group flex aspect-square flex-col items-center justify-center gap-1.5 overflow-hidden rounded-md border border-line-strong bg-panel p-2 transition-colors hover:border-ink"
                     >
-                      <i className="ti ti-folder text-[13px]" aria-hidden="true" />
-                      {f.name}
+                      <i className="ti ti-folder text-[32px] text-ink-3 transition-colors group-hover:text-ink" aria-hidden="true" />
+                      <span className="line-clamp-2 text-center text-[11px] font-medium leading-tight text-ink-2">
+                        {f.name}
+                      </span>
                     </button>
                   ))}
                 </div>
