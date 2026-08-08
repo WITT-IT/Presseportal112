@@ -25,10 +25,10 @@ export default function MyImagesList({
 
   async function togglePublic(id: string, current: boolean) {
     setPendingId(id);
-    await fetch('/api/intern/publish', {
+    await fetch('/api/intern/posts/toggle-public', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, isPublic: !current }),
+      body: JSON.stringify({ postId: id, makePublic: !current }),
     });
     setPendingId(null);
     router.refresh();
@@ -125,7 +125,7 @@ export default function MyImagesList({
                 </button>
 
                 <Link
-                  href={`/intern/bearbeiten/${post.id}`}
+                  href={`/intern/upload?postId=${post.id}`}
                   className="block w-full rounded-md border border-line-strong px-2 py-1.5 text-center text-[11px] font-semibold text-ink transition-colors hover:border-ink"
                 >
                   Bearbeiten
