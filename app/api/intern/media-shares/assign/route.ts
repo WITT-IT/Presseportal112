@@ -14,9 +14,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Sitzung ungültig.' }, { status: 401 });
   }
 
-  const { shareId, postId, action } = await request.json().catch(() => ({}));
-  if (!shareId || !postId || (action !== 'add' && action !== 'remove')) {
+  const { shareId, postId, mediaId, action } = await request.json().catch(() => ({}));
+  if (!shareId || (action !== 'add' && action !== 'remove')) {
     return NextResponse.json({ error: 'Ungültige Anfrage.' }, { status: 400 });
+  }
+  if (!postId && !mediaId) {
+    return NextResponse.json({ error: 'postId oder mediaId erforderlich.' }, { status: 400 });
   }
 
   const headers = {
@@ -24,6 +27,42 @@ export async function POST(request: NextRequest) {
     'Content-Type': 'application/json',
   };
 
+  // Bibliotheks-Bild-Zuordnung -- eigene Junction-Collection, gleiche
+  // Route wie Beiträge, um die neue Next.js-Standalone-Build-Route-
+  // Problematik zu umgehen (neue route.ts-Dateien landen manchmal nicht
+  // im routes-manifest.json -> 405. Etablierter Workaround: bestehende
+  // Route erweitern statt neue Datei anlegen).
+  if (mediaId) {
+    if (action === 'add') {
+      const res = await fetch(`${DIRECTUS_URL}/items/media_shares_media`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ media_shares_id: shareId, media_library_id: mediaId }),
+      });
+      if (!res.ok) {
+        const body = await res.text();
+        console.error('Bild zu Freigabe hinzufügen fehlgeschlagen:', body);
+        return NextResponse.json({ error: 'Hinzufügen fehlgeschlagen.' }, { status: 500 });
+      }
+    } else {
+      const findRes = await fetch(
+        `${DIRECTUS_URL}/items/media_shares_media?filter[media_shares_id][_eq]=${shareId}&filter[media_library_id][_eq]=${mediaId}&fields=id&limit=1`,
+        { headers }
+      );
+      if (findRes.ok) {
+        const { data } = await findRes.json();
+        if (data?.[0]?.id) {
+          await fetch(`${DIRECTUS_URL}/items/media_shares_media/${data[0].id}`, {
+            method: 'DELETE',
+            headers,
+          });
+        }
+      }
+    }
+    return NextResponse.json({ ok: true });
+  }
+
+  // Beitrags-Zuordnung -- unverändert wie bisher.
   if (action === 'add') {
     const res = await fetch(`${DIRECTUS_URL}/items/media_shares_posts`, {
       method: 'POST',
