@@ -49,7 +49,7 @@ export default function MediaShareLibraryPicker({
     setBusyId(mediaId);
     setError(null);
     try {
-      const res = await fetch('/api/intern/media-shares/assign-media', {
+      const res = await fetch('/api/intern/media-shares/assign', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ shareId, mediaId, action: 'add' }),
