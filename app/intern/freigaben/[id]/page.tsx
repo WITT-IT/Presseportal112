@@ -13,7 +13,9 @@ import Breadcrumbs from '@/components/Breadcrumbs';
 import MediaShareActions from '@/components/MediaShareActions';
 import MediaShareLinkBox from '@/components/MediaShareLinkBox';
 import RemoveFromMediaShareButton from '@/components/RemoveFromMediaShareButton';
+import RemoveLibraryFromShareButton from '@/components/RemoveLibraryFromShareButton';
 import MediaSharePostPicker from '@/components/MediaSharePostPicker';
+import MediaShareLibraryPicker from '@/components/MediaShareLibraryPicker';
 import FolderToShareControl from '@/components/FolderToShareControl';
 
 export const dynamic = 'force-dynamic';
@@ -50,6 +52,7 @@ export default async function MediaShareDetailPage({
 
   const includedIds = new Set(share.posts.map((p: Post) => p.id));
   const availablePosts = allOwnPosts.filter((p: Post) => !includedIds.has(p.id));
+  const includedLibraryIds = share.libraryImages.map((img) => img.id);
 
   return (
     <div>
@@ -113,6 +116,47 @@ export default async function MediaShareDetailPage({
           })}
         </div>
       )}
+
+      <h2 className="mb-4 font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
+        Weiteres Bildmaterial ({share.libraryImages.length})
+      </h2>
+      <p className="mb-4 max-w-[560px] text-[12.5px] leading-[1.6] text-ink-2">
+        Zusätzliche Fotos aus der Bibliothek, ohne dass sie ein eigener
+        Beitrag werden müssen — als Original, ohne Wasserzeichen.
+      </p>
+      {share.libraryImages.length === 0 ? (
+        <p className="mb-6 text-[13px] text-ink-2">
+          Noch kein zusätzliches Bildmaterial angehängt.
+        </p>
+      ) : (
+        <div className="mb-6 grid grid-cols-2 gap-4 nav:grid-cols-4">
+          {share.libraryImages.map((img) => (
+            <div
+              key={img.id}
+              className="relative overflow-hidden rounded-[10px] border border-line bg-white"
+            >
+              <RemoveLibraryFromShareButton shareId={share.id} mediaId={img.id} />
+              <div className="relative h-[110px] bg-panel">
+                <Image
+                  src={`/api/intern/library?original=${img.id}&width=300&quality=70`}
+                  alt=""
+                  fill
+                  className="object-cover"
+                  unoptimized
+                />
+              </div>
+              <div className="p-2.5">
+                <span className="truncate text-[12px] font-medium">
+                  {img.displayName || 'Ohne Namen'}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="mb-10">
+        <MediaShareLibraryPicker shareId={share.id} excludeIds={includedLibraryIds} />
+      </div>
 
       <h2 className="mb-4 font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
         Weitere Beiträge hinzufügen
