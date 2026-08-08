@@ -186,8 +186,6 @@ export async function getPublicImagesByOrganization(
   };
 }
 
-// Vollständiger Beitrag fürs Studio im Bearbeiten-Modus -- inkl. post_type
-// und der watermarked Vorschau, die als Thumbnail im Formular-Header dient.
 export async function getPostForEdit(accessToken: string, id: string): Promise<Post | null> {
   const fields = [
     'id', 'post_type', 'title', 'article_body', 'event_date', 'alarm_code', 'location', 'tags', 'is_public',
@@ -383,9 +381,6 @@ export async function getFolderWithPosts(
   return { id: data.id, name: data.name, posts };
 }
 
-// Noch von keinem aktuellen Consumer aufgerufen, seit die alte
-// Bearbeiten-Seite raus ist -- absichtlich noch drin gelassen, falls die
-// Ordner-Zuordnungsliste später an anderer Stelle gebraucht wird.
 export async function getMyFoldersWithPostIds(
   accessToken: string,
   organizationId: string
@@ -428,30 +423,86 @@ export async function getMyMediaShares(
     }));
 }
 
+// Eine einzelne Freigabe mit allen zugeordneten Beiträgen UND direkt
+// angehängten Bibliotheks-Bildern (Originale, kein Wasserzeichen) -- für
+// die interne Verwaltungs-Detailseite (eingeloggt, eigene Organisation).
+export type MediaShareLibraryImage = {
+  id: string;
+  displayName: string | null;
+  fileOriginal: string;
+};
+
 export async function getMediaShareWithPosts(
   accessToken: string,
   shareId: string
-): Promise<MediaShareDetail | null> {
+): Promise<(MediaShareDetail & { libraryImages: MediaShareLibraryImage[] }) | null> {
   const fields = [
-    'id', 'name', 'recipient_name', 'recipient_email', 'token', 'active', 'expires_at', 'auto_delete_on_expiry',
-    'posts.posts_id.id', 'posts.posts_id.title', 'posts.posts_id.alarm_code', 'posts.posts_id.event_date',
-    'posts.posts_id.is_public', 'posts.posts_id.published_at',
-    'posts.posts_id.images.id', 'posts.posts_id.images.file_public_preview', 'posts.posts_id.images.sort',
+    'id',
+    'name',
+    'recipient_name',
+    'recipient_email',
+    'token',
+    'active',
+    'expires_at',
+    'auto_delete_on_expiry',
+    'posts.posts_id.id',
+    'posts.posts_id.title',
+    'posts.posts_id.alarm_code',
+    'posts.posts_id.event_date',
+    'posts.posts_id.is_public',
+    'posts.posts_id.published_at',
+    'posts.posts_id.images.id',
+    'posts.posts_id.images.file_public_preview',
+    'posts.posts_id.images.sort',
   ].join(',');
+
   const res = await fetch(`${DIRECTUS_URL}/items/media_shares/${shareId}?fields=${fields}`, {
-    headers: { Authorization: `Bearer ${accessToken}` }, cache: 'no-store',
+    headers: { Authorization: `Bearer ${accessToken}` },
+    cache: 'no-store',
   });
   if (!res.ok) {
-    console.error(`getMediaShareWithPosts(${shareId}) fehlgeschlagen (Status ${res.status}):`, await res.text().catch(() => ''));
+    console.error(
+      `getMediaShareWithPosts(${shareId}) fehlgeschlagen (Status ${res.status}):`,
+      await res.text().catch(() => '')
+    );
     return null;
   }
   const { data } = await res.json();
   const posts = ((data.posts || []) as { posts_id: Post | null }[])
-    .map((row) => row.posts_id).filter((p): p is Post => !!p);
+    .map((row) => row.posts_id)
+    .filter((p): p is Post => !!p);
+
+  const mediaRes = await fetch(
+    `${DIRECTUS_URL}/items/media_shares_media?filter[media_shares_id][_eq]=${shareId}&fields=media_library_id.id,media_library_id.display_name,media_library_id.file`,
+    { headers: { Authorization: `Bearer ${accessToken}` }, cache: 'no-store' }
+  );
+  let libraryImages: MediaShareLibraryImage[] = [];
+  if (mediaRes.ok) {
+    const { data: mediaData } = await mediaRes.json();
+    libraryImages = (
+      mediaData as { media_library_id: { id: string; display_name: string | null; file: string } | null }[]
+    )
+      .map((row) => row.media_library_id)
+      .filter((m): m is { id: string; display_name: string | null; file: string } => !!m)
+      .map((m) => ({ id: m.id, displayName: m.display_name, fileOriginal: m.file }));
+  } else {
+    console.error(
+      `getMediaShareWithPosts(${shareId}): Bibliotheks-Bilder konnten nicht geladen werden (Status ${mediaRes.status}):`,
+      await mediaRes.text().catch(() => '')
+    );
+  }
+
   return {
-    id: data.id, name: data.name, recipientName: data.recipient_name,
-    recipientEmail: data.recipient_email, token: data.token, active: data.active,
-    expiresAt: data.expires_at, autoDeleteOnExpiry: data.auto_delete_on_expiry, posts,
+    id: data.id,
+    name: data.name,
+    recipientName: data.recipient_name,
+    recipientEmail: data.recipient_email,
+    token: data.token,
+    active: data.active,
+    expiresAt: data.expires_at,
+    autoDeleteOnExpiry: data.auto_delete_on_expiry,
+    posts,
+    libraryImages,
   };
 }
 
