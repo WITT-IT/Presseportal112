@@ -29,6 +29,55 @@ function normalizeIdArray(raw: unknown): string[] {
   return [];
 }
 
+// GET /api/intern/folders?contents=1&folder=<id oder leer für Wurzel>
+// Liefert Breadcrumb, Unterordner und Bibliotheks-Items für die
+// Ordner-Navigation im Freigabe-Picker -- bewusst in diese bestehende
+// Route gehängt statt eine neue Datei anzulegen (Next.js-Standalone-
+// Build-Routing-Bug, siehe Projektnotizen: neue route.ts-Dateien landen
+// manchmal nicht im routes-manifest.json -> 404/405).
+export async function GET(request: NextRequest) {
+  const session = getSession(request);
+  if (!session) return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
+
+  const user = await getCurrentUser(session.accessToken);
+  if (!user?.organization?.id) {
+    return NextResponse.json({ error: 'Keine Organisation.' }, { status: 403 });
+  }
+
+  const { searchParams } = request.nextUrl;
+  if (searchParams.get('contents') !== '1') {
+    return NextResponse.json({ error: 'Unbekannte Anfrage.' }, { status: 400 });
+  }
+
+  const folderId = searchParams.get('folder') || null;
+  const headers = { Authorization: `Bearer ${session.accessToken}` };
+
+  const breadcrumb: { id: string; name: string }[] = [];
+  let currentId = folderId;
+  let guard = 0;
+  while (currentId && guard < 8) {
+    guard++;
+    const res = await fetch(`${DIRECTUS_URL}/items/folders/${currentId}?fields=id,name,parent_folder`, {
+      headers,
+      cache: 'no-store',
+    });
+    if (!res.ok) break;
+    const { data } = await res.json();
+    breadcrumb.unshift({ id: data.id, name: data.name });
+    currentId = data.parent_folder;
+  }
+
+  const parentFilter = folderId ? `filter[parent_folder][_eq]=${folderId}` : `filter[parent_folder][_null]=true`;
+
+  const subfoldersRes = await fetch(
+    `${DIRECTUS_URL}/items/folders?filter[organization][_eq]=${user.organization.id}&${parentFilter}&fields=id,name&sort=name&limit=200`,
+    { headers, cache: 'no-store' }
+  );
+  const subfolders = subfoldersRes.ok ? (await subfoldersRes.json()).data : [];
+
+  return NextResponse.json({ breadcrumb, subfolders });
+}
+
 // POST /api/intern/folders — neuen Ordner anlegen
 // Body: { name, parent_folder? }  (parent_folder: null/undefined = Wurzel)
 export async function POST(request: NextRequest) {
