@@ -82,26 +82,6 @@ function IconPhotoPlus({ className }: { className?: string }) {
     </svg>
   );
 }
-function IconCalendar({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
-      <rect x="3" y="4" width="18" height="18" rx="2" />
-      <path d="M16 2v4" />
-      <path d="M8 2v4" />
-      <path d="M3 10h18" />
-    </svg>
-  );
-}
-function IconGrid({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
-      <rect x="3" y="3" width="7" height="7" rx="1" />
-      <rect x="14" y="3" width="7" height="7" rx="1" />
-      <rect x="3" y="14" width="7" height="7" rx="1" />
-      <rect x="14" y="14" width="7" height="7" rx="1" />
-    </svg>
-  );
-}
 
 export default function MediaBrowser({
   currentFolderId,
@@ -120,7 +100,6 @@ export default function MediaBrowser({
   const { confirm } = useDialog();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [view, setView] = useState<'raster' | 'kalender'>('raster');
   const [selectedMediaId, setSelectedMediaId] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<(DragPayload & { value: string }) | null>(null);
   const [creatingFolder, setCreatingFolder] = useState(false);
@@ -309,158 +288,180 @@ export default function MediaBrowser({
   }
 
   return (
-    <div>
-      <div className="mb-4 flex gap-1 rounded-md border border-line-strong bg-panel p-0.5 nav:w-fit">
-        <button
-          type="button"
-          onClick={() => setView('raster')}
-          className={`flex flex-1 items-center justify-center gap-1.5 rounded px-4 py-1.5 text-[12.5px] font-semibold transition-colors nav:flex-none ${
-            view === 'raster' ? 'bg-white text-ink shadow-sm' : 'text-ink-2 hover:text-ink'
-          }`}
-        >
-          <IconGrid className="h-[14px] w-[14px]" />
-          Raster
-        </button>
-        <button
-          type="button"
-          onClick={() => setView('kalender')}
-          className={`flex flex-1 items-center justify-center gap-1.5 rounded px-4 py-1.5 text-[12.5px] font-semibold transition-colors nav:flex-none ${
-            view === 'kalender' ? 'bg-white text-ink shadow-sm' : 'text-ink-2 hover:text-ink'
-          }`}
-        >
-          <IconCalendar className="h-[14px] w-[14px]" />
-          Kalender
-        </button>
-      </div>
+    <div className="flex flex-col gap-6 nav:flex-row nav:items-start">
+      {/* Arbeitsbereich -- Ordner, Upload, Bilder-Grid. Nimmt den Großteil
+          der Breite, weicht dem Kalender rechts aber Platz. */}
+      <div className="min-w-0 flex-1">
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={busy}
+            className="flex items-center gap-2 rounded-md bg-ink px-4 py-2.5 text-[13px] font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+          >
+            <IconUpload className="h-[15px] w-[15px]" />
+            Hochladen
+          </button>
+          <input ref={fileInputRef} type="file" multiple accept="image/*" hidden onChange={handleFileInputChange} />
 
-      {view === 'kalender' ? (
-        <PostCalendar posts={calendarPosts} />
-      ) : (
-        <>
-          <div className="mb-2 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setCreatingFolder(true)}
+            disabled={busy}
+            className="flex items-center gap-2 rounded-md border border-line-strong px-4 py-2.5 text-[13px] font-semibold text-ink transition-colors hover:border-ink disabled:opacity-50"
+          >
+            <IconFolderPlus className="h-[15px] w-[15px]" />
+            Neuer Ordner
+          </button>
+
+          {selectedMediaId && (
             <button
               type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={busy}
-              className="flex items-center gap-2 rounded-md bg-ink px-4 py-2.5 text-[13px] font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+              onClick={() => router.push(`/intern/upload?mediaId=${selectedMediaId}`)}
+              className="ml-auto flex items-center gap-2 rounded-md bg-signal-deep px-4 py-2.5 text-[13px] font-semibold text-white hover:opacity-90"
             >
-              <IconUpload className="h-[15px] w-[15px]" />
-              Hochladen
+              <IconSend className="h-[15px] w-[15px]" />
+              Veröffentlichen
             </button>
-            <input ref={fileInputRef} type="file" multiple accept="image/*" hidden onChange={handleFileInputChange} />
+          )}
+        </div>
 
-            <button
-              type="button"
-              onClick={() => setCreatingFolder(true)}
-              disabled={busy}
-              className="flex items-center gap-2 rounded-md border border-line-strong px-4 py-2.5 text-[13px] font-semibold text-ink transition-colors hover:border-ink disabled:opacity-50"
-            >
-              <IconFolderPlus className="h-[15px] w-[15px]" />
-              Neuer Ordner
-            </button>
+        <p className="mb-4 text-[11.5px] text-ink-3">
+          Tipp: Bilder direkt auf einen Ordner ziehen, um sie ohne Umweg dort abzulegen.
+        </p>
 
-            {selectedMediaId && (
-              <button
-                type="button"
-                onClick={() => router.push(`/intern/upload?mediaId=${selectedMediaId}`)}
-                className="ml-auto flex items-center gap-2 rounded-md bg-signal-deep px-4 py-2.5 text-[13px] font-semibold text-white hover:opacity-90"
-              >
-                <IconSend className="h-[15px] w-[15px]" />
-                Veröffentlichen
-              </button>
-            )}
-          </div>
-
-          <p className="mb-4 text-[11.5px] text-ink-3">
-            Tipp: Bilder direkt auf einen Ordner ziehen, um sie ohne Umweg dort abzulegen.
+        {error && (
+          <p className="mb-4 rounded-md border border-signal-deep/30 bg-signal-deep/5 px-3 py-2 text-[12.5px] text-signal-deep">
+            {error}
           </p>
+        )}
 
-          {error && (
-            <p className="mb-4 rounded-md border border-signal-deep/30 bg-signal-deep/5 px-3 py-2 text-[12.5px] text-signal-deep">
-              {error}
-            </p>
+        <div
+          onDragOver={handleGridDragOver}
+          onDragLeave={() => setIsDraggingFiles(false)}
+          onDrop={handleGridDrop}
+          className={`grid grid-cols-3 gap-5 rounded-xl p-3 transition-colors sm:grid-cols-4 nav:grid-cols-3 xl:grid-cols-4 ${
+            isDraggingFiles ? 'bg-panel outline-dashed outline-2 outline-ink' : ''
+          }`}
+        >
+          {currentFolderId && (
+            <button
+              type="button"
+              onClick={() => openFolder(parentFolderId)}
+              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOverId('ROOT'); }}
+              onDragLeave={() => setDragOverId(null)}
+              onDrop={(e) => handleDropOnFolderTile(e, parentFolderId)}
+              className={`flex flex-col items-center gap-2 rounded-xl p-3 text-center text-ink-3 transition-colors hover:bg-panel ${
+                dragOverId === 'ROOT' ? 'bg-panel outline outline-2 outline-ink' : ''
+              }`}
+            >
+              <div className="flex h-[92px] w-[92px] items-center justify-center rounded-2xl bg-panel">
+                <IconBack className="h-[32px] w-[32px]" />
+              </div>
+              <span className="text-[12px] font-medium text-ink-2">Zurück</span>
+            </button>
           )}
 
-          <div
-            onDragOver={handleGridDragOver}
-            onDragLeave={() => setIsDraggingFiles(false)}
-            onDrop={handleGridDrop}
-            className={`grid grid-cols-3 gap-5 rounded-xl p-3 transition-colors nav:grid-cols-5 xl:grid-cols-6 ${
-              isDraggingFiles ? 'bg-panel outline-dashed outline-2 outline-ink' : ''
-            }`}
-          >
-            {currentFolderId && (
-              <button
-                type="button"
-                onClick={() => openFolder(parentFolderId)}
-                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOverId('ROOT'); }}
-                onDragLeave={() => setDragOverId(null)}
-                onDrop={(e) => handleDropOnFolderTile(e, parentFolderId)}
-                className={`flex flex-col items-center gap-2 rounded-xl p-3 text-center text-ink-3 transition-colors hover:bg-panel ${
-                  dragOverId === 'ROOT' ? 'bg-panel outline outline-2 outline-ink' : ''
-                }`}
-              >
-                <div className="flex h-[92px] w-[92px] items-center justify-center rounded-2xl bg-panel">
-                  <IconBack className="h-[32px] w-[32px]" />
-                </div>
-                <span className="text-[12px] font-medium text-ink-2">Zurück</span>
-              </button>
-            )}
+          {creatingFolder && (
+            <div className="flex flex-col items-center gap-2 rounded-xl p-3 text-center">
+              <div className="flex h-[92px] w-[92px] items-center justify-center rounded-2xl bg-panel text-ink-2">
+                <IconFolder className="h-[40px] w-[40px]" />
+              </div>
+              <input
+                autoFocus
+                value={newFolderName}
+                onChange={(e) => setNewFolderName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') submitNewFolder(); if (e.key === 'Escape') setCreatingFolder(false); }}
+                onBlur={submitNewFolder}
+                placeholder="Ordnername"
+                className="w-full rounded-md border border-ink px-2 py-1 text-center text-[12px] outline-none"
+              />
+            </div>
+          )}
 
-            {creatingFolder && (
-              <div className="flex flex-col items-center gap-2 rounded-xl p-3 text-center">
-                <div className="flex h-[92px] w-[92px] items-center justify-center rounded-2xl bg-panel text-ink-2">
-                  <IconFolder className="h-[40px] w-[40px]" />
-                </div>
+          {subfolders.map((folder) => (
+            <div
+              key={folder.id}
+              draggable
+              onDragStart={(e) => handleDragStart(e, { id: folder.id, type: 'folder' })}
+              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOverId(folder.id); }}
+              onDragLeave={() => setDragOverId(null)}
+              onDrop={(e) => handleDropOnFolderTile(e, folder.id)}
+              onClick={() => openFolder(folder.id)}
+              title="Klick zum Öffnen — Bilder hierher ziehen zum Ablegen"
+              className={`group relative flex cursor-pointer flex-col items-center gap-2 rounded-xl p-3 text-center transition-colors hover:bg-panel ${
+                dragOverId === folder.id ? 'bg-panel outline outline-2 outline-ink' : ''
+              }`}
+            >
+              <div className="absolute right-1.5 top-1.5 z-10 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                <button
+                  type="button"
+                  onClick={(e) => startRenameFolder(e, folder)}
+                  title="Ordner umbenennen"
+                  className="flex h-6 w-6 items-center justify-center rounded-full bg-white text-ink-2 shadow-sm ring-1 ring-line-strong hover:bg-panel hover:text-ink"
+                >
+                  <IconEdit className="h-[12px] w-[12px]" />
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); deleteItem({ id: folder.id, type: 'folder' }, folder.name); }}
+                  title="Ordner löschen"
+                  className="flex h-6 w-6 items-center justify-center rounded-full bg-white text-ink-2 shadow-sm ring-1 ring-line-strong hover:bg-signal-deep hover:text-white hover:ring-signal-deep"
+                >
+                  <IconX className="h-[12px] w-[12px]" />
+                </button>
+              </div>
+
+              <div className="flex h-[92px] w-[92px] items-center justify-center rounded-2xl bg-panel text-ink-2">
+                <IconFolder className="h-[40px] w-[40px]" />
+              </div>
+              {renaming?.id === folder.id ? (
                 <input
                   autoFocus
-                  value={newFolderName}
-                  onChange={(e) => setNewFolderName(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') submitNewFolder(); if (e.key === 'Escape') setCreatingFolder(false); }}
-                  onBlur={submitNewFolder}
-                  placeholder="Ordnername"
-                  className="w-full rounded-md border border-ink px-2 py-1 text-center text-[12px] outline-none"
+                  value={renaming.value}
+                  onChange={(e) => setRenaming({ ...renaming, value: e.target.value })}
+                  onKeyDown={(e) => { if (e.key === 'Enter') submitRename(); if (e.key === 'Escape') setRenaming(null); }}
+                  onBlur={submitRename}
+                  onClick={(e) => e.stopPropagation()}
+                  className="w-full rounded-md border border-ink px-1.5 py-0.5 text-center text-[12px] outline-none"
                 />
-              </div>
-            )}
+              ) : (
+                <span className="line-clamp-2 text-[12px] font-medium text-ink">{folder.name}</span>
+              )}
+            </div>
+          ))}
 
-            {subfolders.map((folder) => (
+          {items.map((item) => {
+            const label = item.display_name || 'Bild';
+            return (
               <div
-                key={folder.id}
+                key={item.id}
                 draggable
-                onDragStart={(e) => handleDragStart(e, { id: folder.id, type: 'folder' })}
-                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOverId(folder.id); }}
-                onDragLeave={() => setDragOverId(null)}
-                onDrop={(e) => handleDropOnFolderTile(e, folder.id)}
-                onClick={() => openFolder(folder.id)}
-                title="Klick zum Öffnen — Bilder hierher ziehen zum Ablegen"
+                onDragStart={(e) => handleDragStart(e, { id: item.id, type: 'media' })}
+                onClick={() => setSelectedMediaId(item.id)}
                 className={`group relative flex cursor-pointer flex-col items-center gap-2 rounded-xl p-3 text-center transition-colors hover:bg-panel ${
-                  dragOverId === folder.id ? 'bg-panel outline outline-2 outline-ink' : ''
+                  selectedMediaId === item.id ? 'bg-panel outline outline-2 outline-ink' : ''
                 }`}
               >
-                <div className="absolute right-1.5 top-1.5 z-10 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                  <button
-                    type="button"
-                    onClick={(e) => startRenameFolder(e, folder)}
-                    title="Ordner umbenennen"
-                    className="flex h-6 w-6 items-center justify-center rounded-full bg-white text-ink-2 shadow-sm ring-1 ring-line-strong hover:bg-panel hover:text-ink"
-                  >
-                    <IconEdit className="h-[12px] w-[12px]" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); deleteItem({ id: folder.id, type: 'folder' }, folder.name); }}
-                    title="Ordner löschen"
-                    className="flex h-6 w-6 items-center justify-center rounded-full bg-white text-ink-2 shadow-sm ring-1 ring-line-strong hover:bg-signal-deep hover:text-white hover:ring-signal-deep"
-                  >
-                    <IconX className="h-[12px] w-[12px]" />
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); deleteItem({ id: item.id, type: 'media' }, label); }}
+                  title="Bild löschen"
+                  className="absolute right-1.5 top-1.5 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-white text-ink-2 opacity-0 shadow-sm ring-1 ring-line-strong transition-opacity group-hover:opacity-100 hover:bg-signal-deep hover:text-white hover:ring-signal-deep"
+                >
+                  <IconX className="h-[12px] w-[12px]" />
+                </button>
 
-                <div className="flex h-[92px] w-[92px] items-center justify-center rounded-2xl bg-panel text-ink-2">
-                  <IconFolder className="h-[40px] w-[40px]" />
+                <div className="relative h-[92px] w-[92px] overflow-hidden rounded-2xl bg-panel">
+                  <Image
+                    src={`/api/intern/library?original=${item.id}&width=200&quality=70`}
+                    alt=""
+                    fill
+                    className="object-cover"
+                    unoptimized
+                  />
                 </div>
-                {renaming?.id === folder.id ? (
+                {renaming?.id === item.id ? (
                   <input
                     autoFocus
                     value={renaming.value}
@@ -471,74 +472,33 @@ export default function MediaBrowser({
                     className="w-full rounded-md border border-ink px-1.5 py-0.5 text-center text-[12px] outline-none"
                   />
                 ) : (
-                  <span className="line-clamp-2 text-[12px] font-medium text-ink">{folder.name}</span>
+                  <span
+                    onDoubleClick={(e) => { e.stopPropagation(); setRenaming({ id: item.id, type: 'media', value: label }); }}
+                    className="line-clamp-2 text-[12px] font-medium text-ink"
+                  >
+                    {label}
+                  </span>
                 )}
               </div>
-            ))}
+            );
+          })}
 
-            {items.map((item) => {
-              const label = item.display_name || 'Bild';
-              return (
-                <div
-                  key={item.id}
-                  draggable
-                  onDragStart={(e) => handleDragStart(e, { id: item.id, type: 'media' })}
-                  onClick={() => setSelectedMediaId(item.id)}
-                  className={`group relative flex cursor-pointer flex-col items-center gap-2 rounded-xl p-3 text-center transition-colors hover:bg-panel ${
-                    selectedMediaId === item.id ? 'bg-panel outline outline-2 outline-ink' : ''
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); deleteItem({ id: item.id, type: 'media' }, label); }}
-                    title="Bild löschen"
-                    className="absolute right-1.5 top-1.5 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-white text-ink-2 opacity-0 shadow-sm ring-1 ring-line-strong transition-opacity group-hover:opacity-100 hover:bg-signal-deep hover:text-white hover:ring-signal-deep"
-                  >
-                    <IconX className="h-[12px] w-[12px]" />
-                  </button>
+          {subfolders.length === 0 && items.length === 0 && !creatingFolder && (
+            <div className="col-span-full flex flex-col items-center gap-3 py-16 text-center text-ink-3">
+              <IconPhotoPlus className="h-[36px] w-[36px]" />
+              <p className="text-[13px] text-ink-2">
+                Noch leer — zieh Bilder hierher oder klick auf „Hochladen".
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
 
-                  <div className="relative h-[92px] w-[92px] overflow-hidden rounded-2xl bg-panel">
-                    <Image
-                      src={`/api/intern/library?original=${item.id}&width=200&quality=70`}
-                      alt=""
-                      fill
-                      className="object-cover"
-                      unoptimized
-                    />
-                  </div>
-                  {renaming?.id === item.id ? (
-                    <input
-                      autoFocus
-                      value={renaming.value}
-                      onChange={(e) => setRenaming({ ...renaming, value: e.target.value })}
-                      onKeyDown={(e) => { if (e.key === 'Enter') submitRename(); if (e.key === 'Escape') setRenaming(null); }}
-                      onBlur={submitRename}
-                      onClick={(e) => e.stopPropagation()}
-                      className="w-full rounded-md border border-ink px-1.5 py-0.5 text-center text-[12px] outline-none"
-                    />
-                  ) : (
-                    <span
-                      onDoubleClick={(e) => { e.stopPropagation(); setRenaming({ id: item.id, type: 'media', value: label }); }}
-                      className="line-clamp-2 text-[12px] font-medium text-ink"
-                    >
-                      {label}
-                    </span>
-                  )}
-                </div>
-              );
-            })}
-
-            {subfolders.length === 0 && items.length === 0 && !creatingFolder && (
-              <div className="col-span-full flex flex-col items-center gap-3 py-16 text-center text-ink-3">
-                <IconPhotoPlus className="h-[36px] w-[36px]" />
-                <p className="text-[13px] text-ink-2">
-                  Noch leer — zieh Bilder hierher oder klick auf „Hochladen".
-                </p>
-              </div>
-            )}
-          </div>
-        </>
-      )}
+      {/* Kalender -- fest sichtbar, kein Tab mehr. Sticky, damit er beim
+          Scrollen durch ein langes Bilder-Grid im Blick bleibt. */}
+      <aside className="w-full flex-none nav:sticky nav:top-6 nav:w-[300px]">
+        <PostCalendar posts={calendarPosts} />
+      </aside>
     </div>
   );
 }
