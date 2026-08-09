@@ -22,7 +22,6 @@ function getSession(request: NextRequest): { accessToken: string } | null {
   }
 }
 
-// Lädt einen Buffer als neue Datei in Directus hoch.
 async function uploadBuffer(
   token: string,
   buffer: Buffer,
@@ -60,25 +59,29 @@ async function uploadBuffer(
 
 // Legt einen Beitrag in Directus an -- mit einmaligem Fallback-Versuch
 // ohne das post_type-Feld, falls Directus dessen Validierungsregel
-// blockiert. Liest jede Response-Body genau EINMAL (Body ist ein Stream,
-// ein zweites Lesen wirft "Body is unusable: Body has already been read").
+// blockiert. Liest jede Response-Body genau EINMAL.
 async function createPost(
   headers: Record<string, string>,
   postBody: Record<string, unknown>
 ): Promise<{ ok: boolean; status: number; errorText: string | null }> {
+  console.log('[createPost] Sende POST /items/posts …');
   let res = await fetch(`${DIRECTUS_URL}/items/posts`, {
     method: 'POST',
     headers,
     body: JSON.stringify(postBody),
   });
+  console.log('[createPost] Erste Antwort erhalten, Status:', res.status);
 
   if (res.ok) {
+    console.log('[createPost] Erfolgreich beim ersten Versuch.');
     return { ok: true, status: res.status, errorText: null };
   }
 
   const firstErrorText = await res.text();
+  console.log('[createPost] Erster Versuch fehlgeschlagen. Body:', firstErrorText);
 
   if (res.status === 403 && firstErrorText.includes('post_type')) {
+    console.log('[createPost] post_type-Fallback wird versucht …');
     const retryBody = { ...postBody };
     delete retryBody.post_type;
     res = await fetch(`${DIRECTUS_URL}/items/posts`, {
@@ -86,25 +89,21 @@ async function createPost(
       headers,
       body: JSON.stringify(retryBody),
     });
+    console.log('[createPost] Fallback-Antwort, Status:', res.status);
     if (res.ok) {
+      console.log('[createPost] Fallback erfolgreich.');
       return { ok: true, status: res.status, errorText: null };
     }
     const retryErrorText = await res.text();
+    console.log('[createPost] Fallback ebenfalls fehlgeschlagen. Body:', retryErrorText);
     return { ok: false, status: res.status, errorText: retryErrorText };
   }
 
+  console.log('[createPost] Kein post_type-Fallback anwendbar, gebe ersten Fehler zurück.');
   return { ok: false, status: res.status, errorText: firstErrorText };
 }
 
 // POST /api/intern/upload
-// Veröffentlicht ein vorhandenes Medienbibliothek-Bild als Beitrag.
-//
-// WICHTIG: Kopiert NICHTS mehr. Der Post referenziert dieselben Directus-
-// Datei-IDs wie die Bibliothek -- Original, Preview und Download gehören
-// der Bibliothek, der Post zeigt nur drauf. Das hält den Speicherverbrauch
-// pro Foto konstant, egal wie oft es veröffentlicht/zurückgezogen wird.
-// Löschen eines Beitrags darf deshalb NIE diese Dateien löschen, nur den
-// images-Datensatz -- siehe /api/intern/delete.
 export async function POST(request: NextRequest) {
   const session = getSession(request);
   if (!session) return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
@@ -161,10 +160,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Keine Berechtigung für dieses Bild.' }, { status: 403 });
     }
 
-    // Wasserzeichen-Varianten sicherstellen -- nur beim allerersten
-    // Veröffentlichen dieses Bibliotheks-Items werden sie erzeugt und dort
-    // gecacht. Jedes weitere Veröffentlichen (oder erneute nach Zurückziehen)
-    // nutzt exakt dieselben Datei-IDs wieder.
     let previewId: string;
     let downloadId: string;
 
@@ -196,7 +191,6 @@ export async function POST(request: NextRequest) {
       }).catch(() => {});
     }
 
-    // Beitrag anlegen.
     const postId = randomUUID();
     const now = new Date().toISOString();
     const postBody: Record<string, unknown> = {
@@ -213,21 +207,15 @@ export async function POST(request: NextRequest) {
       published_at: makePublic ? now : null,
     };
 
-    // TEMPORÄR: exakten Request-Body loggen, um den echten Auslöser zu
-    // finden statt weiter zu raten. Nach dem Debuggen wieder entfernen.
-    console.log('[upload] postBody vor createPost:', JSON.stringify(postBody, null, 2));
-
+    console.log('[upload] Rufe createPost auf, postId:', postId);
     const postResult = await createPost(headers, postBody);
+    console.log('[upload] createPost zurückgekehrt:', postResult.ok ? 'OK' : `FEHLER Status ${postResult.status}: ${postResult.errorText}`);
+
     if (!postResult.ok) {
-      console.error('Beitrag anlegen fehlgeschlagen:', {
-        status: postResult.status,
-        body: postResult.errorText,
-      });
       throw new Error(`Beitrag anlegen fehlgeschlagen (Status ${postResult.status}): ${postResult.errorText}`);
     }
 
-    // Bild-Datensatz anlegen -- zeigt auf dieselben Datei-IDs wie die
-    // Bibliothek, keine eigene Kopie.
+    console.log('[upload] Post erfolgreich angelegt, lege jetzt Bild-Datensatz an …');
     const imageRes = await fetch(`${DIRECTUS_URL}/items/images`, {
       method: 'POST',
       headers,
@@ -245,12 +233,13 @@ export async function POST(request: NextRequest) {
         sort: 0,
       }),
     });
+    console.log('[upload] Bild-Datensatz-Antwort, Status:', imageRes.status);
     if (!imageRes.ok) {
-      throw new Error(`Bilddatensatz anlegen fehlgeschlagen: ${await imageRes.text()}`);
+      const imgErr = await imageRes.text();
+      console.log('[upload] Bild-Datensatz fehlgeschlagen. Body:', imgErr);
+      throw new Error(`Bilddatensatz anlegen fehlgeschlagen: ${imgErr}`);
     }
 
-    // Bibliotheks-Eintrag nachführen: used_in_posts erweitern -- das ist
-    // jetzt der zentrale Löschschutz für die physischen Dateien.
     const usedRes = await fetch(`${DIRECTUS_URL}/items/media_library/${sourceMediaId}?fields=used_in_posts`, {
       headers: { Authorization: `Bearer ${session.accessToken}` },
     });
@@ -274,9 +263,10 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify({ used_in_posts: [...new Set([...usedInPosts, postId])] }),
     }).catch(() => {});
 
+    console.log('[upload] Komplett erfolgreich, postId:', postId);
     return NextResponse.json({ ok: true, id: postId });
   } catch (error) {
-    console.error('Veröffentlichen fehlgeschlagen:', error);
+    console.error('[upload] Veröffentlichen fehlgeschlagen:', error);
     return NextResponse.json({ error: 'Veröffentlichen fehlgeschlagen. Bitte erneut versuchen.' }, { status: 500 });
   }
 }
