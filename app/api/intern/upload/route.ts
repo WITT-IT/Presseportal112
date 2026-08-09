@@ -61,9 +61,7 @@ async function uploadBuffer(
 // Legt einen Beitrag in Directus an -- mit einmaligem Fallback-Versuch
 // ohne das post_type-Feld, falls Directus dessen Validierungsregel
 // blockiert. Liest jede Response-Body genau EINMAL (Body ist ein Stream,
-// ein zweites Lesen wirft "Body is unusable: Body has already been read"
-// -- genau das war der vorherige Absturz, sobald der Fehler NICHT die
-// post_type-Sonderbehandlung betraf).
+// ein zweites Lesen wirft "Body is unusable: Body has already been read").
 async function createPost(
   headers: Record<string, string>,
   postBody: Record<string, unknown>
@@ -214,6 +212,10 @@ export async function POST(request: NextRequest) {
       is_public: makePublic,
       published_at: makePublic ? now : null,
     };
+
+    // TEMPORÄR: exakten Request-Body loggen, um den echten Auslöser zu
+    // finden statt weiter zu raten. Nach dem Debuggen wieder entfernen.
+    console.log('[upload] postBody vor createPost:', JSON.stringify(postBody, null, 2));
 
     const postResult = await createPost(headers, postBody);
     if (!postResult.ok) {
