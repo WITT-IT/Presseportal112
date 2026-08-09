@@ -144,13 +144,29 @@ export default function MediaBrowser({
     e.target.value = '';
   }
 
+  // Bei internen Drags (App-eigene Kachel auf Ordner ziehen) enthält
+  // dataTransfer.types "application/x-media-item" -- das MUSS zuerst
+  // geprüft werden. Manche Browser legen bei internen Drags trotzdem
+  // einen (leeren oder unerwarteten) files-Eintrag in dataTransfer an;
+  // wurde files zuerst geprüft, griff fälschlich der Upload-Zweig statt
+  // des Verschiebens, was eine leere/kaputte Datei als neuen, generisch
+  // "Library" benannten Bibliothekseintrag anlegte -- ohne dass sich am
+  // Original je etwas änderte. Genau das erzeugte den "unendlich viele
+  // Kopien, Original bleibt liegen"-Bug beim Ordner-Drop.
+  function isInternalDrag(e: React.DragEvent) {
+    return Array.from(e.dataTransfer.types).includes('application/x-media-item');
+  }
+
   function handleGridDragOver(e: React.DragEvent) {
     e.preventDefault();
-    if (e.dataTransfer.types.includes('Files')) setIsDraggingFiles(true);
+    if (!isInternalDrag(e) && e.dataTransfer.types.includes('Files')) {
+      setIsDraggingFiles(true);
+    }
   }
   function handleGridDrop(e: React.DragEvent) {
     e.preventDefault();
     setIsDraggingFiles(false);
+    if (isInternalDrag(e)) return; // Wird vom jeweiligen Ordner-/Zurück-Tile behandelt.
     if (e.dataTransfer.files?.length) uploadFiles(Array.from(e.dataTransfer.files), currentFolderId);
   }
 
@@ -241,12 +257,16 @@ export default function MediaBrowser({
     e.stopPropagation();
     setDragOverId(null);
 
-    if (e.dataTransfer.files?.length) {
-      uploadFiles(Array.from(e.dataTransfer.files), targetId);
+    // Interne App-Kachel hat Vorrang vor dataTransfer.files -- siehe
+    // Kommentar bei isInternalDrag oben.
+    const raw = e.dataTransfer.getData('application/x-media-item');
+    if (raw) {
+      moveItem(JSON.parse(raw), targetId);
       return;
     }
-    const raw = e.dataTransfer.getData('application/x-media-item');
-    if (raw) moveItem(JSON.parse(raw), targetId);
+    if (e.dataTransfer.files?.length) {
+      uploadFiles(Array.from(e.dataTransfer.files), targetId);
+    }
   }
 
   async function deleteItem(target: DragPayload, name: string) {
@@ -289,8 +309,6 @@ export default function MediaBrowser({
 
   return (
     <div className="flex flex-col gap-6 nav:flex-row nav:items-start">
-      {/* Arbeitsbereich -- Ordner, Upload, Bilder-Grid. Nimmt den Großteil
-          der Breite, weicht dem Kalender rechts aber Platz. */}
       <div className="min-w-0 flex-1">
         <div className="mb-2 flex flex-wrap items-center gap-2">
           <button
@@ -494,8 +512,6 @@ export default function MediaBrowser({
         </div>
       </div>
 
-      {/* Kalender -- fest sichtbar, kein Tab mehr. Sticky, damit er beim
-          Scrollen durch ein langes Bilder-Grid im Blick bleibt. */}
       <aside className="w-full flex-none nav:sticky nav:top-6 nav:w-[300px]">
         <PostCalendar posts={calendarPosts} />
       </aside>
