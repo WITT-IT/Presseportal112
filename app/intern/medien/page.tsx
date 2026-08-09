@@ -1,7 +1,7 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
-import { getFolderContents } from '@/lib/queries';
+import { getFolderContents, getMyOrganizationImages } from '@/lib/queries';
 import Breadcrumbs from '@/components/Breadcrumbs';
 import MediaBrowser from '@/components/MediaBrowser';
 
@@ -30,7 +30,10 @@ export default async function MedienPage({
   if (!user.organization?.id) redirect('/intern');
   if (user.organization.organization_type === 'press') redirect('/intern');
 
-  const contents = await getFolderContents(session.accessToken, user.organization.id, folder ?? null);
+  const [contents, calendarPosts] = await Promise.all([
+    getFolderContents(session.accessToken, user.organization.id, folder ?? null),
+    getMyOrganizationImages(session.accessToken, user.organization.id),
+  ]);
 
   const breadcrumbItems = [
     { label: 'Übersicht', href: '/intern' },
@@ -52,6 +55,7 @@ export default async function MedienPage({
         parentFolderId={contents.folder?.parent_folder ?? null}
         subfolders={contents.subfolders}
         items={contents.items}
+        calendarPosts={calendarPosts}
       />
     </div>
   );
