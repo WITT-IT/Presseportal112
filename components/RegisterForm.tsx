@@ -204,7 +204,7 @@ export default function RegisterForm({
               required
               value={organizationName}
               onChange={(e) => setOrganizationName(e.target.value)}
-              placeholder="z. B. Südkurier, Radio 7, Lokalzeit …"
+              placeholder="Zeitung, Radio, Medienvertreter"
               className="w-full rounded-md border border-line-strong px-3 py-2 text-[14px] outline-none focus:border-ink"
             />
             <p className="mt-1 text-[11px] text-ink-3">
