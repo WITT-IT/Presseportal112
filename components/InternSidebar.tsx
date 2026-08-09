@@ -39,9 +39,8 @@ export default function InternSidebar({
       ]
     : [
         { href: '/intern', label: 'Übersicht', icon: 'ti-layout-dashboard' },
-        { href: '/intern/medien', label: 'Meine Medien', icon: 'ti-photo' }, // auskommentiert – Beiträge werden über Ordner verwaltet
-        { href: '/intern/upload', label: 'Neuer Beitrag', icon: 'ti-plus' },
-       // { href: '/intern/ordner', label: 'Ordner', icon: 'ti-folder' },
+        { href: '/intern/medien', label: 'Medien', icon: 'ti-photo' },
+        { href: '/intern/ordner', label: 'Ordner', icon: 'ti-folder' },
         { href: '/intern/freigaben', label: 'Freigaben', icon: 'ti-share' },
         {
           href: '/intern/nachrichten',
@@ -49,8 +48,6 @@ export default function InternSidebar({
           icon: 'ti-message-circle',
           badge: unreadCount,
         },
-        { href: '/intern/kalender', label: 'Kalender', icon: 'ti-calendar' },
-        { href: '/intern/favoriten', label: 'Favoriten', icon: 'ti-star' },
       ];
 
   const footerItems: NavItem[] = [
