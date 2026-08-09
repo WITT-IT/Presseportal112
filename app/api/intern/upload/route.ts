@@ -58,6 +58,46 @@ async function uploadBuffer(
   return fileId;
 }
 
+// Legt einen Beitrag in Directus an -- mit einmaligem Fallback-Versuch
+// ohne das post_type-Feld, falls Directus dessen Validierungsregel
+// blockiert. Liest jede Response-Body genau EINMAL (Body ist ein Stream,
+// ein zweites Lesen wirft "Body is unusable: Body has already been read"
+// -- genau das war der vorherige Absturz, sobald der Fehler NICHT die
+// post_type-Sonderbehandlung betraf).
+async function createPost(
+  headers: Record<string, string>,
+  postBody: Record<string, unknown>
+): Promise<{ ok: boolean; status: number; errorText: string | null }> {
+  let res = await fetch(`${DIRECTUS_URL}/items/posts`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(postBody),
+  });
+
+  if (res.ok) {
+    return { ok: true, status: res.status, errorText: null };
+  }
+
+  const firstErrorText = await res.text();
+
+  if (res.status === 403 && firstErrorText.includes('post_type')) {
+    const retryBody = { ...postBody };
+    delete retryBody.post_type;
+    res = await fetch(`${DIRECTUS_URL}/items/posts`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(retryBody),
+    });
+    if (res.ok) {
+      return { ok: true, status: res.status, errorText: null };
+    }
+    const retryErrorText = await res.text();
+    return { ok: false, status: res.status, errorText: retryErrorText };
+  }
+
+  return { ok: false, status: res.status, errorText: firstErrorText };
+}
+
 // POST /api/intern/upload
 // Veröffentlicht ein vorhandenes Medienbibliothek-Bild als Beitrag.
 //
@@ -175,16 +215,13 @@ export async function POST(request: NextRequest) {
       published_at: makePublic ? now : null,
     };
 
-    let postRes = await fetch(`${DIRECTUS_URL}/items/posts`, { method: 'POST', headers, body: JSON.stringify(postBody) });
-    if (!postRes.ok) {
-      const errText = await postRes.text();
-      if (postRes.status === 403 && errText.includes('post_type')) {
-        delete postBody.post_type;
-        postRes = await fetch(`${DIRECTUS_URL}/items/posts`, { method: 'POST', headers, body: JSON.stringify(postBody) });
-      }
-      if (!postRes.ok) {
-        throw new Error(`Beitrag anlegen fehlgeschlagen: ${await postRes.text()}`);
-      }
+    const postResult = await createPost(headers, postBody);
+    if (!postResult.ok) {
+      console.error('Beitrag anlegen fehlgeschlagen:', {
+        status: postResult.status,
+        body: postResult.errorText,
+      });
+      throw new Error(`Beitrag anlegen fehlgeschlagen (Status ${postResult.status}): ${postResult.errorText}`);
     }
 
     // Bild-Datensatz anlegen -- zeigt auf dieselben Datei-IDs wie die
