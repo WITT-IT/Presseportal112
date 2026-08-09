@@ -65,6 +65,8 @@ async function uploadBuffer(
 
 // GET /api/intern/library?q=tag&folder=&limit=48&offset=0
 //     /api/intern/library?original=<mediaId>
+//     /api/intern/library?contents=... (siehe unten -- NICHT hier, das ist
+//     die Ordner-Navigation, die läuft über app/api/intern/folders/route.ts)
 export async function GET(request: NextRequest) {
   const session = getSession(request);
   if (!session) return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
@@ -140,7 +142,21 @@ export async function GET(request: NextRequest) {
   ].join(',');
 
   let url = `${DIRECTUS_URL}/items/media_library?filter[organization][_eq]=${user.organization.id}&fields=${fields}&sort=-uploaded_at&limit=${limit}&offset=${offset}`;
-  if (folder) url += `&filter[folder][_eq]=${folder}`;
+
+  if (folder) {
+    // Expliziter Ordner angefragt.
+    url += `&filter[folder][_eq]=${folder}`;
+  } else if (!q) {
+    // Weder Ordner noch Suchbegriff angegeben -- das ist die Wurzel-
+    // Ansicht. Vorher wurde hier gar kein Filter gesetzt, wodurch Bilder
+    // aus JEDEM Unterordner mit in die Wurzel-Antwort gerutscht sind
+    // (genau der Bug: ein Bild, das eindeutig in "Test01" liegt, tauchte
+    // trotzdem schon in der Wurzel-Ansicht auf). Jetzt explizit auf
+    // "kein Ordner gesetzt" filtern.
+    url += `&filter[folder][_null]=true`;
+  }
+  // Bei aktiver Suche (q gesetzt, kein folder) bewusst KEIN Ordner-Filter --
+  // die Suche soll organisationsweit über alle Ordner hinweg laufen.
 
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${session.accessToken}` },
@@ -259,8 +275,10 @@ export async function PATCH(request: NextRequest) {
 // DELETE /api/intern/library?id=... — nur wenn in einem WIRKLICH noch
 // existierenden Beitrag verwendet. Prüft nicht nur, ob used_in_posts
 // nicht-leer ist, sondern ob die referenzierten Post-IDs überhaupt noch
-// existieren -- verwaiste Referenzen werden automatisch erkannt und
-// aufgeräumt, statt die Löschung für immer zu blockieren.
+// existieren -- verwaiste Referenzen (z.B. von einem Post, der über einen
+// Pfad gelöscht wurde, der used_in_posts damals nicht bereinigt hat)
+// werden automatisch erkannt und aufgeräumt, statt die Löschung für immer
+// zu blockieren.
 export async function DELETE(request: NextRequest) {
   const session = getSession(request);
   if (!session) return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
