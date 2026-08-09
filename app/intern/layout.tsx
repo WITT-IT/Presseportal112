@@ -3,13 +3,10 @@ import { redirect } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { getCurrentUser, isAdministrator, SESSION_COOKIE } from '@/lib/auth';
 import { DIRECTUS_URL } from '@/lib/directus';
-import InternSidebar from '@/components/InternSidebar';
+import InternTopNav from '@/components/InternTopNav';
 
 export const dynamic = 'force-dynamic';
 
-// Dieselbe Zählung wie zuvor im Dashboard -- jetzt hier, weil die Hülle
-// jede Unterseite umschließt und das Badge in der Seitenleiste überall
-// sichtbar sein soll, nicht nur auf der Startseite.
 async function getUnreadConversationCount(organizationId: string): Promise<number> {
   const serviceToken = process.env.DIRECTUS_SERVICE_TOKEN;
   if (!serviceToken) return 0;
@@ -66,14 +63,14 @@ export default async function InternLayout({ children }: { children: ReactNode }
   ]);
 
   return (
-    <div className="flex min-h-[calc(100vh-72px)]">
-      <InternSidebar
+    <div className="min-h-[calc(100vh-72px)] bg-paper">
+      <InternTopNav
         organizationName={user.organization?.name ?? null}
         isAdmin={admin}
         isPress={isPress}
         unreadCount={unreadCount}
       />
-      <main className="min-w-0 flex-1 bg-paper px-8 py-10 nav:px-12 nav:py-12">{children}</main>
+      <main className="mx-auto max-w-[1400px] px-6 py-10 nav:px-10 nav:py-12">{children}</main>
     </div>
   );
 }
