@@ -59,7 +59,7 @@ export default function MyImagesList({
   if (posts.length === 0) {
     return (
       <p className="text-[13px] text-ink-2">
-        Noch keine Beiträge hochgeladen — das Formular oben legt direkt los.
+        Noch keine Beiträge hochgeladen — leg über die Medienbibliothek los.
       </p>
     );
   }
