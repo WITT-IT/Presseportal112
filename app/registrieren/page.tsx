@@ -27,7 +27,7 @@ export default async function RegistrierenPage({
       <div className="w-full max-w-[480px]">
         <h1 className="mb-2 font-display text-[32px] font-bold">Registrieren</h1>
         <p className="mb-8 text-[13.5px] leading-[1.6] text-ink-2">
-          Für Feuerwehr, DRK, Polizei, THW und für Medienvertreter bzw.
+          Für Feuerwehr, Rettungsdienste, Polizei, THW und für Medienvertreter bzw.
           Redaktionen. Wähl unten aus, was auf dich zutrifft. Nach dem
           Absenden prüfen wir die Angaben und schalten frei.
         </p>
