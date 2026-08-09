@@ -56,31 +56,38 @@ export async function GET(request: NextRequest) {
   try {
     const [statsPublic, statsPrivate, statsShares, publicPosts, privatePosts] =
       await Promise.all([
+        // meta=* ergänzt -- ohne das liefert Directus keine "meta"-Hülle
+        // in der Antwort, wodurch statsPublic?.meta?.aggregate immer
+        // undefined war und der Code lautlos auf 0 zurückgefallen ist.
+        // Genau das war der Grund, warum die Dashboard-Kacheln immer 0
+        // zeigten, egal wie viele Beiträge tatsächlich existierten.
         fetchJSON(
           "statsPublic",
-          `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${organizationId}&filter[is_public][_eq]=true&aggregate[count]=id`,
+          `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${organizationId}&filter[is_public][_eq]=true&aggregate[count]=id&meta=*`,
           token
         ),
         fetchJSON(
           "statsPrivate",
-          `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${organizationId}&filter[is_public][_eq]=false&aggregate[count]=id`,
+          `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${organizationId}&filter[is_public][_eq]=false&aggregate[count]=id&meta=*`,
           token
         ),
         fetchJSON(
           "statsShares",
-          `${DIRECTUS_URL}/items/media_shares?filter[organization][_eq]=${organizationId}&filter[expires_at][_gte]=${new Date().toISOString()}&aggregate[count]=id`,
+          `${DIRECTUS_URL}/items/media_shares?filter[organization][_eq]=${organizationId}&filter[expires_at][_gte]=${new Date().toISOString()}&aggregate[count]=id&meta=*`,
           token
         ),
         // Öffentliche Beiträge: sortiert nach published_at
         fetchJSON(
           "publicPosts",
-          `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${organizationId}&filter[is_public][_eq]=true&limit=${pageSize}&page=${publicPage}&sort[]=-published_at&fields[]=id&fields[]=post_type&fields[]=title&fields[]=event_date&fields[]=alarm_code&fields[]=location&fields[]=is_public&fields[]=published_at&fields[]=tags&fields[]=images.id&fields[]=images.caption&fields[]=images.file_public_preview_watermarked`,
+          `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${organizationId}&filter[is_public][_eq]=true&limit=${pageSize}&page=${publicPage}&sort[]=-published_at&meta=filter_count&fields[]=id&fields[]=post_type&fields[]=title&fields[]=event_date&fields[]=alarm_code&fields[]=location&fields[]=is_public&fields[]=published_at&fields[]=tags&fields[]=images.id&fields[]=images.caption&fields[]=images.file_public_preview_watermarked`,
           token
         ),
-        // Private Beiträge: ebenfalls sortiert nach published_at (oder ohne Sort)
+        // Private Beiträge: published_at ist bei Privaten immer null
+        // (siehe Publish-Route), Sortierung danach ergibt keinen sinnvollen
+        // Wert -- stattdessen nach event_date sortieren.
         fetchJSON(
           "privatePosts",
-          `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${organizationId}&filter[is_public][_eq]=false&limit=${pageSize}&page=${privatePage}&sort[]=-published_at&fields[]=id&fields[]=post_type&fields[]=title&fields[]=event_date&fields[]=alarm_code&fields[]=location&fields[]=is_public&fields[]=published_at&fields[]=tags&fields[]=images.id&fields[]=images.caption&fields[]=images.file_public_preview_watermarked`,
+          `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${organizationId}&filter[is_public][_eq]=false&limit=${pageSize}&page=${privatePage}&sort[]=-event_date&meta=filter_count&fields[]=id&fields[]=post_type&fields[]=title&fields[]=event_date&fields[]=alarm_code&fields[]=location&fields[]=is_public&fields[]=published_at&fields[]=tags&fields[]=images.id&fields[]=images.caption&fields[]=images.file_public_preview_watermarked`,
           token
         ),
       ]);
@@ -126,8 +133,14 @@ export async function GET(request: NextRequest) {
     const publicItems = mapPosts(publicPosts);
     const privateItems = mapPosts(privatePosts);
 
-    const publicTotalPages = publicPosts?.meta?.pageCount ?? 1;
-    const privateTotalPages = privatePosts?.meta?.pageCount ?? 1;
+    // pageCount gibt's in Directus' meta-Objekt nicht direkt -- aus
+    // filter_count selbst berechnen (war vorher schon auf einen nicht
+    // existierenden Pfad "meta.pageCount" verwiesen, der ebenfalls immer
+    // undefined war und lautlos auf 1 zurückfiel).
+    const publicFilterCount = publicPosts?.meta?.filter_count ?? publicCount;
+    const privateFilterCount = privatePosts?.meta?.filter_count ?? privateCount;
+    const publicTotalPages = Math.max(1, Math.ceil(publicFilterCount / pageSize));
+    const privateTotalPages = Math.max(1, Math.ceil(privateFilterCount / pageSize));
 
     return NextResponse.json({
       stats: {
