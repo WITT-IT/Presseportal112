@@ -1,6 +1,5 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import Link from 'next/link';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
 import { getAllUsedTags, getAlarmcodes, getMediaLibraryItem, getPostForEdit } from '@/lib/queries';
 import { directusAssetUrl } from '@/lib/directus';
@@ -84,24 +83,12 @@ export default async function UploadPage({
     );
   }
 
-  // Ohne mediaId gibt's hier nichts zu tun.
+  // Ohne mediaId gibt's hier nichts zu tun -- kein Sidebar-Punkt zeigt mehr
+  // auf diese Route ohne Parameter, aber falls doch mal jemand direkt
+  // /intern/upload aufruft (Lesezeichen, alter Link), zur Bibliothek
+  // umleiten statt eine Sackgassen-Seite zu zeigen.
   if (!mediaId) {
-    return (
-      <div>
-        <Breadcrumbs items={[{ label: 'Übersicht', href: '/intern' }, { label: 'Veröffentlichen' }]} />
-        <h1 className="mb-2 font-display text-[28px] font-bold">Veröffentlichen</h1>
-        <p className="mb-6 max-w-[480px] text-[13.5px] leading-[1.6] text-ink-2">
-          Wähl zuerst ein Bild in der Medienbibliothek aus und klick dort auf
-          „Veröffentlichen".
-        </p>
-        <Link
-          href="/intern/medien"
-          className="inline-flex items-center gap-2 rounded-md bg-ink px-4 py-2.5 text-[13px] font-semibold text-white hover:opacity-90"
-        >
-          Zur Medienbibliothek
-        </Link>
-      </div>
-    );
+    redirect('/intern/medien');
   }
 
   const [existingTags, alarmcodes, sourceMedia] = await Promise.all([
