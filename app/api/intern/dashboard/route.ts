@@ -53,14 +53,30 @@ export async function GET(request: NextRequest) {
 
   const token = session.accessToken;
 
+  // Komma-getrennte fields= statt fields[]=a&fields[]=b -- das Array-Format
+  // ließ Directus bei verschachtelten Feldern wie images.xyz konsequent mit
+  // "Invalid filter key organization on images" scheitern, unabhängig vom
+  // eigentlichen Inhalt der Anfrage. Komma-Schreibweise ist das Format, das
+  // an jeder anderen Stelle im Projekt (z.B. getPostForEdit) zuverlässig
+  // funktioniert.
+  const postFields = [
+    "id",
+    "post_type",
+    "title",
+    "event_date",
+    "alarm_code",
+    "location",
+    "is_public",
+    "published_at",
+    "tags",
+    "images.id",
+    "images.caption",
+    "images.file_public_preview_watermarked",
+  ].join(",");
+
   try {
     const [statsPublic, statsPrivate, statsShares, publicPosts, privatePosts] =
       await Promise.all([
-        // meta=* ergänzt -- ohne das liefert Directus keine "meta"-Hülle
-        // in der Antwort, wodurch statsPublic?.meta?.aggregate immer
-        // undefined war und der Code lautlos auf 0 zurückgefallen ist.
-        // Genau das war der Grund, warum die Dashboard-Kacheln immer 0
-        // zeigten, egal wie viele Beiträge tatsächlich existierten.
         fetchJSON(
           "statsPublic",
           `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${organizationId}&filter[is_public][_eq]=true&aggregate[count]=id&meta=*`,
@@ -79,7 +95,7 @@ export async function GET(request: NextRequest) {
         // Öffentliche Beiträge: sortiert nach published_at
         fetchJSON(
           "publicPosts",
-          `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${organizationId}&filter[is_public][_eq]=true&limit=${pageSize}&page=${publicPage}&sort[]=-published_at&meta=filter_count&fields[]=id&fields[]=post_type&fields[]=title&fields[]=event_date&fields[]=alarm_code&fields[]=location&fields[]=is_public&fields[]=published_at&fields[]=tags&fields[]=images.id&fields[]=images.caption&fields[]=images.file_public_preview_watermarked`,
+          `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${organizationId}&filter[is_public][_eq]=true&limit=${pageSize}&page=${publicPage}&sort=-published_at&meta=filter_count&fields=${postFields}`,
           token
         ),
         // Private Beiträge: published_at ist bei Privaten immer null
@@ -87,7 +103,7 @@ export async function GET(request: NextRequest) {
         // Wert -- stattdessen nach event_date sortieren.
         fetchJSON(
           "privatePosts",
-          `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${organizationId}&filter[is_public][_eq]=false&limit=${pageSize}&page=${privatePage}&sort[]=-event_date&meta=filter_count&fields[]=id&fields[]=post_type&fields[]=title&fields[]=event_date&fields[]=alarm_code&fields[]=location&fields[]=is_public&fields[]=published_at&fields[]=tags&fields[]=images.id&fields[]=images.caption&fields[]=images.file_public_preview_watermarked`,
+          `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${organizationId}&filter[is_public][_eq]=false&limit=${pageSize}&page=${privatePage}&sort=-event_date&meta=filter_count&fields=${postFields}`,
           token
         ),
       ]);
@@ -133,10 +149,6 @@ export async function GET(request: NextRequest) {
     const publicItems = mapPosts(publicPosts);
     const privateItems = mapPosts(privatePosts);
 
-    // pageCount gibt's in Directus' meta-Objekt nicht direkt -- aus
-    // filter_count selbst berechnen (war vorher schon auf einen nicht
-    // existierenden Pfad "meta.pageCount" verwiesen, der ebenfalls immer
-    // undefined war und lautlos auf 1 zurückfiel).
     const publicFilterCount = publicPosts?.meta?.filter_count ?? publicCount;
     const privateFilterCount = privatePosts?.meta?.filter_count ?? privateCount;
     const publicTotalPages = Math.max(1, Math.ceil(publicFilterCount / pageSize));
