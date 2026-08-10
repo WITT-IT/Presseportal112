@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { useDialog } from './DialogProvider';
 import PostCalendar from './PostCalendar';
+import ShareFolderControl from './ShareFolderControl';
 import type { Post } from '@/lib/types';
 
 type SubFolder = { id: string; name: string };
@@ -89,12 +90,14 @@ export default function MediaBrowser({
   subfolders,
   items,
   calendarPosts,
+  mediaShares,
 }: {
   currentFolderId: string | null;
   parentFolderId: string | null;
   subfolders: SubFolder[];
   items: MediaItem[];
   calendarPosts: Post[];
+  mediaShares: { id: string; name: string }[];
 }) {
   const router = useRouter();
   const { confirm } = useDialog();
@@ -144,15 +147,6 @@ export default function MediaBrowser({
     e.target.value = '';
   }
 
-  // Bei internen Drags (App-eigene Kachel auf Ordner ziehen) enthält
-  // dataTransfer.types "application/x-media-item" -- das MUSS zuerst
-  // geprüft werden. Manche Browser legen bei internen Drags trotzdem
-  // einen (leeren oder unerwarteten) files-Eintrag in dataTransfer an;
-  // wurde files zuerst geprüft, griff fälschlich der Upload-Zweig statt
-  // des Verschiebens, was eine leere/kaputte Datei als neuen, generisch
-  // "Library" benannten Bibliothekseintrag anlegte -- ohne dass sich am
-  // Original je etwas änderte. Genau das erzeugte den "unendlich viele
-  // Kopien, Original bleibt liegen"-Bug beim Ordner-Drop.
   function isInternalDrag(e: React.DragEvent) {
     return Array.from(e.dataTransfer.types).includes('application/x-media-item');
   }
@@ -166,7 +160,7 @@ export default function MediaBrowser({
   function handleGridDrop(e: React.DragEvent) {
     e.preventDefault();
     setIsDraggingFiles(false);
-    if (isInternalDrag(e)) return; // Wird vom jeweiligen Ordner-/Zurück-Tile behandelt.
+    if (isInternalDrag(e)) return;
     if (e.dataTransfer.files?.length) uploadFiles(Array.from(e.dataTransfer.files), currentFolderId);
   }
 
@@ -257,8 +251,6 @@ export default function MediaBrowser({
     e.stopPropagation();
     setDragOverId(null);
 
-    // Interne App-Kachel hat Vorrang vor dataTransfer.files -- siehe
-    // Kommentar bei isInternalDrag oben.
     const raw = e.dataTransfer.getData('application/x-media-item');
     if (raw) {
       moveItem(JSON.parse(raw), targetId);
@@ -412,6 +404,7 @@ export default function MediaBrowser({
               }`}
             >
               <div className="absolute right-1.5 top-1.5 z-10 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                <ShareFolderControl folderId={folder.id} folderName={folder.name} mediaShares={mediaShares} />
                 <button
                   type="button"
                   onClick={(e) => startRenameFolder(e, folder)}
