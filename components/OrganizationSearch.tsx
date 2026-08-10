@@ -4,6 +4,22 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { GEWERK_ICONS, type Organization, type Gewerk } from '@/lib/types';
 
+// Zerlegt die Sucheingabe in einzelne Wörter -- mehrfache Leerzeichen
+// zwischen Wörtern spielen dabei keine Rolle (z. B. "DRK   Ortsverein").
+function searchTokens(input: string): string[] {
+  return input.trim().toLowerCase().split(/\s+/).filter(Boolean);
+}
+
+// Ein Organisationsname passt, wenn JEDES eingegebene Wort irgendwo im
+// Namen vorkommt -- unabhängig von Reihenfolge und Position. Ein reines
+// includes() auf dem Gesamtstring findet z. B. "DR OV FN" nicht in "DRK
+// Ortsverein Friedrichshafen", weil die Leerzeichen der Eingabe nicht mit
+// denen im echten Namen übereinstimmen. Wortweise geprüft klappt es.
+function matchesAllTokens(name: string, tokens: string[]): boolean {
+  const haystack = name.toLowerCase();
+  return tokens.every((token) => haystack.includes(token));
+}
+
 export default function OrganizationSearch({
   organizations,
   gewerke,
@@ -14,9 +30,8 @@ export default function OrganizationSearch({
   const [query, setQuery] = useState('');
   const gewerkById = Object.fromEntries(gewerke.map((g) => [g.id, g]));
 
-  const filtered = organizations.filter((org) =>
-    org.name.toLowerCase().includes(query.trim().toLowerCase())
-  );
+  const tokens = searchTokens(query);
+  const filtered = organizations.filter((org) => matchesAllTokens(org.name, tokens));
 
   return (
     <div>
