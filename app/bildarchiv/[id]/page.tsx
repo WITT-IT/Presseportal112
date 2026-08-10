@@ -120,33 +120,17 @@ export default async function PostArticlePage({ params }: Props) {
             {images.length > 1 && <span>· {images.length} Fotos</span>}
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_360px] lg:items-end">
-            <div>
-              <h1 className="max-w-4xl font-display text-[clamp(30px,5vw,54px)] leading-[0.96] tracking-[-0.01em] text-ink">
-                {post.title || (post.alarm_code ? `Einsatz ${post.alarm_code}` : 'Stockfoto')}
-              </h1>
-              <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-ink-2">
-                {org?.name && (
-                  <Link href={`/organisationen/${org.id}`} className="font-medium text-ink transition hover:text-signal-deep">
-                    {org.name}
-                  </Link>
-                )}
-                {post.location && <span>· {post.location}</span>}
-              </div>
-            </div>
-
-            <div className="flex flex-wrap gap-3 lg:justify-end">
-              {hero?.file_download && (
-                <a href={`/api/download?id=${post.id}`} className="inline-flex items-center justify-center rounded-full bg-signal px-5 py-3 text-sm font-medium text-white transition hover:bg-signal-deep">
-                  {images.length > 1 ? `Alle ${images.length} Fotos herunterladen (ZIP)` : 'Originalgröße herunterladen (für Presseverwendung)'}
-                </a>
-              )}
-              <ArticleCartToggle imageId={post.id} />
-              {org?.id && (
-                <Link href={`/kontakt?org=${org.id}`} className="inline-flex items-center justify-center rounded-full border border-line-strong px-5 py-3 text-sm font-medium text-ink transition hover:border-ink hover:bg-white">
-                  Kontakt zu {org.name} aufnehmen
+          <div className="max-w-4xl">
+            <h1 className="max-w-4xl font-display text-[clamp(30px,5vw,54px)] leading-[0.96] tracking-[-0.01em] text-ink">
+              {post.title || (post.alarm_code ? `Einsatz ${post.alarm_code}` : 'Stockfoto')}
+            </h1>
+            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-ink-2">
+              {org?.name && (
+                <Link href={`/organisationen/${org.id}`} className="font-medium text-ink transition hover:text-signal-deep">
+                  {org.name}
                 </Link>
               )}
+              {post.location && <span>· {post.location}</span>}
             </div>
           </div>
         </div>
@@ -177,37 +161,66 @@ export default async function PostArticlePage({ params }: Props) {
           )}
         </div>
 
-        <aside className="space-y-5">
-          <div className="rounded-[24px] bg-white p-5 shadow-card">
-            <div className="mb-4 text-xs font-medium uppercase tracking-[0.14em] text-ink-3">
-              Details
-            </div>
-            <div className="space-y-4 text-sm text-ink-2">
-              <div className="flex items-start justify-between gap-4 border-b border-line/70 pb-3">
-                <span className="text-ink-3">Typ</span>
-                <span className="text-right text-ink">{post.alarm_code ?? (isStock ? 'Stockfoto' : 'Pressefoto')}</span>
+        <aside className="space-y-5 lg:sticky lg:top-24 lg:self-start">
+          <div className="overflow-hidden rounded-[28px] border border-white/70 bg-gradient-to-b from-white via-white to-panel/35 shadow-[0_1px_2px_rgba(16,17,20,0.04),0_18px_40px_rgba(16,17,20,0.08)]">
+            <div className="border-b border-line/70 px-5 py-4">
+              <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-ink-3">
+                Details
               </div>
-              {dateLabel && (
-                <div className="flex items-start justify-between gap-4 border-b border-line/70 pb-3">
-                  <span className="text-ink-3">Datum</span>
-                  <span className="text-right text-ink">{dateLabel}</span>
+            </div>
+
+            <div className="px-5 py-3">
+              <div className="grid gap-0 text-sm text-ink-2">
+                <div className="grid grid-cols-[92px_minmax(0,1fr)] items-start gap-4 border-b border-line/70 py-3">
+                  <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">Typ</span>
+                  <span className="text-right text-sm font-medium text-ink">{post.alarm_code ?? (isStock ? 'Stockfoto' : 'Pressefoto')}</span>
                 </div>
-              )}
-              {post.location && (
-                <div className="flex items-start justify-between gap-4 border-b border-line/70 pb-3">
-                  <span className="text-ink-3">Ort</span>
-                  <span className="text-right text-ink">{post.location}</span>
+                {dateLabel && (
+                  <div className="grid grid-cols-[92px_minmax(0,1fr)] items-start gap-4 border-b border-line/70 py-3">
+                    <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">Datum</span>
+                    <span className="text-right text-sm text-ink">{dateLabel}</span>
+                  </div>
+                )}
+                {post.location && (
+                  <div className="grid grid-cols-[92px_minmax(0,1fr)] items-start gap-4 border-b border-line/70 py-3">
+                    <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">Ort</span>
+                    <span className="text-right text-sm text-ink">{post.location}</span>
+                  </div>
+                )}
+                {org?.name && (
+                  <div className="grid grid-cols-[92px_minmax(0,1fr)] items-start gap-4 border-b border-line/70 py-3">
+                    <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">Organisation</span>
+                    <span className="text-right text-sm text-ink">{org.name}</span>
+                  </div>
+                )}
+                <div className="grid grid-cols-[92px_minmax(0,1fr)] items-start gap-4 py-3">
+                  <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">Fotos</span>
+                  <span className="text-right text-sm text-ink">{images.length}</span>
                 </div>
-              )}
-              {org?.name && (
-                <div className="flex items-start justify-between gap-4 border-b border-line/70 pb-3">
-                  <span className="text-ink-3">Organisation</span>
-                  <span className="text-right text-ink">{org.name}</span>
+              </div>
+            </div>
+
+            <div className="border-t border-line/70 bg-white/75 px-4 py-4">
+              <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-1">
+                {hero?.file_download && (
+                  <a
+                    href={`/api/download?id=${post.id}`}
+                    className="inline-flex min-h-[46px] items-center justify-center rounded-full bg-signal px-4 py-3 text-center text-sm font-medium text-white transition hover:bg-signal-deep"
+                  >
+                    {images.length > 1 ? `Alle ${images.length} Fotos herunterladen` : 'Originalgröße herunterladen'}
+                  </a>
+                )}
+                <div className="[&>*]:flex [&>*]:min-h-[46px] [&>*]:w-full [&>*]:items-center [&>*]:justify-center [&>*]:rounded-full [&>*]:border [&>*]:border-line-strong [&>*]:bg-white [&>*]:px-4 [&>*]:py-3 [&>*]:text-sm [&>*]:font-medium [&>*]:text-ink [&>*]:transition hover:[&>*]:border-ink hover:[&>*]:bg-panel/30">
+                  <ArticleCartToggle imageId={post.id} />
                 </div>
-              )}
-              <div className="flex items-start justify-between gap-4">
-                <span className="text-ink-3">Fotos</span>
-                <span className="text-right text-ink">{images.length}</span>
+                {org?.id && (
+                  <Link
+                    href={`/kontakt?org=${org.id}`}
+                    className="inline-flex min-h-[46px] items-center justify-center rounded-full border border-line-strong bg-white px-4 py-3 text-center text-sm font-medium text-ink transition hover:border-ink hover:bg-panel/30 md:col-span-2 lg:col-span-1"
+                  >
+                    Kontakt zu {org.name}
+                  </Link>
+                )}
               </div>
             </div>
           </div>
