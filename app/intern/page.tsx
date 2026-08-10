@@ -37,7 +37,6 @@ export default async function InternPage() {
   const privateCount = posts.length - publicCount;
   const activeShareCount = mediaShares.filter((s) => s.active).length;
 
-  const folders = foldersWithPostIds.map((f) => ({ id: f.id, name: f.name }));
   const mediaSharesForPicker = mediaShares.map((s) => ({ id: s.id, name: s.name }));
 
   const tiles = [
@@ -64,7 +63,7 @@ export default async function InternPage() {
         ))}
       </div>
 
-      <MediaLibraryView posts={posts} folders={folders} mediaShares={mediaSharesForPicker} />
+      <MediaLibraryView posts={posts} folders={foldersWithPostIds} mediaShares={mediaSharesForPicker} />
     </div>
   );
 }
