@@ -29,13 +29,6 @@ function IconPhoto({ className }: { className?: string }) {
     </svg>
   );
 }
-function IconFolder({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
-      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
-    </svg>
-  );
-}
 function IconShare({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
@@ -80,7 +73,6 @@ function IconShield({ className }: { className?: string }) {
 const ICONS: Record<string, ({ className }: { className?: string }) => React.JSX.Element> = {
   dashboard: IconDashboard,
   photo: IconPhoto,
-  folder: IconFolder,
   share: IconShare,
   message: IconMessage,
   star: IconStar,
@@ -111,7 +103,6 @@ export default function InternTopNav({
     : [
         { href: '/intern', label: 'Übersicht', icon: 'dashboard' },
         { href: '/intern/medien', label: 'Medien', icon: 'photo' },
-        { href: '/intern/ordner', label: 'Ordner', icon: 'folder' },
         { href: '/intern/freigaben', label: 'Freigaben', icon: 'share' },
         { href: '/intern/nachrichten', label: 'Nachrichten', icon: 'message', badge: unreadCount },
       ];
