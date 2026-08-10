@@ -16,6 +16,7 @@ import RemoveFromMediaShareButton from '@/components/RemoveFromMediaShareButton'
 import RemoveLibraryFromShareButton from '@/components/RemoveLibraryFromShareButton';
 import MediaSharePostPicker from '@/components/MediaSharePostPicker';
 import MediaShareLibraryPicker from '@/components/MediaShareLibraryPicker';
+import MediaShareFolderPicker from '@/components/MediaShareFolderPicker';
 import FolderToShareControl from '@/components/FolderToShareControl';
 
 export const dynamic = 'force-dynamic';
@@ -154,11 +155,23 @@ export default async function MediaShareDetailPage({
           ))}
         </div>
       )}
-      <div className="mb-10">
-        <MediaShareLibraryPicker shareId={share.id} excludeIds={includedLibraryIds} />
+
+      <div className="mb-4 grid grid-cols-1 gap-4 nav:grid-cols-2">
+        <div>
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-ink-3">
+            Einzelne Bilder auswählen
+          </p>
+          <MediaShareLibraryPicker shareId={share.id} excludeIds={includedLibraryIds} />
+        </div>
+        <div>
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-ink-3">
+            Oder einen ganzen Ordner freigeben
+          </p>
+          <MediaShareFolderPicker shareId={share.id} />
+        </div>
       </div>
 
-      <h2 className="mb-4 font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
+      <h2 className="mb-4 mt-10 font-display text-[15px] font-bold uppercase tracking-[0.09em] text-ink-2">
         Weitere Beiträge hinzufügen
       </h2>
 
