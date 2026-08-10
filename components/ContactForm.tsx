@@ -16,6 +16,22 @@ declare global {
 
 const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
 
+// Zerlegt die Sucheingabe in einzelne Wörter -- mehrfache Leerzeichen
+// zwischen Wörtern spielen dabei keine Rolle (z. B. "DRK   Ortsverein").
+function searchTokens(input: string): string[] {
+  return input.trim().toLowerCase().split(/\s+/).filter(Boolean);
+}
+
+// Ein Organisationsname passt, wenn JEDES eingegebene Wort irgendwo im
+// Namen vorkommt -- unabhängig von Reihenfolge und Position. Ein reines
+// includes() auf dem Gesamtstring findet z. B. "DR OV FN" nicht in "DRK
+// Ortsverein Friedrichshafen", weil die Leerzeichen der Eingabe nicht mit
+// denen im echten Namen übereinstimmen. Wortweise geprüft klappt es.
+function matchesAllTokens(name: string, tokens: string[]): boolean {
+  const haystack = name.toLowerCase();
+  return tokens.every((token) => haystack.includes(token));
+}
+
 export default function ContactForm({
   organizations,
   defaultOrganizationId,
@@ -94,9 +110,9 @@ export default function ContactForm({
       return;
     }
 
-    const q = value.trim().toLowerCase();
+    const tokens = searchTokens(value);
     const matches = hiOrgs
-      .filter((org) => org.name.toLowerCase().includes(q))
+      .filter((org) => matchesAllTokens(org.name, tokens))
       .slice(0, 8);
 
     setSuggestions(matches);
