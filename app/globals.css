@@ -2,6 +2,18 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer components {
+  /* Gemeinsame Basis für alle Karten im Projekt -- weicher Schatten statt
+     harter Rahmen, großzügiger Radius. Einzelne Komponenten können das
+     weiterhin mit eigenen Tailwind-Klassen überschreiben. */
+  .card-soft {
+    @apply rounded-xl border-0 bg-white shadow-card transition-shadow;
+  }
+  .card-soft:hover {
+    @apply shadow-card-hover;
+  }
+}
+
 @keyframes ticker-scroll {
   from {
     transform: translateX(0);
@@ -83,11 +95,11 @@
 }
 
 .prose-article a {
-  color: #8e1420;
+  color: #c13725;
   text-decoration: underline;
 }
 
 .prose-article:empty::before {
   content: attr(data-placeholder);
-  color: #93969b;
+  color: #8a8c93;
 }
