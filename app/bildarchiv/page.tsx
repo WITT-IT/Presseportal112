@@ -86,11 +86,11 @@ export default async function BildarchivPage({
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-3xl">
               <span className="inline-flex items-center rounded-full bg-white/80 px-3 py-1 text-xs font-medium uppercase tracking-[0.16em] text-ink-2 shadow-sm">
-                Bildarchiv
+                Medien & Stockfotos
               </span>
 
               <h1 className="mt-4 max-w-4xl font-display text-4xl leading-[0.95] text-ink sm:text-5xl">
-                Freigegebene Einsatzbilder, schnell auffindbar und sauber kuratiert.
+                Freigegebene Einsatzbilder, von Polizei, Feuerwehr, Rettungsdiensten, THW.
               </h1>
 
               <p className="mt-4 max-w-2xl text-base leading-7 text-ink-2 sm:text-lg">
