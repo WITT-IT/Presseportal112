@@ -161,7 +161,7 @@ export default async function BildarchivPage({
                   type="submit"
                   className="col-span-2 inline-flex items-center justify-center rounded-2xl bg-signal px-5 py-3 text-sm font-medium text-white transition hover:bg-signal-deep lg:col-span-1"
                 >
-                  Archiv durchsuchen
+                  Medien suchen
                 </button>
               </div>
             </div>
