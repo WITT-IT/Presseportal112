@@ -6,6 +6,7 @@ import Image from 'next/image';
 import { useDialog } from './DialogProvider';
 import PostCalendar from './PostCalendar';
 import ShareFolderControl from './ShareFolderControl';
+import MediaLightbox from './MediaLightbox';
 import type { Post } from '@/lib/types';
 
 type SubFolder = { id: string; name: string };
@@ -103,7 +104,10 @@ export default function MediaBrowser({
   const { confirm } = useDialog();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [selectedMediaId, setSelectedMediaId] = useState<string | null>(null);
+  // lightboxId ersetzt die frühere reine Auswahl (selectedMediaId) --
+  // Klick auf ein Bild öffnet direkt die Großansicht, "Veröffentlichen"
+  // sitzt jetzt dort statt in einer separaten Toolbar für die Auswahl.
+  const [lightboxId, setLightboxId] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<(DragPayload & { value: string }) | null>(null);
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
@@ -166,7 +170,10 @@ export default function MediaBrowser({
 
   async function submitNewFolder() {
     const name = newFolderName.trim();
-    if (!name) { setCreatingFolder(false); return; }
+    if (!name) {
+      setCreatingFolder(false);
+      return;
+    }
     setBusy(true);
     try {
       const res = await fetch('/api/intern/folders', {
@@ -193,7 +200,10 @@ export default function MediaBrowser({
   async function submitRename() {
     if (!renaming) return;
     const value = renaming.value.trim();
-    if (!value) { setRenaming(null); return; }
+    if (!value) {
+      setRenaming(null);
+      return;
+    }
     setBusy(true);
     try {
       if (renaming.type === 'folder') {
@@ -289,7 +299,7 @@ export default function MediaBrowser({
           const body = await res.json().catch(() => ({}));
           throw new Error(body.error ?? 'Löschen fehlgeschlagen.');
         }
-        if (selectedMediaId === target.id) setSelectedMediaId(null);
+        if (lightboxId === target.id) setLightboxId(null);
       }
       router.refresh();
     } catch (err) {
@@ -323,21 +333,11 @@ export default function MediaBrowser({
             <IconFolderPlus className="h-[15px] w-[15px]" />
             Neuer Ordner
           </button>
-
-          {selectedMediaId && (
-            <button
-              type="button"
-              onClick={() => router.push(`/intern/upload?mediaId=${selectedMediaId}`)}
-              className="ml-auto flex items-center gap-2 rounded-md bg-signal-deep px-4 py-2.5 text-[13px] font-semibold text-white hover:opacity-90"
-            >
-              <IconSend className="h-[15px] w-[15px]" />
-              Veröffentlichen
-            </button>
-          )}
         </div>
 
         <p className="mb-4 text-[11.5px] text-ink-3">
-          Tipp: Bilder direkt auf einen Ordner ziehen, um sie ohne Umweg dort abzulegen.
+          Tipp: Bilder direkt auf einen Ordner ziehen, um sie ohne Umweg dort abzulegen. Klick auf
+          ein Bild öffnet die Großansicht.
         </p>
 
         {error && (
@@ -358,7 +358,11 @@ export default function MediaBrowser({
             <button
               type="button"
               onClick={() => openFolder(parentFolderId)}
-              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOverId('ROOT'); }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setDragOverId('ROOT');
+              }}
               onDragLeave={() => setDragOverId(null)}
               onDrop={(e) => handleDropOnFolderTile(e, parentFolderId)}
               className={`flex flex-col items-center gap-2 rounded-xl p-3 text-center text-ink-3 transition-colors hover:bg-panel ${
@@ -381,7 +385,10 @@ export default function MediaBrowser({
                 autoFocus
                 value={newFolderName}
                 onChange={(e) => setNewFolderName(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') submitNewFolder(); if (e.key === 'Escape') setCreatingFolder(false); }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') submitNewFolder();
+                  if (e.key === 'Escape') setCreatingFolder(false);
+                }}
                 onBlur={submitNewFolder}
                 placeholder="Ordnername"
                 className="w-full rounded-md border border-ink px-2 py-1 text-center text-[12px] outline-none"
@@ -394,7 +401,11 @@ export default function MediaBrowser({
               key={folder.id}
               draggable
               onDragStart={(e) => handleDragStart(e, { id: folder.id, type: 'folder' })}
-              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOverId(folder.id); }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setDragOverId(folder.id);
+              }}
               onDragLeave={() => setDragOverId(null)}
               onDrop={(e) => handleDropOnFolderTile(e, folder.id)}
               onClick={() => openFolder(folder.id)}
@@ -415,7 +426,10 @@ export default function MediaBrowser({
                 </button>
                 <button
                   type="button"
-                  onClick={(e) => { e.stopPropagation(); deleteItem({ id: folder.id, type: 'folder' }, folder.name); }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deleteItem({ id: folder.id, type: 'folder' }, folder.name);
+                  }}
                   title="Ordner löschen"
                   className="flex h-6 w-6 items-center justify-center rounded-full bg-white text-ink-2 shadow-sm ring-1 ring-line-strong hover:bg-signal-deep hover:text-white hover:ring-signal-deep"
                 >
@@ -431,7 +445,10 @@ export default function MediaBrowser({
                   autoFocus
                   value={renaming.value}
                   onChange={(e) => setRenaming({ ...renaming, value: e.target.value })}
-                  onKeyDown={(e) => { if (e.key === 'Enter') submitRename(); if (e.key === 'Escape') setRenaming(null); }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') submitRename();
+                    if (e.key === 'Escape') setRenaming(null);
+                  }}
                   onBlur={submitRename}
                   onClick={(e) => e.stopPropagation()}
                   className="w-full rounded-md border border-ink px-1.5 py-0.5 text-center text-[12px] outline-none"
@@ -449,21 +466,26 @@ export default function MediaBrowser({
                 key={item.id}
                 draggable
                 onDragStart={(e) => handleDragStart(e, { id: item.id, type: 'media' })}
-                onClick={() => setSelectedMediaId(item.id)}
-                className={`group relative flex cursor-pointer flex-col items-center gap-2 rounded-xl p-3 text-center transition-colors hover:bg-panel ${
-                  selectedMediaId === item.id ? 'bg-panel outline outline-2 outline-ink' : ''
-                }`}
+                className="group relative flex flex-col items-center gap-2 rounded-xl p-3 text-center transition-colors hover:bg-panel"
               >
                 <button
                   type="button"
-                  onClick={(e) => { e.stopPropagation(); deleteItem({ id: item.id, type: 'media' }, label); }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deleteItem({ id: item.id, type: 'media' }, label);
+                  }}
                   title="Bild löschen"
                   className="absolute right-1.5 top-1.5 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-white text-ink-2 opacity-0 shadow-sm ring-1 ring-line-strong transition-opacity group-hover:opacity-100 hover:bg-signal-deep hover:text-white hover:ring-signal-deep"
                 >
                   <IconX className="h-[12px] w-[12px]" />
                 </button>
 
-                <div className="relative h-[92px] w-[92px] overflow-hidden rounded-2xl bg-panel">
+                <button
+                  type="button"
+                  onClick={() => setLightboxId(item.id)}
+                  title="Klick für Großansicht"
+                  className="relative h-[92px] w-[92px] cursor-pointer overflow-hidden rounded-2xl bg-panel"
+                >
                   <Image
                     src={`/api/intern/library?original=${item.id}&width=200&quality=70`}
                     alt=""
@@ -471,20 +493,27 @@ export default function MediaBrowser({
                     className="object-cover"
                     unoptimized
                   />
-                </div>
+                </button>
                 {renaming?.id === item.id ? (
                   <input
                     autoFocus
                     value={renaming.value}
                     onChange={(e) => setRenaming({ ...renaming, value: e.target.value })}
-                    onKeyDown={(e) => { if (e.key === 'Enter') submitRename(); if (e.key === 'Escape') setRenaming(null); }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') submitRename();
+                      if (e.key === 'Escape') setRenaming(null);
+                    }}
                     onBlur={submitRename}
                     onClick={(e) => e.stopPropagation()}
                     className="w-full rounded-md border border-ink px-1.5 py-0.5 text-center text-[12px] outline-none"
                   />
                 ) : (
                   <span
-                    onDoubleClick={(e) => { e.stopPropagation(); setRenaming({ id: item.id, type: 'media', value: label }); }}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      setRenaming({ id: item.id, type: 'media', value: label });
+                    }}
+                    title="Doppelklick zum schnellen Umbenennen"
                     className="line-clamp-2 text-[12px] font-medium text-ink"
                   >
                     {label}
@@ -508,6 +537,15 @@ export default function MediaBrowser({
       <aside className="w-full flex-none nav:sticky nav:top-6 nav:w-[300px]">
         <PostCalendar posts={calendarPosts} />
       </aside>
+
+      {lightboxId && (
+        <MediaLightbox
+          items={items}
+          activeId={lightboxId}
+          onClose={() => setLightboxId(null)}
+          onChangeActive={setLightboxId}
+        />
+      )}
     </div>
   );
 }
