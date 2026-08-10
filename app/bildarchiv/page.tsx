@@ -1,8 +1,6 @@
 import Link from 'next/link';
 import { cookies } from 'next/headers';
-import GewerkFilterTabs from '@/components/GewerkFilterTabs';
 import GalleryCard from '@/components/GalleryCard';
-import SearchBox from '@/components/SearchBox';
 import { SESSION_COOKIE } from '@/lib/auth';
 import { getGewerke, getPublicImagesPage, searchPublicImages } from '@/lib/queries';
 
@@ -16,10 +14,12 @@ export const metadata = {
 
 const PAGE_SIZE = 24;
 
+type SearchParams = Promise<{ gewerk?: string; page?: string; q?: string }>;
+
 export default async function BildarchivPage({
   searchParams,
 }: {
-  searchParams: Promise<{ gewerk?: string; page?: string; q?: string }>;
+  searchParams: SearchParams;
 }) {
   const params = await searchParams;
   const gewerkId = params.gewerk;
@@ -48,12 +48,21 @@ export default async function BildarchivPage({
     gewerke = await getGewerke();
 
     if (query) {
-      const result = await searchPublicImages({ query, gewerkId, page, pageSize: PAGE_SIZE });
+      const result = await searchPublicImages({
+        query,
+        gewerkId,
+        page,
+        pageSize: PAGE_SIZE,
+      });
       images = result.images;
       hasNextPage = result.hasNextPage;
       resultCount = result.total;
     } else {
-      const result = await getPublicImagesPage({ gewerkId, page, pageSize: PAGE_SIZE });
+      const result = await getPublicImagesPage({
+        gewerkId,
+        page,
+        pageSize: PAGE_SIZE,
+      });
       images = result.images;
       hasNextPage = result.hasNextPage;
     }
@@ -61,6 +70,9 @@ export default async function BildarchivPage({
     console.error('Bildarchiv: Directus nicht erreichbar', e);
     error = true;
   }
+
+  const einsatzCount = images.filter((post: any) => post.post_type !== 'stockfoto').length;
+  const stockfotoCount = images.filter((post: any) => post.post_type === 'stockfoto').length;
 
   const queryParts: string[] = [];
   if (gewerkId) queryParts.push(`gewerk=${encodeURIComponent(gewerkId)}`);
@@ -87,18 +99,22 @@ export default async function BildarchivPage({
               </p>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-2 gap-3 sm:min-w-[260px]">
               <div className="rounded-2xl bg-white/90 px-4 py-3 shadow-card">
-                <div className="text-xs uppercase tracking-[0.14em] text-ink-3">Treffer</div>
-                <div className="mt-1 text-xl font-semibold text-ink">{resultCount ?? images.length}</div>
+                <div className="text-xs uppercase tracking-[0.14em] text-ink-3">
+                  Einsätze
+                </div>
+                <div className="mt-1 text-xl font-semibold text-ink">
+                  {einsatzCount}
+                </div>
               </div>
               <div className="rounded-2xl bg-white/90 px-4 py-3 shadow-card">
-                <div className="text-xs uppercase tracking-[0.14em] text-ink-3">Fokus</div>
-                <div className="mt-1 text-sm font-medium text-ink">Freigegebene Bilder</div>
-              </div>
-              <div className="col-span-2 rounded-2xl bg-white/90 px-4 py-3 shadow-card sm:col-span-1">
-                <div className="text-xs uppercase tracking-[0.14em] text-ink-3">Ansicht</div>
-                <div className="mt-1 text-sm font-medium text-ink">Editorial Archiv</div>
+                <div className="text-xs uppercase tracking-[0.14em] text-ink-3">
+                  Stockfotos
+                </div>
+                <div className="mt-1 text-xl font-semibold text-ink">
+                  {stockfotoCount}
+                </div>
               </div>
             </div>
           </div>
@@ -106,10 +122,18 @@ export default async function BildarchivPage({
           <form className="rounded-[20px] border border-white/70 bg-white/85 p-3 shadow-raised backdrop-blur">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
               <div className="flex min-w-0 flex-1 items-center gap-3 rounded-2xl bg-panel/55 px-4 py-3">
-                <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5 shrink-0 text-ink-2" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 24 24"
+                  className="h-5 w-5 shrink-0 text-ink-2"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                >
                   <circle cx="11" cy="11" r="7" />
                   <path d="m20 20-3.5-3.5" />
                 </svg>
+
                 <input
                   type="search"
                   name="q"
@@ -122,22 +146,15 @@ export default async function BildarchivPage({
               <div className="grid grid-cols-2 gap-3 lg:flex lg:items-center">
                 <select
                   name="gewerk"
-                  defaultValue={gewerkId || 'alle'}
+                  defaultValue={gewerkId || ''}
                   className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink shadow-sm outline-none transition focus:border-line-strong"
                 >
                   <option value="">Alle Gewerke</option>
                   {gewerke.map((g: any) => (
-                    <option key={g.id} value={g.id}>{g.name}</option>
+                    <option key={g.id} value={g.id}>
+                      {g.name}
+                    </option>
                   ))}
-                </select>
-
-                <select
-                  name="sort"
-                  defaultValue="neu"
-                  className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink shadow-sm outline-none transition focus:border-line-strong"
-                >
-                  <option value="neu">Neueste zuerst</option>
-                  <option value="alt">Älteste zuerst</option>
                 </select>
 
                 <button
@@ -152,12 +169,19 @@ export default async function BildarchivPage({
             {(query || gewerkId) && (
               <div className="mt-3 flex flex-wrap gap-2 border-t border-line/70 pt-3">
                 {query ? (
-                  <span className="inline-flex items-center rounded-full bg-paper px-3 py-1.5 text-xs font-medium text-ink-2">Suche: {query}</span>
+                  <span className="inline-flex items-center rounded-full bg-paper px-3 py-1.5 text-xs font-medium text-ink-2">
+                    Suche: {query}
+                  </span>
                 ) : null}
                 {gewerkId ? (
-                  <span className="inline-flex items-center rounded-full bg-paper px-3 py-1.5 text-xs font-medium text-ink-2">Gewerk: {gewerkId}</span>
+                  <span className="inline-flex items-center rounded-full bg-paper px-3 py-1.5 text-xs font-medium text-ink-2">
+                    Gewerk: {gewerkId}
+                  </span>
                 ) : null}
-                <Link href="/bildarchiv" className="inline-flex items-center rounded-full px-3 py-1.5 text-xs font-medium text-signal transition hover:text-signal-deep">
+                <Link
+                  href="/bildarchiv"
+                  className="inline-flex items-center rounded-full px-3 py-1.5 text-xs font-medium text-signal transition hover:text-signal-deep"
+                >
                   Suche zurücksetzen
                 </Link>
               </div>
@@ -172,14 +196,14 @@ export default async function BildarchivPage({
             {error
               ? 'Die Bilder konnten gerade nicht geladen werden.'
               : images.length === 0
-              ? query
-                ? `Keine Treffer für „${query}“.`
-                : gewerkId
-                ? 'Für dieses Gewerk sind aktuell keine freigegebenen Fotos vorhanden.'
-                : 'Sobald die erste Organisation ein Foto freigibt, erscheint es hier.'
-              : query
-              ? `${resultCount ?? images.length} Treffer für „${query}“`
-              : `${resultCount ?? images.length} freigegebene Bilder im Archiv`}
+                ? query
+                  ? `Keine Treffer für „${query}“.`
+                  : gewerkId
+                    ? 'Für dieses Gewerk sind aktuell keine freigegebenen Fotos vorhanden.'
+                    : 'Sobald die erste Organisation ein Foto freigibt, erscheint es hier.'
+                : query
+                  ? `${resultCount ?? images.length} Treffer für „${query}“`
+                  : `${images.length} Einträge auf dieser Seite`}
           </div>
           <div className="flex items-center gap-2 text-xs uppercase tracking-[0.14em] text-ink-3">
             <span className="h-2 w-2 rounded-full bg-signal" />
@@ -194,11 +218,16 @@ export default async function BildarchivPage({
         ) : images.length === 0 ? (
           <div className="flex min-h-[360px] flex-col items-center justify-center rounded-[24px] border border-dashed border-line-strong bg-white/70 px-6 text-center shadow-sm">
             <div className="max-w-md">
-              <h2 className="font-display text-3xl leading-none text-ink">Kein passender Bildsatz gefunden</h2>
+              <h2 className="font-display text-3xl leading-none text-ink">
+                Kein passender Bildsatz gefunden
+              </h2>
               <p className="mt-4 text-sm leading-6 text-ink-2">
                 Passe Suchbegriff oder Filter an, damit wieder freigegebene Einsatzbilder erscheinen.
               </p>
-              <Link href="/bildarchiv" className="mt-6 inline-flex rounded-full bg-signal px-5 py-3 text-sm font-medium text-white transition hover:bg-signal-deep">
+              <Link
+                href="/bildarchiv"
+                className="mt-6 inline-flex rounded-full bg-signal px-5 py-3 text-sm font-medium text-white transition hover:bg-signal-deep"
+              >
                 Archiv zurücksetzen
               </Link>
             </div>
@@ -213,7 +242,10 @@ export default async function BildarchivPage({
 
             <div className="mt-10 flex items-center justify-between">
               {page > 1 ? (
-                <Link href={`/bildarchiv${baseQuery}page=${page - 1}`} className="rounded-md border border-line-strong px-4 py-2.5 text-[13px] font-semibold text-ink hover:border-ink">
+                <Link
+                  href={`/bildarchiv${baseQuery}page=${page - 1}`}
+                  className="rounded-md border border-line-strong px-4 py-2.5 text-[13px] font-semibold text-ink hover:border-ink"
+                >
                   ← Neuere
                 </Link>
               ) : (
@@ -221,7 +253,10 @@ export default async function BildarchivPage({
               )}
               <span className="font-mono text-[11px] text-ink-3">Seite {page}</span>
               {hasNextPage ? (
-                <Link href={`/bildarchiv${baseQuery}page=${page + 1}`} className="rounded-md border border-line-strong px-4 py-2.5 text-[13px] font-semibold text-ink hover:border-ink">
+                <Link
+                  href={`/bildarchiv${baseQuery}page=${page + 1}`}
+                  className="rounded-md border border-line-strong px-4 py-2.5 text-[13px] font-semibold text-ink hover:border-ink"
+                >
                   Ältere →
                 </Link>
               ) : (
