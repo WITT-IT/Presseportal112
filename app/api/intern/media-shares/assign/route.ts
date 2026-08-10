@@ -2,24 +2,55 @@ import { NextRequest, NextResponse } from 'next/server';
 import { SESSION_COOKIE } from '@/lib/auth';
 import { DIRECTUS_URL } from '@/lib/directus';
 
-export async function POST(request: NextRequest) {
+function getSession(request: NextRequest): { accessToken: string } | null {
   const raw = request.cookies.get(SESSION_COOKIE)?.value;
-  if (!raw) {
-    return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
-  }
-  let session: { accessToken: string };
+  if (!raw) return null;
   try {
-    session = JSON.parse(raw);
+    return JSON.parse(raw);
   } catch {
-    return NextResponse.json({ error: 'Sitzung ungültig.' }, { status: 401 });
+    return null;
+  }
+}
+
+// Sammelt alle media_library-IDs im Ordner UND rekursiv in allen
+// Unterordnern, egal wie tief verschachtelt (Ordner in Ordner in Ordner …).
+// Gleiches Muster wie collectSubtree beim Ordner-Löschen.
+async function collectMediaIdsRecursive(folderId: string, accessToken: string): Promise<string[]> {
+  const headers = { Authorization: `Bearer ${accessToken}` };
+  const mediaIds: string[] = [];
+  const queue = [folderId];
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+
+    const [subfoldersRes, mediaRes] = await Promise.all([
+      fetch(`${DIRECTUS_URL}/items/folders?filter[parent_folder][_eq]=${current}&fields=id`, { headers }),
+      fetch(`${DIRECTUS_URL}/items/media_library?filter[folder][_eq]=${current}&fields=id`, { headers }),
+    ]);
+
+    if (subfoldersRes.ok) {
+      const { data } = await subfoldersRes.json();
+      for (const f of data as { id: string }[]) queue.push(f.id);
+    }
+    if (mediaRes.ok) {
+      const { data } = await mediaRes.json();
+      mediaIds.push(...(data as { id: string }[]).map((m) => m.id));
+    }
   }
 
-  const { shareId, postId, mediaId, action } = await request.json().catch(() => ({}));
+  return mediaIds;
+}
+
+export async function POST(request: NextRequest) {
+  const session = getSession(request);
+  if (!session) return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
+
+  const { shareId, postId, mediaId, folderId, action } = await request.json().catch(() => ({}));
   if (!shareId || (action !== 'add' && action !== 'remove')) {
     return NextResponse.json({ error: 'Ungültige Anfrage.' }, { status: 400 });
   }
-  if (!postId && !mediaId) {
-    return NextResponse.json({ error: 'postId oder mediaId erforderlich.' }, { status: 400 });
+  if (!postId && !mediaId && !folderId) {
+    return NextResponse.json({ error: 'postId, mediaId oder folderId erforderlich.' }, { status: 400 });
   }
 
   const headers = {
@@ -27,11 +58,49 @@ export async function POST(request: NextRequest) {
     'Content-Type': 'application/json',
   };
 
-  // Bibliotheks-Bild-Zuordnung -- eigene Junction-Collection, gleiche
-  // Route wie Beiträge, um die neue Next.js-Standalone-Build-Route-
-  // Problematik zu umgehen (neue route.ts-Dateien landen manchmal nicht
-  // im routes-manifest.json -> 405. Etablierter Workaround: bestehende
-  // Route erweitern statt neue Datei anlegen).
+  // Kompletten Ordner (inkl. aller Unterordner-Ebenen) freigeben -- sammelt
+  // erst alle Bild-IDs rekursiv ein, hängt dann jedes einzeln an, ohne
+  // schon vorhandene Bilder doppelt einzutragen.
+  if (folderId) {
+    let mediaIds: string[];
+    try {
+      mediaIds = await collectMediaIdsRecursive(folderId, session.accessToken);
+    } catch (error) {
+      console.error('Ordner-Inhalt konnte nicht ermittelt werden:', error);
+      return NextResponse.json({ error: 'Ordnerinhalt konnte nicht geladen werden.' }, { status: 502 });
+    }
+
+    if (mediaIds.length === 0) {
+      return NextResponse.json({ ok: true, added: 0 });
+    }
+
+    const existingRes = await fetch(
+      `${DIRECTUS_URL}/items/media_shares_media?filter[media_shares_id][_eq]=${shareId}&fields=media_library_id`,
+      { headers }
+    );
+    const existingIds = new Set<string>();
+    if (existingRes.ok) {
+      const { data } = await existingRes.json();
+      for (const row of data as { media_library_id: string }[]) existingIds.add(row.media_library_id);
+    }
+
+    const toAdd = mediaIds.filter((id) => !existingIds.has(id));
+    let added = 0;
+    for (const id of toAdd) {
+      const res = await fetch(`${DIRECTUS_URL}/items/media_shares_media`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ media_shares_id: shareId, media_library_id: id }),
+      });
+      if (res.ok) added++;
+    }
+
+    return NextResponse.json({ ok: true, added, total: mediaIds.length });
+  }
+
+  // Einzelnes Bibliotheks-Bild -- gleiche Route wie Beiträge, um die
+  // Next.js-Standalone-Build-Route-Problematik zu umgehen (neue route.ts-
+  // Dateien landen manchmal nicht im routes-manifest.json -> 405).
   if (mediaId) {
     if (action === 'add') {
       const res = await fetch(`${DIRECTUS_URL}/items/media_shares_media`, {
