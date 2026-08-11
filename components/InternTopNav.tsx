@@ -145,7 +145,7 @@ export default function InternTopNav({
         )}
         <span
           className={`absolute -bottom-px left-0 right-0 h-[2.5px] rounded-full transition-all ${
-            active ? 'bg-ink' : 'bg-transparent group-hover:bg-line-strong'
+            active ? 'bg-signal' : 'bg-transparent group-hover:bg-line-strong'
           }`}
         />
       </Link>
@@ -153,7 +153,11 @@ export default function InternTopNav({
   }
 
   return (
-    <div className="sticky top-0 z-30 border-b border-line-strong bg-white/85 backdrop-blur-md">
+    // Glas-Look statt harter weißer Fläche + Border -- gleiche Sprache wie
+    // die neuen Kacheln (bg-white/85 + backdrop-blur + weicher Schatten
+    // statt 1px-Rand). Aktiv-Unterstrich jetzt in signal statt ink, damit
+    // die Nav den warmen Akzent der Seite aufgreift statt neutral zu bleiben.
+    <div className="sticky top-0 z-30 border-b border-white/60 bg-white/85 shadow-[0_1px_0_rgba(16,17,20,0.03),0_8px_24px_rgba(16,17,20,0.04)] backdrop-blur-md">
       <div className="mx-auto flex max-w-[1400px] items-center justify-between gap-6 px-6 nav:px-10">
         <nav className="flex flex-1 flex-wrap items-center gap-6">
           {mainItems.map(renderItem)}
@@ -166,7 +170,7 @@ export default function InternTopNav({
                 {organizationName}
               </span>
               {isPress && (
-                <span className="flex-none rounded-[4px] bg-signal px-1.5 py-0.5 text-[9px] font-bold uppercase text-white">
+                <span className="flex-none rounded-full bg-signal px-2 py-0.5 text-[9px] font-bold uppercase text-white">
                   Presse
                 </span>
               )}
