@@ -1,6 +1,8 @@
 import { notFound } from 'next/navigation';
 import { getMediaShareByToken } from '@/lib/queries';
+import { getMediaShareStatus } from '@/lib/mediaShareStatus';
 import type { Post, PostImage } from '@/lib/types';
+import ExpiredMediaShareNotice from '@/components/ExpiredMediaShareNotice';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,6 +14,24 @@ export default async function MediaSharePage({
   params: Promise<{ token: string }>;
 }) {
   const { token } = await params;
+
+  // Vorab klären, WARUM ein Token nicht (mehr) funktioniert -- statt direkt
+  // in die generische 404 zu laufen. "not_found" (Token hat nie existiert)
+  // bleibt ein echtes 404; "expired"/"deactivated" bekommen die freundliche
+  // Erklärseite.
+  const status = await getMediaShareStatus(token);
+  if (status.state === 'not_found') notFound();
+  if (status.state === 'expired' || status.state === 'deactivated') {
+    return (
+      <ExpiredMediaShareNotice
+        state={status.state}
+        name={status.name}
+        organizationName={status.organizationName}
+        expiresAt={status.expiresAt}
+      />
+    );
+  }
+
   const share = await getMediaShareByToken(token);
   if (!share) notFound();
 
@@ -66,34 +86,23 @@ export default async function MediaSharePage({
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={`/api/medienfreigabe/${token}/preview?imageId=${img.id}`}
-                      alt={img.caption ?? img.post.title ?? 'Pressefoto'}
+                      alt={img.caption ?? img.post.title ?? ''}
                       className="h-full w-full object-cover"
                     />
                   )}
                 </div>
                 <div className="p-3">
-                  <div className="mb-2 font-mono text-[10px] text-ink-3">
-                    {img.post.event_date
-                      ? new Date(img.post.event_date).toLocaleDateString('de-DE')
-                      : ''}
-                    {img.post.location ? ` · ${img.post.location}` : ''}
-                  </div>
-                  <a
-                    href={`/api/medienfreigabe/${token}/download?imageId=${img.id}`}
-                    className="block w-full rounded-md bg-ink px-3 py-2 text-center text-[11px] font-semibold text-white transition-colors hover:bg-black"
-                  >
-                    Foto herunterladen
-                  </a>
+                  <p className="truncate text-[12.5px] font-medium text-ink">
+                    {img.post.title || img.post.alarm_code || 'Ohne Titel'}
+                  </p>
+                  {img.caption && (
+                    <p className="mt-0.5 truncate text-[11.5px] text-ink-2">{img.caption}</p>
+                  )}
                 </div>
               </div>
             ))}
           </div>
         )}
-
-        <footer className="mt-10 flex gap-5 border-t border-line pt-6 text-[11px] text-ink-3">
-          <a href="/datenschutz">Datenschutzerklärung</a>
-          <a href="/impressum">Impressum</a>
-        </footer>
       </div>
     </section>
   );
