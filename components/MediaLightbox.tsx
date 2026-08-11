@@ -13,11 +13,10 @@ type MediaItem = {
 
 // Großansicht für ein Bild aus der internen Medienbibliothek -- optisch an
 // die öffentliche Lightbox in PostGallery.tsx angelehnt (gleicher
-// Bild-über-Steuerleiste-Aufbau, gleiche Tastatursteuerung), aber mit
-// zusätzlichen internen Aktionen: Name direkt editierbar, Veröffentlichen,
-// Löschen. Nutzt den bestehenden Asset-Proxy /api/intern/library?original=,
-// der die Datei organisationsscope-geprüft und mit Directus-Transform
-// (width/quality) ausliefert -- kein neuer Endpunkt nötig.
+// Bild-über-Steuerleiste-Aufbau, gleiche Tastatursteuerung), abgestimmt auf
+// das neue Kachel-Grid in MediaBrowser.tsx (runde 20px-Formen, signal als
+// primäre Akzentfarbe statt signal-deep). Zusätzliche interne Aktionen:
+// Name direkt editierbar, Veröffentlichen, Löschen.
 export default function MediaLightbox({
   items,
   activeId,
@@ -40,16 +39,12 @@ export default function MediaLightbox({
   const [nameSaved, setNameSaved] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  // Eingabefeld beim Wechsel auf ein anderes Bild (Pfeiltasten/Klick) auf
-  // dessen aktuellen Namen zurücksetzen.
   useEffect(() => {
     setNameDraft(active?.display_name ?? '');
     setNameSaved(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeId]);
 
-  // Tastatursteuerung, solange die Großansicht offen ist -- gleiches
-  // Verhalten wie im öffentlichen Bereich (Escape/Pfeiltasten).
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       if (e.key === 'Escape') onClose();
@@ -80,8 +75,8 @@ export default function MediaLightbox({
       setNameSaved(true);
       router.refresh();
     } catch {
-      // Stiller Fehlschlag reicht -- Eingabefeld bleibt stehen, erneuter
-      // Versuch (Enter/Blur) funktioniert genauso wie beim ersten Mal.
+      // Stiller Fehlschlag reicht -- erneuter Versuch (Enter/Blur)
+      // funktioniert genauso wie beim ersten Mal.
     } finally {
       setSavingName(false);
     }
@@ -113,25 +108,25 @@ export default function MediaLightbox({
 
   return (
     <div
-      className="fixed inset-0 z-[70] flex flex-col items-center justify-center bg-ink/90 p-4"
+      className="fixed inset-0 z-[70] flex flex-col items-center justify-center bg-void/85 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
         className="relative flex max-h-full w-full max-w-[1100px] flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="relative mx-auto max-h-[65vh] w-full">
+        <div className="relative mx-auto max-h-[65vh] w-full overflow-hidden rounded-[20px] shadow-[0_20px_60px_rgba(0,0,0,0.5)]">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={`/api/intern/library?original=${active.id}&width=1800&quality=88`}
             alt={active.display_name ?? 'Bild'}
-            className="mx-auto max-h-[65vh] w-auto rounded-[8px] object-contain"
+            className="mx-auto max-h-[65vh] w-auto object-contain"
           />
         </div>
 
-        <div className="mt-3 flex flex-wrap items-end justify-between gap-3">
+        <div className="mt-4 flex flex-wrap items-end justify-between gap-3 rounded-[20px] border border-white/10 bg-white/[0.07] p-4 backdrop-blur-md">
           <div className="min-w-0 flex-1">
-            <label className="mb-1 block text-[11px] font-medium uppercase tracking-[0.06em] text-white/50">
+            <label className="mb-1 block text-[11px] font-medium uppercase tracking-[0.08em] text-white/50">
               Name
             </label>
             <div className="flex max-w-[420px] items-center gap-2">
@@ -148,7 +143,7 @@ export default function MediaLightbox({
                   }
                 }}
                 onBlur={saveName}
-                className="w-full rounded-md border border-white/20 bg-white/[0.07] px-3 py-2 text-[13.5px] text-white outline-none focus:border-white/40"
+                className="w-full rounded-full border border-white/20 bg-white/[0.08] px-4 py-2 text-[13.5px] text-white outline-none focus:border-white/40"
               />
               {savingName && <span className="flex-none text-[11px] text-white/50">Speichert …</span>}
               {!savingName && nameSaved && (
@@ -164,7 +159,7 @@ export default function MediaLightbox({
             <button
               type="button"
               onClick={() => router.push(`/intern/upload?mediaId=${active.id}`)}
-              className="rounded-md bg-signal-deep px-3.5 py-2 text-[12px] font-semibold text-white transition-colors hover:opacity-90"
+              className="rounded-full bg-signal px-4 py-2 text-[12px] font-semibold text-white transition-colors hover:bg-signal-deep"
             >
               Veröffentlichen
             </button>
@@ -172,7 +167,7 @@ export default function MediaLightbox({
               type="button"
               onClick={handleDelete}
               disabled={busy}
-              className="rounded-md bg-white/15 px-3.5 py-2 text-[12px] font-semibold text-white transition-colors hover:bg-signal-deep disabled:opacity-50"
+              className="rounded-full bg-white/15 px-4 py-2 text-[12px] font-semibold text-white transition-colors hover:bg-signal-deep disabled:opacity-50"
             >
               {busy ? '…' : 'Löschen'}
             </button>
@@ -182,7 +177,7 @@ export default function MediaLightbox({
                   type="button"
                   onClick={() => onChangeActive(items[(index - 1 + items.length) % items.length].id)}
                   aria-label="Vorheriges Bild"
-                  className="rounded-md bg-white/15 px-3 py-2 text-[13px] text-white hover:bg-white/25"
+                  className="flex h-8 w-8 items-center justify-center rounded-full bg-white/15 text-[13px] text-white hover:bg-white/25"
                 >
                   ←
                 </button>
@@ -190,7 +185,7 @@ export default function MediaLightbox({
                   type="button"
                   onClick={() => onChangeActive(items[(index + 1) % items.length].id)}
                   aria-label="Nächstes Bild"
-                  className="rounded-md bg-white/15 px-3 py-2 text-[13px] text-white hover:bg-white/25"
+                  className="flex h-8 w-8 items-center justify-center rounded-full bg-white/15 text-[13px] text-white hover:bg-white/25"
                 >
                   →
                 </button>
@@ -200,7 +195,7 @@ export default function MediaLightbox({
               type="button"
               onClick={onClose}
               aria-label="Schließen"
-              className="rounded-md bg-white/15 px-3 py-2 text-[13px] text-white hover:bg-white/25"
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-white/15 text-[13px] text-white hover:bg-white/25"
             >
               ✕
             </button>
