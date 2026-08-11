@@ -38,16 +38,8 @@ function IconFolderPlus({ className }: { className?: string }) {
 }
 function IconFolder({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
       <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
-    </svg>
-  );
-}
-function IconSend({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
-      <path d="M22 2L11 13" />
-      <path d="M22 2l-7 20-4-9-9-4 20-7z" />
     </svg>
   );
 }
@@ -77,7 +69,7 @@ function IconEdit({ className }: { className?: string }) {
 }
 function IconPhotoPlus({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
       <rect x="3" y="3" width="18" height="18" rx="2" />
       <circle cx="8.5" cy="8.5" r="1.5" />
       <path d="M21 15l-5-5L5 21" />
@@ -104,9 +96,6 @@ export default function MediaBrowser({
   const { confirm } = useDialog();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // lightboxId ersetzt die frühere reine Auswahl (selectedMediaId) --
-  // Klick auf ein Bild öffnet direkt die Großansicht, "Veröffentlichen"
-  // sitzt jetzt dort statt in einer separaten Toolbar für die Auswahl.
   const [lightboxId, setLightboxId] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<(DragPayload & { value: string }) | null>(null);
   const [creatingFolder, setCreatingFolder] = useState(false);
@@ -312,33 +301,42 @@ export default function MediaBrowser({
   return (
     <div className="flex flex-col gap-6 nav:flex-row nav:items-start">
       <div className="min-w-0 flex-1">
-        <div className="mb-2 flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={busy}
-            className="flex items-center gap-2 rounded-md bg-ink px-4 py-2.5 text-[13px] font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-          >
-            <IconUpload className="h-[15px] w-[15px]" />
-            Hochladen
-          </button>
-          <input ref={fileInputRef} type="file" multiple accept="image/*" hidden onChange={handleFileInputChange} />
-
-          <button
-            type="button"
-            onClick={() => setCreatingFolder(true)}
-            disabled={busy}
-            className="flex items-center gap-2 rounded-md border border-line-strong px-4 py-2.5 text-[13px] font-semibold text-ink transition-colors hover:border-ink disabled:opacity-50"
-          >
-            <IconFolderPlus className="h-[15px] w-[15px]" />
-            Neuer Ordner
-          </button>
+        {/* Aktionsleiste im Karten-Look statt nackter Buttons -- eine
+            durchgehende weiche Fläche, wie die Suchleiste im Bildarchiv. */}
+        <div
+          className={`mb-6 flex flex-wrap items-center justify-between gap-3 rounded-[20px] border border-white/70 bg-white/85 p-3 shadow-raised backdrop-blur transition-colors ${
+            isDraggingFiles ? 'outline outline-2 outline-dashed outline-signal' : ''
+          }`}
+          onDragOver={handleGridDragOver}
+          onDragLeave={() => setIsDraggingFiles(false)}
+          onDrop={handleGridDrop}
+        >
+          <p className="pl-2 text-[12px] leading-[1.5] text-ink-2">
+            Bilder direkt auf einen Ordner ziehen, um sie dort abzulegen.
+            <br className="hidden nav:block" /> Klick auf ein Bild öffnet die Großansicht.
+          </p>
+          <div className="flex flex-none gap-2">
+            <button
+              type="button"
+              onClick={() => setCreatingFolder(true)}
+              disabled={busy}
+              className="flex items-center gap-2 rounded-full border border-line-strong bg-white px-4 py-2.5 text-[13px] font-semibold text-ink transition-colors hover:border-ink disabled:opacity-50"
+            >
+              <IconFolderPlus className="h-[15px] w-[15px]" />
+              Neuer Ordner
+            </button>
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={busy}
+              className="flex items-center gap-2 rounded-full bg-signal px-4 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-signal-deep disabled:opacity-50"
+            >
+              <IconUpload className="h-[15px] w-[15px]" />
+              Hochladen
+            </button>
+            <input ref={fileInputRef} type="file" multiple accept="image/*" hidden onChange={handleFileInputChange} />
+          </div>
         </div>
-
-        <p className="mb-4 text-[11.5px] text-ink-3">
-          Tipp: Bilder direkt auf einen Ordner ziehen, um sie ohne Umweg dort abzulegen. Klick auf
-          ein Bild öffnet die Großansicht.
-        </p>
 
         {error && (
           <p className="mb-4 rounded-md border border-signal-deep/30 bg-signal-deep/5 px-3 py-2 text-[12.5px] text-signal-deep">
@@ -350,8 +348,8 @@ export default function MediaBrowser({
           onDragOver={handleGridDragOver}
           onDragLeave={() => setIsDraggingFiles(false)}
           onDrop={handleGridDrop}
-          className={`grid grid-cols-3 gap-5 rounded-xl p-3 transition-colors sm:grid-cols-4 nav:grid-cols-3 xl:grid-cols-4 ${
-            isDraggingFiles ? 'bg-panel outline-dashed outline-2 outline-ink' : ''
+          className={`grid grid-cols-2 gap-4 rounded-[20px] p-2 transition-colors sm:grid-cols-3 nav:grid-cols-3 xl:grid-cols-4 ${
+            isDraggingFiles ? 'bg-white/60 outline-dashed outline-2 outline-signal' : ''
           }`}
         >
           {currentFolderId && (
@@ -365,21 +363,21 @@ export default function MediaBrowser({
               }}
               onDragLeave={() => setDragOverId(null)}
               onDrop={(e) => handleDropOnFolderTile(e, parentFolderId)}
-              className={`flex flex-col items-center gap-2 rounded-xl p-3 text-center text-ink-3 transition-colors hover:bg-panel ${
-                dragOverId === 'ROOT' ? 'bg-panel outline outline-2 outline-ink' : ''
+              className={`group flex flex-col items-center gap-2.5 rounded-[20px] border border-white/70 bg-white/70 p-4 text-center shadow-card transition-all hover:-translate-y-0.5 hover:shadow-card-hover ${
+                dragOverId === 'ROOT' ? 'outline outline-2 outline-signal' : ''
               }`}
             >
-              <div className="flex h-[92px] w-[92px] items-center justify-center rounded-2xl bg-panel">
-                <IconBack className="h-[32px] w-[32px]" />
+              <div className="flex aspect-square w-full items-center justify-center rounded-2xl bg-panel/70 text-ink-3 transition-colors group-hover:text-ink-2">
+                <IconBack className="h-[28px] w-[28px]" />
               </div>
-              <span className="text-[12px] font-medium text-ink-2">Zurück</span>
+              <span className="text-[12.5px] font-medium text-ink-2">Zurück</span>
             </button>
           )}
 
           {creatingFolder && (
-            <div className="flex flex-col items-center gap-2 rounded-xl p-3 text-center">
-              <div className="flex h-[92px] w-[92px] items-center justify-center rounded-2xl bg-panel text-ink-2">
-                <IconFolder className="h-[40px] w-[40px]" />
+            <div className="flex flex-col items-center gap-2.5 rounded-[20px] border border-signal/40 bg-white p-4 text-center shadow-card">
+              <div className="flex aspect-square w-full items-center justify-center rounded-2xl bg-gradient-to-b from-panel to-panel/40 text-ink-2">
+                <IconFolder className="h-[34px] w-[34px]" />
               </div>
               <input
                 autoFocus
@@ -391,11 +389,13 @@ export default function MediaBrowser({
                 }}
                 onBlur={submitNewFolder}
                 placeholder="Ordnername"
-                className="w-full rounded-md border border-ink px-2 py-1 text-center text-[12px] outline-none"
+                className="w-full rounded-md border border-ink px-2 py-1 text-center text-[12.5px] outline-none"
               />
             </div>
           )}
 
+          {/* Ordner: warmer Verlauf statt flacher grauer Box -- sollen sich
+              als "Orte" anfühlen, die man betritt, nicht als UI-Elemente. */}
           {subfolders.map((folder) => (
             <div
               key={folder.id}
@@ -410,19 +410,19 @@ export default function MediaBrowser({
               onDrop={(e) => handleDropOnFolderTile(e, folder.id)}
               onClick={() => openFolder(folder.id)}
               title="Klick zum Öffnen — Bilder hierher ziehen zum Ablegen"
-              className={`group relative flex cursor-pointer flex-col items-center gap-2 rounded-xl p-3 text-center transition-colors hover:bg-panel ${
-                dragOverId === folder.id ? 'bg-panel outline outline-2 outline-ink' : ''
+              className={`group relative flex cursor-pointer flex-col items-center gap-2.5 rounded-[20px] border border-white/70 bg-white p-4 text-center shadow-card transition-all hover:-translate-y-0.5 hover:shadow-card-hover ${
+                dragOverId === folder.id ? 'outline outline-2 outline-signal' : ''
               }`}
             >
-              <div className="absolute right-1.5 top-1.5 z-10 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+              <div className="absolute right-2 top-2 z-10 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                 <ShareFolderControl folderId={folder.id} folderName={folder.name} mediaShares={mediaShares} />
                 <button
                   type="button"
                   onClick={(e) => startRenameFolder(e, folder)}
                   title="Ordner umbenennen"
-                  className="flex h-6 w-6 items-center justify-center rounded-full bg-white text-ink-2 shadow-sm ring-1 ring-line-strong hover:bg-panel hover:text-ink"
+                  className="flex h-7 w-7 items-center justify-center rounded-full bg-white text-ink-2 shadow-sm ring-1 ring-line-strong hover:bg-panel hover:text-ink"
                 >
-                  <IconEdit className="h-[12px] w-[12px]" />
+                  <IconEdit className="h-[13px] w-[13px]" />
                 </button>
                 <button
                   type="button"
@@ -431,14 +431,14 @@ export default function MediaBrowser({
                     deleteItem({ id: folder.id, type: 'folder' }, folder.name);
                   }}
                   title="Ordner löschen"
-                  className="flex h-6 w-6 items-center justify-center rounded-full bg-white text-ink-2 shadow-sm ring-1 ring-line-strong hover:bg-signal-deep hover:text-white hover:ring-signal-deep"
+                  className="flex h-7 w-7 items-center justify-center rounded-full bg-white text-ink-2 shadow-sm ring-1 ring-line-strong hover:bg-signal-deep hover:text-white hover:ring-signal-deep"
                 >
-                  <IconX className="h-[12px] w-[12px]" />
+                  <IconX className="h-[13px] w-[13px]" />
                 </button>
               </div>
 
-              <div className="flex h-[92px] w-[92px] items-center justify-center rounded-2xl bg-panel text-ink-2">
-                <IconFolder className="h-[40px] w-[40px]" />
+              <div className="flex aspect-square w-full items-center justify-center rounded-2xl bg-gradient-to-b from-panel to-panel/40 text-ink-2 transition-colors group-hover:from-signal/10 group-hover:to-signal/[0.03] group-hover:text-signal-deep">
+                <IconFolder className="h-[34px] w-[34px]" />
               </div>
               {renaming?.id === folder.id ? (
                 <input
@@ -451,14 +451,16 @@ export default function MediaBrowser({
                   }}
                   onBlur={submitRename}
                   onClick={(e) => e.stopPropagation()}
-                  className="w-full rounded-md border border-ink px-1.5 py-0.5 text-center text-[12px] outline-none"
+                  className="w-full rounded-md border border-ink px-1.5 py-0.5 text-center text-[12.5px] outline-none"
                 />
               ) : (
-                <span className="line-clamp-2 text-[12px] font-medium text-ink">{folder.name}</span>
+                <span className="line-clamp-2 text-[12.5px] font-semibold text-ink">{folder.name}</span>
               )}
             </div>
           ))}
 
+          {/* Bilder: echte großformatige Vorschau statt kleiner 92px-Box --
+              gleiches Kachelmaß wie Ordner, damit das Grid ruhig bleibt. */}
           {items.map((item) => {
             const label = item.display_name || 'Bild';
             return (
@@ -466,7 +468,7 @@ export default function MediaBrowser({
                 key={item.id}
                 draggable
                 onDragStart={(e) => handleDragStart(e, { id: item.id, type: 'media' })}
-                className="group relative flex flex-col items-center gap-2 rounded-xl p-3 text-center transition-colors hover:bg-panel"
+                className="group relative flex flex-col gap-2.5 overflow-hidden rounded-[20px] border border-white/70 bg-white p-2 shadow-card transition-all hover:-translate-y-0.5 hover:shadow-card-hover"
               >
                 <button
                   type="button"
@@ -475,57 +477,59 @@ export default function MediaBrowser({
                     deleteItem({ id: item.id, type: 'media' }, label);
                   }}
                   title="Bild löschen"
-                  className="absolute right-1.5 top-1.5 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-white text-ink-2 opacity-0 shadow-sm ring-1 ring-line-strong transition-opacity group-hover:opacity-100 hover:bg-signal-deep hover:text-white hover:ring-signal-deep"
+                  className="absolute right-3 top-3 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-white/90 text-ink-2 opacity-0 shadow-sm ring-1 ring-line-strong backdrop-blur transition-opacity group-hover:opacity-100 hover:bg-signal-deep hover:text-white hover:ring-signal-deep"
                 >
-                  <IconX className="h-[12px] w-[12px]" />
+                  <IconX className="h-[13px] w-[13px]" />
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setLightboxId(item.id)}
                   title="Klick für Großansicht"
-                  className="relative h-[92px] w-[92px] cursor-pointer overflow-hidden rounded-2xl bg-panel"
+                  className="relative aspect-square w-full cursor-pointer overflow-hidden rounded-2xl bg-panel"
                 >
                   <Image
-                    src={`/api/intern/library?original=${item.id}&width=200&quality=70`}
+                    src={`/api/intern/library?original=${item.id}&width=400&quality=72`}
                     alt=""
                     fill
-                    className="object-cover"
+                    className="object-cover transition-transform duration-300 group-hover:scale-[1.04]"
                     unoptimized
                   />
                 </button>
-                {renaming?.id === item.id ? (
-                  <input
-                    autoFocus
-                    value={renaming.value}
-                    onChange={(e) => setRenaming({ ...renaming, value: e.target.value })}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') submitRename();
-                      if (e.key === 'Escape') setRenaming(null);
-                    }}
-                    onBlur={submitRename}
-                    onClick={(e) => e.stopPropagation()}
-                    className="w-full rounded-md border border-ink px-1.5 py-0.5 text-center text-[12px] outline-none"
-                  />
-                ) : (
-                  <span
-                    onDoubleClick={(e) => {
-                      e.stopPropagation();
-                      setRenaming({ id: item.id, type: 'media', value: label });
-                    }}
-                    title="Doppelklick zum schnellen Umbenennen"
-                    className="line-clamp-2 text-[12px] font-medium text-ink"
-                  >
-                    {label}
-                  </span>
-                )}
+                <div className="px-1.5 pb-1">
+                  {renaming?.id === item.id ? (
+                    <input
+                      autoFocus
+                      value={renaming.value}
+                      onChange={(e) => setRenaming({ ...renaming, value: e.target.value })}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') submitRename();
+                        if (e.key === 'Escape') setRenaming(null);
+                      }}
+                      onBlur={submitRename}
+                      onClick={(e) => e.stopPropagation()}
+                      className="w-full rounded-md border border-ink px-1.5 py-0.5 text-[12.5px] outline-none"
+                    />
+                  ) : (
+                    <span
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        setRenaming({ id: item.id, type: 'media', value: label });
+                      }}
+                      title="Doppelklick zum schnellen Umbenennen"
+                      className="line-clamp-1 text-[12.5px] font-medium text-ink"
+                    >
+                      {label}
+                    </span>
+                  )}
+                </div>
               </div>
             );
           })}
 
           {subfolders.length === 0 && items.length === 0 && !creatingFolder && (
-            <div className="col-span-full flex flex-col items-center gap-3 py-16 text-center text-ink-3">
-              <IconPhotoPlus className="h-[36px] w-[36px]" />
+            <div className="col-span-full flex flex-col items-center gap-3 rounded-[24px] border border-dashed border-line-strong bg-white/70 px-6 py-16 text-center shadow-sm">
+              <IconPhotoPlus className="h-[36px] w-[36px] text-ink-3" />
               <p className="text-[13px] text-ink-2">
                 Noch leer — zieh Bilder hierher oder klick auf „Hochladen".
               </p>
