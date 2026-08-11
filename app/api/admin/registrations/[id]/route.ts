@@ -19,34 +19,6 @@ async function requireAdmin(request: NextRequest) {
   return caller;
 }
 
-// Legt "Öffentlich" und "Unsortiert" als Systemordner für eine neue Org an.
-// Inline statt separater Datei -- kein extra Import nötig.
-async function createSystemFolders(serviceToken: string, organizationId: string): Promise<void> {
-  const headers = {
-    Authorization: `Bearer ${serviceToken}`,
-    'Content-Type': 'application/json',
-  };
-  const folders = [
-    { name: 'Öffentlich', system_role: 'public' },
-    { name: 'Unsortiert', system_role: 'unsorted' },
-  ] as const;
-  await Promise.allSettled(
-    folders.map((f) =>
-      fetch(`${DIRECTUS_URL}/items/folders`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          id: randomUUID(),
-          name: f.name,
-          organization: organizationId,
-          is_system_folder: true,
-          system_role: f.system_role,
-        }),
-      })
-    )
-  );
-}
-
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -71,9 +43,12 @@ export async function POST(
 
   let finalOrganizationId: string;
   let finalOrganizationName: string;
-  let isNewOrganization = false;
 
   if (newOrganizationName) {
+    // Neue Organisation direkt hier anlegen -- kein Umweg über Directus
+    // mehr nötig. Ob es eine BOS-Organisation oder eine Presse-Redaktion
+    // wird, entscheidet der ursprüngliche Registrierungstyp -- frisch aus
+    // Directus nachgeladen, nicht dem Client vertraut.
     const regRes = await fetch(`${DIRECTUS_URL}/users/${id}?fields=requested_account_type`, {
       headers: adminHeaders,
     });
@@ -108,7 +83,6 @@ export async function POST(
       );
     }
     finalOrganizationName = name;
-    isNewOrganization = true;
   } else {
     if (!organizationId) {
       return NextResponse.json({ error: 'Bitte eine Organisation auswählen.' }, { status: 400 });
@@ -129,17 +103,10 @@ export async function POST(
     return NextResponse.json({ error: 'Freigabe fehlgeschlagen.' }, { status: 500 });
   }
 
-  // Systemordner für neue Organisationen automatisch anlegen.
-  // Best-effort: schlägt das fehl, bleibt die Freigabe trotzdem gültig.
-  if (isNewOrganization) {
-    try {
-      await createSystemFolders(serviceToken, finalOrganizationId);
-    } catch (error) {
-      console.error('Systemordner anlegen fehlgeschlagen (nicht kritisch):', error);
-    }
-  }
-
-  // Bestätigungsmail an den User.
+  // Best-effort Benachrichtigung -- die Freigabe selbst ist zu diesem
+  // Zeitpunkt schon passiert und wird bei einem Mail-Fehler nicht
+  // rückgängig gemacht. Bewusst frisch von Directus nachgeladen statt dem
+  // Nutzer zu vertrauen, was der Browser mitschickt.
   try {
     const userRes = await fetch(`${DIRECTUS_URL}/users/${id}?fields=email,first_name`, {
       headers: adminHeaders,
