@@ -25,6 +25,8 @@ export type Alarmcode = {
   sort: number;
 };
 
+export type StorageTier = 'tier_250' | 'tier_500' | 'tier_1000';
+
 export type Organization = {
   id: string;
   name: string;
@@ -38,6 +40,15 @@ export type Organization = {
   show_social_links?: boolean;
   logo?: string | null;
   banner_image?: string | null;
+  // Speicherlimit -- storage_used_bytes wird AUSSCHLIESSLICH server-seitig
+  // in app/api/intern/library/route.ts (POST/DELETE) gepflegt, nie vom
+  // Client gesetzt. storage_tier ist nur das lesbare Label fürs UI, das
+  // eigentliche Limit steht in storage_limit_bytes -- beide werden beim
+  // Tier-Wechsel immer gemeinsam gepatcht, nie einzeln.
+  storage_limit_bytes?: number;
+  storage_used_bytes?: number;
+  storage_tier?: StorageTier;
+  subscription_status?: 'active' | 'past_due' | 'canceled' | null;
 };
 
 // source_media_id verweist auf die Medienbibliothek (media_library.id) --
