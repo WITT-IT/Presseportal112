@@ -101,11 +101,20 @@ export default async function MessagesLayout({ children }: { children: ReactNode
 
   return (
     <div>
-      <Breadcrumbs items={[{ label: 'Übersicht', href: '/intern' }, { label: 'Nachrichten' }]} />
+      <div className="-mx-6 -mt-10 mb-8 border-b border-line/70 px-6 pb-8 pt-6 nav:-mx-10 nav:-mt-12 nav:px-10 nav:pt-8">
+        <Breadcrumbs items={[{ label: 'Übersicht', href: '/intern' }, { label: 'Nachrichten' }]} />
+        <span className="mt-4 inline-flex items-center rounded-full bg-white/80 px-3 py-1 text-xs font-medium uppercase tracking-[0.16em] text-ink-2 shadow-sm">
+          Nachrichten
+        </span>
+        <h1 className="mt-4 font-display text-[clamp(28px,4vw,42px)] leading-[0.95] text-ink">
+          Deine Unterhaltungen
+        </h1>
+      </div>
 
+      {/* Zwei Glas-Karten statt harter weißer Flächen -- gleiche shadow-card-
+          Sprache wie überall sonst in /intern jetzt. */}
       <div className="flex gap-5" style={{ minHeight: '600px' }}>
-        {/* Linke Spalte: alle Unterhaltungen, dauerhaft sichtbar */}
-        <div className="flex w-[300px] flex-none flex-col gap-3">
+        <div className="flex w-[300px] flex-none flex-col gap-3 rounded-[20px] border border-white/70 bg-white/85 p-3 shadow-card backdrop-blur">
           <StartConversationForm organizations={otherOrganizations} />
           <div className="flex flex-col gap-1.5 overflow-y-auto">
             {conversations.length === 0 ? (
@@ -125,8 +134,7 @@ export default async function MessagesLayout({ children }: { children: ReactNode
           </div>
         </div>
 
-        {/* Rechte Spalte: die ausgewählte Unterhaltung */}
-        <div className="flex min-w-0 flex-1 flex-col rounded-[10px] border border-line bg-white p-6">
+        <div className="flex min-w-0 flex-1 flex-col rounded-[20px] border border-white/70 bg-white p-6 shadow-card">
           {children}
         </div>
       </div>
