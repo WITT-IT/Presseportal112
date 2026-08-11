@@ -36,6 +36,39 @@ function escHtml(value: string): string {
     .replace(/"/g, '&quot;');
 }
 
+// Baut eine einzelne Chat-Bubble im Stil der internen Unterhaltungsansicht
+// (ConversationThread.tsx) nach -- linksbündig, weißer Rahmen, Absendername
+// fett oben drüber. Tabellen-basiert statt der dortigen Flexbox-Klassen,
+// weil Mail-Clients kein Flexbox können; das visuelle Ergebnis ist aber
+// bewusst so nah wie möglich am echten Thread, damit die Mail sich wie ein
+// "Screenshot" der ersten Nachricht anfühlt statt wie eine trockene
+// Benachrichtigung.
+function renderChatBubble({
+  senderName,
+  messageText,
+}: {
+  senderName: string;
+  messageText: string;
+}): string {
+  const safeSender = escHtml(senderName);
+  const safeMessage = escHtml(messageText).replace(/\n/g, '<br>');
+
+  return `
+    <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 4px;">
+      <tr>
+        <td style="max-width:420px; padding:14px 16px; background-color:#ffffff; border:1px solid #E1E3E1; border-radius:12px; border-top-left-radius:3px;">
+          <div style="margin:0 0 4px; font-family:Arial,Helvetica,sans-serif; font-size:12px; font-weight:bold; color:#14161A;">
+            ${safeSender}
+          </div>
+          <div style="font-family:Arial,Helvetica,sans-serif; font-size:14px; line-height:1.5; color:#14161A;">
+            ${safeMessage}
+          </div>
+        </td>
+      </tr>
+    </table>
+  `;
+}
+
 // Gemeinsames Layout für alle "schönen" Mails -- Tabellen-basiert und mit
 // Inline-Styles, bewusst so simpel gehalten, weil viele Mail-Clients
 // (allen voran Outlook Desktop) modernes CSS wie Flexbox/Grid nicht
@@ -489,7 +522,10 @@ export async function sendNewRegistrationAdminNotification({
 }
 
 // Geht an die Empfänger-Organisation, sobald eine andere Organisation eine
-// neue Unterhaltung im internen Nachrichtensystem startet.
+// neue Unterhaltung im internen Nachrichtensystem startet. Zeigt die erste
+// Nachricht jetzt als echte Chat-Bubble statt als grauer Textkasten --
+// fühlt sich beim Öffnen der Mail wie ein Ausschnitt aus dem Chat selbst
+// an, nicht wie eine reine Systembenachrichtigung.
 export async function sendNewConversationEmail({
   to,
   fromOrganizationName,
@@ -506,16 +542,13 @@ export async function sendNewConversationEmail({
   const url = siteUrl();
   const safeOrgName = escHtml(fromOrganizationName);
   const safeSubject = escHtml(subject);
-  const safePreview = escHtml(messagePreview).replace(/\n/g, '<br>');
 
   const bodyHtml = `
     <p style="margin:0 0 16px;">
       <strong>${safeOrgName}</strong> hat eine neue Unterhaltung mit dir
       gestartet: <strong>${safeSubject}</strong>.
     </p>
-    <div style="margin:0; padding:16px; background-color:#ECEDEB; border-radius:8px; font-size:14px; line-height:1.6; color:#14161A;">
-      ${safePreview}
-    </div>
+    ${renderChatBubble({ senderName: fromOrganizationName, messageText: messagePreview })}
   `;
 
   await transport.sendMail({
@@ -538,50 +571,61 @@ export async function sendNewConversationEmail({
   });
 }
 
-// Geht an die eingeladene Person, sobald ein bestehendes Organisationsmitglied
-// eine Einladung mit hinterlegter E-Mail-Adresse erstellt.
-export async function sendInviteEmail({
+// NEU: geht an eine Organisation, sobald sie zu einer bestehenden
+// (Gruppen-)Unterhaltung hinzugefügt wird -- vorher gab es hierfür gar
+// keine Mail, nur die System-Nachricht im Thread selbst, die niemand sieht,
+// der die Seite nicht gerade offen hat. Zeigt zur Einordnung die letzte
+// Nachricht im Thread als Chat-Bubble, damit sofort klar ist, worum es
+// gerade geht, statt nur "du wurdest hinzugefügt" ohne jeden Kontext.
+export async function sendAddedToConversationEmail({
   to,
-  organizationName,
-  invitedByName,
-  joinUrl,
+  addedByOrganizationName,
+  subject,
+  lastMessageSenderName,
+  lastMessagePreview,
 }: {
   to: string;
-  organizationName: string;
-  invitedByName: string;
-  joinUrl: string;
+  addedByOrganizationName: string;
+  subject: string;
+  lastMessageSenderName: string | null;
+  lastMessagePreview: string | null;
 }) {
   const transport = getTransporter();
   const from = process.env.SMTP_FROM || process.env.SMTP_USER!;
-  const safeOrgName = escHtml(organizationName);
-  const safeInvitedBy = escHtml(invitedByName);
+  const url = siteUrl();
+  const safeAddedBy = escHtml(addedByOrganizationName);
+  const safeSubject = escHtml(subject);
 
   const bodyHtml = `
-    <p style="margin:0 0 16px;">Hallo,</p>
     <p style="margin:0 0 16px;">
-      <strong>${safeInvitedBy}</strong> hat dich eingeladen, dem Konto von
-      <strong>${safeOrgName}</strong> bei Presseportal112 beizutreten.
+      <strong>${safeAddedBy}</strong> hat dich zu einer Unterhaltung
+      hinzugefügt: <strong>${safeSubject}</strong>.
     </p>
-    <p style="margin:0;">
-      Der Link ist 14 Tage gültig. Nach dem Beitreten kannst du direkt
-      loslegen, ganz ohne weitere Wartezeit oder Prüfung.
-    </p>
+    ${
+      lastMessagePreview
+        ? renderChatBubble({
+            senderName: lastMessageSenderName || 'Unterhaltung',
+            messageText: lastMessagePreview,
+          })
+        : ''
+    }
   `;
 
   await transport.sendMail({
     from,
     to,
-    subject: `Presseportal112 -- Einladung zu ${organizationName}`,
+    subject: `Presseportal112 -- Du wurdest zu "${subject}" hinzugefügt`,
     text: [
-      `${invitedByName} hat dich eingeladen, dem Konto von ${organizationName} bei Presseportal112 beizutreten.`,
+      `${addedByOrganizationName} hat dich zu einer Unterhaltung hinzugefügt: ${subject}`,
+      ...(lastMessagePreview ? ['', lastMessagePreview] : []),
       '',
-      `Link (14 Tage gültig): ${joinUrl}`,
+      `Zur Unterhaltung: ${url}/intern/nachrichten`,
     ].join('\n'),
     html: renderEmailLayout({
-      heading: 'Du wurdest eingeladen',
+      heading: 'Du wurdest hinzugefügt',
       bodyHtml,
-      ctaLabel: 'Jetzt beitreten',
-      ctaUrl: joinUrl,
+      ctaLabel: 'Zur Unterhaltung',
+      ctaUrl: `${url}/intern/nachrichten`,
     }),
   });
 }
