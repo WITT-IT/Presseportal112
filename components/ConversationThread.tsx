@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type FormEvent, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { useRouter } from 'next/navigation';
 
 type Message = {
@@ -12,6 +12,8 @@ type Message = {
   senderOrganizationName: string | null;
   senderUserName: string | null;
 };
+
+const POLL_INTERVAL_MS = 5000;
 
 export default function ConversationThread({
   conversationId,
@@ -32,6 +34,101 @@ export default function ConversationThread({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Letzter bekannter Zeitstempel -- Basis für "gib mir alles Neuere".
+  // Ref statt State, weil das Polling-Intervall den Wert lesen muss, ohne
+  // dass eine Änderung selbst einen Re-Render/Timer-Neustart auslöst.
+  const lastTimestampRef = useRef<string>(
+    initialMessages.length > 0
+      ? initialMessages[initialMessages.length - 1].createdAt
+      : new Date(0).toISOString()
+  );
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Beim Wechsel der Unterhaltung (Klick auf eine andere in der Liste)
+  // Nachrichten und Zeitstempel-Basis neu setzen -- sonst würde Polling für
+  // die vorherige Unterhaltung weiterlaufen bzw. der Zeitstempel nicht passen.
+  useEffect(() => {
+    setMessages(initialMessages);
+    lastTimestampRef.current =
+      initialMessages.length > 0
+        ? initialMessages[initialMessages.length - 1].createdAt
+        : new Date(0).toISOString();
+  }, [conversationId, initialMessages]);
+
+  // Leises Hintergrund-Polling. Pausiert, sobald der Tab/das Fenster nicht
+  // sichtbar ist (document.hidden) -- kein Grund, alle 5 Sekunden gegen
+  // Directus zu fragen, wenn niemand gerade hinschaut. Läuft sofort wieder
+  // an, sobald der Tab zurück in den Fokus kommt.
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    async function poll() {
+      if (document.hidden) {
+        schedule();
+        return;
+      }
+      try {
+        const res = await fetch(
+          `/api/intern/messages/${conversationId}/poll?since=${encodeURIComponent(lastTimestampRef.current)}`,
+          { cache: 'no-store' }
+        );
+        if (res.ok) {
+          const { messages: fresh } = (await res.json()) as { messages: Message[] };
+          if (fresh.length > 0 && !cancelled) {
+            setMessages((prev) => {
+              // Eigene, optimistisch angehängte Nachrichten (id beginnt mit
+              // "optimistic-") durch die echten Server-Versionen ersetzen,
+              // statt sie zu duplizieren.
+              const withoutOptimistic = prev.filter((m) => !m.id.startsWith('optimistic-'));
+              const existingIds = new Set(withoutOptimistic.map((m) => m.id));
+              const toAppend = fresh.filter((m) => !existingIds.has(m.id));
+              return [...withoutOptimistic, ...toAppend];
+            });
+            lastTimestampRef.current = fresh[fresh.length - 1].createdAt;
+            // Aktualisiert nebenbei auch den Ungelesen-Badge in der Nav
+            // (unreadCount kommt aus dem Server-Layout).
+            router.refresh();
+          }
+        }
+      } catch {
+        // Ein einzelner fehlgeschlagener Poll ist kein Drama -- der nächste
+        // Versuch in POLL_INTERVAL_MS holt den Stand einfach nach.
+      }
+      schedule();
+    }
+
+    function schedule() {
+      if (cancelled) return;
+      timer = setTimeout(poll, POLL_INTERVAL_MS);
+    }
+
+    schedule();
+
+    function handleVisibilityChange() {
+      // Beim Zurückkommen in den Tab sofort einmal pollen, statt bis zu
+      // POLL_INTERVAL_MS zu warten -- fühlt sich responsiver an.
+      if (!document.hidden && timer) {
+        clearTimeout(timer);
+        poll();
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversationId]);
+
+  // Bei neuen Nachrichten ans Ende scrollen -- sowohl beim eigenen Senden
+  // als auch bei über Polling eintreffenden fremden Nachrichten.
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages.length]);
+
   async function sendMessage() {
     const body = draft.trim();
     if (!body) return;
@@ -48,8 +145,9 @@ export default function ConversationThread({
     if (res.ok) {
       setDraft('');
       // Optimistisch direkt anhängen, damit sich das Senden sofort reagiert
-      // anfühlt -- router.refresh() holt beim nächsten Server-Render sowieso
-      // den endgültigen, korrekten Stand nach.
+      // anfühlt -- der nächste Poll-Zyklus ersetzt sie durch die echte
+      // Server-Version (siehe Dedupe-Logik oben), router.refresh() holt
+      // zusätzlich den aktuellen Nav-Badge-Stand nach.
       setMessages((prev) => [
         ...prev,
         {
@@ -124,6 +222,7 @@ export default function ConversationThread({
             );
           })
         )}
+        <div ref={messagesEndRef} />
       </div>
 
       <form onSubmit={handleSubmit} className="flex flex-none gap-2">
