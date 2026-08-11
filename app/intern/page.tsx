@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
+import Link from 'next/link';
+import { getCurrentUser, isAdministrator, SESSION_COOKIE } from '@/lib/auth';
 import {
   getMyOrganizationImages,
   getMyFoldersWithPostIds,
@@ -24,8 +25,43 @@ export default async function InternPage() {
 
   const user = await getCurrentUser(session.accessToken);
   if (!user) redirect('/login');
-  if (!user.organization?.id) redirect('/intern');
-  if (user.organization.organization_type === 'press') redirect('/intern');
+
+  // BUG-FIX: Vorher stand hier `if (!user.organization?.id) redirect('/intern')`
+  // -- ein Redirect von /intern zurück auf /intern. Für jedes Konto ohne
+  // zugewiesene Organisation (z. B. ein reiner Administrator-Account ohne
+  // BOS-/Presse-Organisation) hat das eine sofortige Endlosschleife erzeugt
+  // ("ERR_TOO_MANY_REDIRECTS" im Browser). Admin-Rechte und
+  // Organisationszugehörigkeit sind zwei unabhängige Dinge -- ein Admin
+  // ohne Organisation ist ein gültiger, normaler Zustand, kein Fehlerfall,
+  // der einen Redirect verdient.
+  //
+  // Statt zu redirecten: eigener, einfacher Hinweis für genau diesen Fall.
+  // Admin-Werkzeuge bleiben über die Nav trotzdem erreichbar, weil die
+  // Admin-Prüfung in app/intern/admin/page.tsx unabhängig von
+  // organization?.id läuft.
+  if (!user.organization?.id) {
+    const admin = await isAdministrator(user.id);
+    return (
+      <div className="mx-auto max-w-2xl px-4 py-20 text-center">
+        <i className="ti ti-building-off mb-3 block text-[36px] text-ink-3" aria-hidden="true" />
+        <h1 className="mb-2 font-display text-[24px] font-bold">Keine Organisation zugeordnet</h1>
+        <p className="mb-6 text-[13.5px] leading-[1.6] text-ink-2">
+          Dieses Konto ist aktuell keiner Organisation zugeordnet, daher gibt
+          es hier kein Medien-Dashboard zu zeigen.
+          {admin && ' Als Administrator kannst du trotzdem die Verwaltungswerkzeuge nutzen.'}
+        </p>
+        {admin && (
+          <Link
+            href="/intern/admin"
+            className="inline-flex items-center gap-2 rounded-md bg-ink px-5 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-black"
+          >
+            <i className="ti ti-shield text-[15px]" aria-hidden="true" />
+            Zur Administration
+          </Link>
+        )}
+      </div>
+    );
+  }
 
   const [posts, foldersWithPostIds, mediaShares] = await Promise.all([
     getMyOrganizationImages(session.accessToken, user.organization.id),
