@@ -534,6 +534,20 @@ export async function getReceivedMediaShares(organizationId: string): Promise<{
   }
 }
 
+// Öffentlicher Zugriff auf eine Freigabe per Token -- läuft bewusst
+// ausschließlich über den Service-Token, nie über eine Public-Policy.
+// Prüft dabei gleich mit, ob die Freigabe noch gültig ist, und räumt
+// abgelaufene Freigaben mit aktivierter Auto-Löschung im Vorbeigehen auf.
+//
+// FIX: lädt jetzt zusätzlich media_shares_media (direkt angehängte
+// Bibliotheksbilder, ohne Umweg über einen Beitrag). Vorher wurde
+// ausschließlich posts.posts_id.* geladen -- einzeln über
+// MediaShareLibraryPicker hinzugefügte Bilder landeten zwar korrekt in
+// media_shares_media (siehe /api/intern/media-shares/assign), waren aber
+// auf dieser Seite unsichtbar, weil die Abfrage hier nie danach gefragt
+// hat. Gleiche Relation wie in getMediaShareWithPosts oben, hier eben über
+// den Service-Token statt dem Nutzer-Token, weil der Zugriff öffentlich
+// bzw. anonym passiert.
 export async function getMediaShareByToken(token: string): Promise<PublicMediaShare | null> {
   const serviceToken = process.env.DIRECTUS_SERVICE_TOKEN;
   if (!serviceToken) { console.error('getMediaShareByToken: DIRECTUS_SERVICE_TOKEN fehlt.'); return null; }
@@ -565,7 +579,37 @@ export async function getMediaShareByToken(token: string): Promise<PublicMediaSh
     }
     const posts = ((row.posts || []) as { posts_id: Post | null }[])
       .map((r) => r.posts_id).filter((p): p is Post => !!p);
-    return { id: row.id, name: row.name, recipientName: row.recipient_name, organizationName: row.organization?.name ?? null, expiresAt: row.expires_at, posts };
+
+    // NEU: direkt angehängte Bibliotheksbilder laden.
+    const mediaRes = await fetch(
+      `${DIRECTUS_URL}/items/media_shares_media?filter[media_shares_id][_eq]=${row.id}&fields=media_library_id.id,media_library_id.display_name,media_library_id.file`,
+      { headers: { Authorization: `Bearer ${serviceToken}` }, cache: 'no-store' }
+    );
+    let libraryImages: PublicMediaShare['libraryImages'] = [];
+    if (mediaRes.ok) {
+      const { data: mediaData } = await mediaRes.json();
+      libraryImages = (
+        mediaData as { media_library_id: { id: string; display_name: string | null; file: string } | null }[]
+      )
+        .map((r) => r.media_library_id)
+        .filter((m): m is { id: string; display_name: string | null; file: string } => !!m)
+        .map((m) => ({ id: m.id, displayName: m.display_name, fileOriginal: m.file }));
+    } else {
+      console.error(
+        `getMediaShareByToken(${token}): Bibliotheks-Bilder konnten nicht geladen werden (Status ${mediaRes.status}):`,
+        await mediaRes.text().catch(() => '')
+      );
+    }
+
+    return {
+      id: row.id,
+      name: row.name,
+      recipientName: row.recipient_name,
+      organizationName: row.organization?.name ?? null,
+      expiresAt: row.expires_at,
+      posts,
+      libraryImages,
+    };
   } catch (error) {
     console.error('getMediaShareByToken fehlgeschlagen:', error);
     return null;
