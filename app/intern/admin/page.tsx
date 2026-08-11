@@ -8,19 +8,30 @@ export const dynamic = 'force-dynamic';
 export default async function AdminHubPage() {
   const cookieStore = await cookies();
   const raw = cookieStore.get(SESSION_COOKIE)?.value;
+  console.log('[admin-debug] Cookie vorhanden:', !!raw);
   if (!raw) redirect('/login');
 
   let session: { accessToken: string };
   try {
     session = JSON.parse(raw);
+    console.log('[admin-debug] accessToken (letzte 8 Zeichen):', session.accessToken.slice(-8));
   } catch {
+    console.log('[admin-debug] Cookie konnte nicht geparst werden.');
     redirect('/login');
   }
 
   const user = await getCurrentUser(session.accessToken);
-  if (!user) redirect('/login');
+  console.log('[admin-debug] getCurrentUser Ergebnis:', user ? { id: user.id, email: user.email } : null);
+  if (!user) {
+    console.log('[admin-debug] user ist null -> redirect /login');
+    redirect('/login');
+  }
   const admin = await isAdministrator(user.id);
-  if (!admin) redirect('/intern');
+  console.log('[admin-debug] isAdministrator Ergebnis:', admin);
+  if (!admin) {
+    console.log('[admin-debug] admin ist false -> redirect /intern');
+    redirect('/intern');
+  }
 
   const items = [
     {
