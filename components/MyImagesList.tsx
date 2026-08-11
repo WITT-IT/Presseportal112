@@ -6,7 +6,6 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { directusAssetUrl } from '@/lib/directus';
 import { primaryImage, type Post } from '@/lib/types';
-import { useDialog } from './DialogProvider';
 import AddToFolderControl from './AddToFolderControl';
 import AddToMediaShareControl from './AddToMediaShareControl';
 
@@ -20,8 +19,9 @@ export default function MyImagesList({
   mediaShares: { id: string; name: string }[];
 }) {
   const router = useRouter();
-  const { confirm } = useDialog();
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const [deleteDialogId, setDeleteDialogId] = useState<string | null>(null);
+  const [deleteWorking, setDeleteWorking] = useState(false);
 
   async function togglePublic(id: string, current: boolean) {
     setPendingId(id);
@@ -34,26 +34,29 @@ export default function MyImagesList({
     router.refresh();
   }
 
-  async function handleDelete(id: string, imageCount: number) {
-    const confirmed = await confirm({
-      title: 'Beitrag wirklich löschen?',
-      message: `Das entfernt den Beitrag samt ${imageCount} Foto${
-        imageCount === 1 ? '' : 's'
-      } und allen Dateivarianten unwiderruflich vom Server.`,
-      confirmLabel: 'Löschen',
-      cancelLabel: 'Abbrechen',
-      danger: true,
-    });
-    if (!confirmed) return;
-
-    setPendingId(id);
-    await fetch('/api/intern/delete', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id }),
-    });
-    setPendingId(null);
-    router.refresh();
+  // Gleiches Popup wie im UploadStudio (Bearbeiten-Modus) statt der
+  // generischen useDialog-Bestätigung -- löscht nur den Beitrag, nie das
+  // zugrundeliegende Bibliotheksbild. Wortlaut bewusst identisch zum
+  // UploadStudio, damit an beiden Stellen im Produkt dieselbe Erwartung
+  // entsteht: "Beitrag weg, Original bleibt".
+  async function confirmDelete() {
+    if (!deleteDialogId) return;
+    setDeleteWorking(true);
+    try {
+      const res = await fetch('/api/intern/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: deleteDialogId }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? 'Löschen fehlgeschlagen.');
+      }
+      router.refresh();
+    } finally {
+      setDeleteWorking(false);
+      setDeleteDialogId(null);
+    }
   }
 
   if (posts.length === 0) {
@@ -136,9 +139,8 @@ export default function MyImagesList({
 
                 <button
                   type="button"
-                  onClick={() => handleDelete(post.id, imageCount)}
-                  disabled={pendingId === post.id}
-                  className="w-full rounded-md border border-line-strong px-2 py-1.5 text-[11px] font-semibold text-signal-deep transition-colors hover:border-signal hover:bg-signal/5 disabled:opacity-50"
+                  onClick={() => setDeleteDialogId(post.id)}
+                  className="w-full rounded-md border border-line-strong px-2 py-1.5 text-[11px] font-semibold text-signal-deep transition-colors hover:border-signal hover:bg-signal/5"
                 >
                   Löschen
                 </button>
@@ -147,6 +149,35 @@ export default function MyImagesList({
           </div>
         );
       })}
+
+      {deleteDialogId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="w-full max-w-sm rounded-[10px] border border-line bg-white p-4">
+            <h3 className="mb-2 font-display text-[18px] font-bold">Beitrag löschen?</h3>
+            <p className="mb-4 text-[13px] text-ink-2">
+              Der Beitrag wird entfernt. Das Originalfoto bleibt in der Medienbibliothek erhalten.
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={confirmDelete}
+                disabled={deleteWorking}
+                className="flex-1 rounded-md bg-signal-deep px-4 py-2.5 text-[13px] font-semibold text-white hover:bg-black disabled:opacity-60"
+              >
+                {deleteWorking ? 'Wird gelöscht …' : 'Endgültig löschen'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setDeleteDialogId(null)}
+                disabled={deleteWorking}
+                className="flex-1 rounded-md border border-line-strong px-4 py-2.5 text-[13px] font-semibold text-ink hover:border-ink disabled:opacity-60"
+              >
+                Abbrechen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
