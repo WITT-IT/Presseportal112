@@ -155,7 +155,7 @@ export default function InternTopNav({
   return (
     <div className="sticky top-0 z-30 border-b border-line-strong bg-white/85 backdrop-blur-md">
       <div className="mx-auto flex max-w-[1400px] items-center justify-between gap-6 px-6 nav:px-10">
-        <nav className="flex flex-1 items-center gap-6 overflow-x-auto">
+        <nav className="flex flex-1 flex-wrap items-center gap-6">
           {mainItems.map(renderItem)}
         </nav>
 
