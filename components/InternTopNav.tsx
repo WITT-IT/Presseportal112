@@ -126,11 +126,22 @@ export default function InternTopNav({
         href={item.href}
         className="group relative flex flex-none items-center gap-2 whitespace-nowrap px-1 py-3.5"
       >
-        <Icon
-          className={`h-[17px] w-[17px] transition-colors ${
-            active ? 'text-ink' : 'text-ink-3 group-hover:text-ink-2'
-          }`}
-        />
+        <span className="relative flex-none">
+          <Icon
+            className={`h-[17px] w-[17px] transition-colors ${
+              active ? 'text-ink' : 'text-ink-3 group-hover:text-ink-2'
+            }`}
+          />
+          {/* Hochgestellter Badge am Icon, WhatsApp-Stil -- weißer Rand sorgt
+              für sauberen Kontrast egal ob er über Icon oder Hintergrund
+              hängt. 9 als Deckel: bei zweistelligen Zahlen "9+" statt einer
+              Zahl, die die kleine Pille sprengen würde. */}
+          {!!item.badge && item.badge > 0 && (
+            <span className="absolute -right-2 -top-2 flex h-[16px] min-w-[16px] items-center justify-center rounded-full border-2 border-white bg-signal px-[3px] text-[9px] font-bold leading-none text-white">
+              {item.badge > 9 ? '9+' : item.badge}
+            </span>
+          )}
+        </span>
         <span
           className={`text-[13.5px] font-semibold transition-colors ${
             active ? 'text-ink' : 'text-ink-2 group-hover:text-ink'
@@ -138,11 +149,6 @@ export default function InternTopNav({
         >
           {item.label}
         </span>
-        {!!item.badge && item.badge > 0 && (
-          <span className="flex h-[17px] min-w-[17px] items-center justify-center rounded-full bg-signal px-1 text-[10px] font-bold text-white">
-            {item.badge}
-          </span>
-        )}
         <span
           className={`absolute -bottom-px left-0 right-0 h-[2.5px] rounded-full transition-all ${
             active ? 'bg-signal' : 'bg-transparent group-hover:bg-line-strong'
