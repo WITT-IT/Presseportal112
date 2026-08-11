@@ -9,7 +9,8 @@ export async function GET(
 ) {
   const { token } = await params;
   const imageId = request.nextUrl.searchParams.get('imageId');
-  if (!imageId) {
+  const mediaId = request.nextUrl.searchParams.get('mediaId');
+  if (!imageId && !mediaId) {
     return NextResponse.json({ error: 'Keine Bild-ID angegeben.' }, { status: 400 });
   }
 
@@ -18,25 +19,37 @@ export async function GET(
     return NextResponse.json({ error: 'Freigabe nicht verfügbar.' }, { status: 404 });
   }
 
-  const image = share.posts
-    .flatMap((post: Post) => (post.images ?? []) as PostImage[])
-    .find((img: PostImage) => img.id === imageId);
-
-  // Bewusst file_original statt file_public_preview -- Medienfreigaben
-  // gehen an bereits autorisierte Empfänger:innen, die brauchen kein
-  // Wasserzeichen. Directus verkleinert trotzdem on-the-fly über die
-  // width/quality-Parameter, unabhängig von der Originalgröße.
-  if (!image?.file_original) {
-    return NextResponse.json({ error: 'Foto nicht Teil dieser Freigabe.' }, { status: 404 });
-  }
-
   const serviceToken = process.env.DIRECTUS_SERVICE_TOKEN;
   if (!serviceToken) {
     console.error('Freigabe-Vorschau: DIRECTUS_SERVICE_TOKEN fehlt.');
     return NextResponse.json({ error: 'Nicht verfügbar.' }, { status: 500 });
   }
 
-  const assetRes = await fetch(directusAssetUrl(image.file_original, 'width=600&quality=75'), {
+  // fileId ist entweder das Original eines Beitragsfotos (imageId) oder
+  // das Original eines direkt angehängten Bibliotheksbilds (mediaId) --
+  // media_library.file zeigt genau wie images.file_original direkt auf die
+  // Directus-Datei, beide laufen danach durch denselben Asset-Abruf.
+  let fileId: string | null = null;
+
+  if (imageId) {
+    const image = share.posts
+      .flatMap((post: Post) => (post.images ?? []) as PostImage[])
+      .find((img: PostImage) => img.id === imageId);
+    // Bewusst file_original statt file_public_preview -- Medienfreigaben
+    // gehen an bereits autorisierte Empfänger:innen, die brauchen kein
+    // Wasserzeichen. Directus verkleinert trotzdem on-the-fly über die
+    // width/quality-Parameter, unabhängig von der Originalgröße.
+    fileId = image?.file_original ?? null;
+  } else if (mediaId) {
+    const libraryImage = share.libraryImages.find((img) => img.id === mediaId);
+    fileId = libraryImage?.fileOriginal ?? null;
+  }
+
+  if (!fileId) {
+    return NextResponse.json({ error: 'Foto nicht Teil dieser Freigabe.' }, { status: 404 });
+  }
+
+  const assetRes = await fetch(directusAssetUrl(fileId, 'width=600&quality=75'), {
     headers: { Authorization: `Bearer ${serviceToken}` },
   });
   if (!assetRes.ok) {
