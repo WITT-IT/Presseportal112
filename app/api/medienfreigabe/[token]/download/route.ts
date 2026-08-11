@@ -38,6 +38,7 @@ export async function GET(
 ) {
   const { token } = await params;
   const imageId = request.nextUrl.searchParams.get('imageId');
+  const mediaId = request.nextUrl.searchParams.get('mediaId');
 
   const share = await getMediaShareByToken(token);
   if (!share) {
@@ -59,6 +60,7 @@ export async function GET(
     }))
   );
 
+  // Einzeldownload eines Beitragsfotos -- unverändert wie bisher.
   if (imageId) {
     const image = allImages.find((img: ImageWithMeta) => img.id === imageId);
     if (!image?.file_original) {
@@ -81,23 +83,67 @@ export async function GET(
     });
   }
 
-  const downloadable = allImages.filter((img: ImageWithMeta) => img.file_original);
-  if (downloadable.length === 0) {
+  // NEU: Einzeldownload eines direkt angehängten Bibliotheksbilds -- gleiche
+  // Logik wie oben, nur aus share.libraryImages statt share.posts.
+  if (mediaId) {
+    const libraryImage = share.libraryImages.find((img) => img.id === mediaId);
+    if (!libraryImage?.fileOriginal) {
+      return NextResponse.json({ error: 'Foto nicht Teil dieser Freigabe.' }, { status: 404 });
+    }
+    const assetRes = await fetch(directusAssetUrl(libraryImage.fileOriginal), { headers: authHeader });
+    if (!assetRes.ok) {
+      return NextResponse.json({ error: 'Datei konnte nicht geladen werden.' }, { status: 502 });
+    }
+    const buffer = Buffer.from(await assetRes.arrayBuffer());
+    const contentType = assetRes.headers.get('content-type');
+    const ext = extensionFromContentType(contentType);
+    const baseName = sanitizeFilename(libraryImage.displayName || 'foto');
+    return new NextResponse(new Uint8Array(buffer), {
+      headers: {
+        'Content-Type': contentType || 'image/jpeg',
+        'Content-Disposition': `attachment; filename="presseportal112-${baseName}.${ext}"`,
+        'Content-Length': String(buffer.length),
+      },
+    });
+  }
+
+  // Sammel-ZIP: Beitragsfotos UND Bibliotheksbilder zusammen -- vorher
+  // fehlten die Bibliotheksbilder hier komplett, der "Alle als ZIP"-Button
+  // lieferte nur die Beiträge aus.
+  const downloadablePosts = allImages.filter((img: ImageWithMeta) => img.file_original);
+  const downloadableLibrary = share.libraryImages.filter((img) => img.fileOriginal);
+
+  if (downloadablePosts.length === 0 && downloadableLibrary.length === 0) {
     return NextResponse.json({ error: 'Keine Dateien vorhanden.' }, { status: 404 });
   }
 
   const zip = new JSZip();
-  for (const [index, image] of downloadable.entries()) {
+  let index = 0;
+
+  for (const image of downloadablePosts) {
     const assetRes = await fetch(directusAssetUrl(image.file_original as string), {
       headers: authHeader,
     });
     if (!assetRes.ok) continue;
+    index++;
     const buffer = Buffer.from(await assetRes.arrayBuffer());
     const ext = extensionFromContentType(assetRes.headers.get('content-type'));
     const baseName = sanitizeFilename(
-      image.caption || image.postTitle || image.postAlarmCode || `foto-${index + 1}`
+      image.caption || image.postTitle || image.postAlarmCode || `foto-${index}`
     );
-    zip.file(`${baseName}-${index + 1}.${ext}`, buffer);
+    zip.file(`${baseName}-${index}.${ext}`, buffer);
+  }
+
+  for (const image of downloadableLibrary) {
+    const assetRes = await fetch(directusAssetUrl(image.fileOriginal), {
+      headers: authHeader,
+    });
+    if (!assetRes.ok) continue;
+    index++;
+    const buffer = Buffer.from(await assetRes.arrayBuffer());
+    const ext = extensionFromContentType(assetRes.headers.get('content-type'));
+    const baseName = sanitizeFilename(image.displayName || `foto-${index}`);
+    zip.file(`${baseName}-${index}.${ext}`, buffer);
   }
 
   const zipBuffer = await zip.generateAsync({ type: 'nodebuffer' });
