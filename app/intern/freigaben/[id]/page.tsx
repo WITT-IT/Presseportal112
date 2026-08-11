@@ -61,40 +61,47 @@ export default async function MediaShareDetailPage({
 
   return (
     <div>
-      <Breadcrumbs
-        items={[
-          { label: 'Übersicht', href: '/intern' },
-          { label: 'Freigaben', href: '/intern/freigaben' },
-          { label: share.name },
-        ]}
-      />
+      <div className="-mx-6 -mt-10 mb-8 border-b border-line/70 px-6 pb-8 pt-6 nav:-mx-10 nav:-mt-12 nav:px-10 nav:pt-8">
+        <Breadcrumbs
+          items={[
+            { label: 'Übersicht', href: '/intern' },
+            { label: 'Freigaben', href: '/intern/freigaben' },
+            { label: share.name },
+          ]}
+        />
 
-      <div className="mb-1 flex flex-wrap items-center justify-between gap-4">
-        <h1 className="font-display text-[28px] font-bold">{share.name}</h1>
-        <MediaShareActions shareId={share.id} name={share.name} active={share.active} />
-      </div>
+        <div className="mt-4 flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <span className="inline-flex items-center rounded-full bg-white/80 px-3 py-1 text-xs font-medium uppercase tracking-[0.16em] text-ink-2 shadow-sm">
+              Freigabe
+            </span>
+            <h1 className="mt-4 font-display text-[clamp(28px,4vw,42px)] leading-[0.95] text-ink">
+              {share.name}
+            </h1>
+          </div>
+          <MediaShareActions shareId={share.id} name={share.name} active={share.active} />
+        </div>
 
-      {/* Statusleiste -- auf einen Blick: läuft die Freigabe noch, für wen,
-          wie viel Material steckt insgesamt drin (Beiträge + Bibliotheksbilder
-          zusammengezählt, weil dem Empfänger dieser Unterschied egal ist --
-          er sieht auf /medienfreigabe/[token] ohnehin nur "N Bilder"). */}
-      <div className="mb-6 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-[12.5px] text-ink-2">
-        <span className="flex items-center gap-1.5">
-          <span
-            className={`h-[7px] w-[7px] flex-none rounded-full ${
-              !share.active ? 'bg-ink-3' : isExpired ? 'bg-signal-deep' : 'bg-emerald-500'
-            }`}
-            aria-hidden="true"
-          />
-          {!share.active ? 'Deaktiviert' : isExpired ? 'Abgelaufen' : 'Aktiv'}
-          {' · '}
-          {isExpired ? 'lief ab am' : 'gültig bis'}{' '}
-          {new Date(share.expiresAt).toLocaleDateString('de-DE')}
-        </span>
-        <span>
-          {totalItems} {totalItems === 1 ? 'Bild' : 'Bilder'} insgesamt
-        </span>
-        {share.recipientName && <span>für {share.recipientName}</span>}
+        {/* Statusleiste -- auf einen Blick: läuft die Freigabe noch, für wen,
+            wie viel Material steckt insgesamt drin. */}
+        <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-[12.5px] text-ink-2">
+          <span className="flex items-center gap-1.5">
+            <span
+              className={`h-[7px] w-[7px] flex-none rounded-full ${
+                !share.active ? 'bg-ink-3' : isExpired ? 'bg-signal-deep' : 'bg-emerald-500'
+              }`}
+              aria-hidden="true"
+            />
+            {!share.active ? 'Deaktiviert' : isExpired ? 'Abgelaufen' : 'Aktiv'}
+            {' · '}
+            {isExpired ? 'lief ab am' : 'gültig bis'}{' '}
+            {new Date(share.expiresAt).toLocaleDateString('de-DE')}
+          </span>
+          <span>
+            {totalItems} {totalItems === 1 ? 'Bild' : 'Bilder'} insgesamt
+          </span>
+          {share.recipientName && <span>für {share.recipientName}</span>}
+        </div>
       </div>
 
       <div className="mb-8">
@@ -110,8 +117,8 @@ export default async function MediaShareDetailPage({
 
       <div className="flex flex-col gap-6">
         {/* ── Karte 1: veröffentlichte Beiträge ─────────────────────────── */}
-        <section className="rounded-[10px] border border-line bg-white p-6">
-          <h2 className="mb-1 font-display text-[16px] font-bold">
+        <section className="rounded-[20px] border border-white/70 bg-white p-6 shadow-card">
+          <h2 className="mb-1 font-display text-[17px] font-bold">
             Veröffentlichte Beiträge
             <span className="ml-2 font-mono text-[12px] font-normal text-ink-3">
               {share.posts.length}
@@ -133,16 +140,16 @@ export default async function MediaShareDetailPage({
                 return (
                   <div
                     key={post.id}
-                    className="relative overflow-hidden rounded-[10px] border border-line bg-white"
+                    className="group relative overflow-hidden rounded-[16px] border border-white/70 bg-white shadow-card transition-all hover:-translate-y-0.5 hover:shadow-card-hover"
                   >
                     <RemoveFromMediaShareButton shareId={share.id} postId={post.id} />
-                    <div className="relative h-[110px] bg-panel">
+                    <div className="relative aspect-square bg-panel">
                       {hero?.file_public_preview && (
                         <Image
                           src={directusAssetUrl(hero.file_public_preview, 'width=300&quality=70')}
                           alt=""
                           fill
-                          className="object-cover"
+                          className="object-cover transition-transform duration-300 group-hover:scale-[1.04]"
                         />
                       )}
                     </div>
@@ -178,8 +185,8 @@ export default async function MediaShareDetailPage({
         </section>
 
         {/* ── Karte 2: rohes Bildmaterial aus der Bibliothek ────────────── */}
-        <section className="rounded-[10px] border border-line bg-white p-6">
-          <h2 className="mb-1 font-display text-[16px] font-bold">
+        <section className="rounded-[20px] border border-white/70 bg-white p-6 shadow-card">
+          <h2 className="mb-1 font-display text-[17px] font-bold">
             Bildmaterial aus der Bibliothek
             <span className="ml-2 font-mono text-[12px] font-normal text-ink-3">
               {share.libraryImages.length}
@@ -200,15 +207,15 @@ export default async function MediaShareDetailPage({
               {share.libraryImages.map((img) => (
                 <div
                   key={img.id}
-                  className="relative overflow-hidden rounded-[10px] border border-line bg-white"
+                  className="group relative overflow-hidden rounded-[16px] border border-white/70 bg-white shadow-card transition-all hover:-translate-y-0.5 hover:shadow-card-hover"
                 >
                   <RemoveLibraryFromShareButton shareId={share.id} mediaId={img.id} />
-                  <div className="relative h-[110px] bg-panel">
+                  <div className="relative aspect-square bg-panel">
                     <Image
                       src={`/api/intern/library?original=${img.id}&width=300&quality=70`}
                       alt=""
                       fill
-                      className="object-cover"
+                      className="object-cover transition-transform duration-300 group-hover:scale-[1.04]"
                       unoptimized
                     />
                   </div>
