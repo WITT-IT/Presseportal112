@@ -5,6 +5,20 @@ import { DIRECTUS_URL } from '@/lib/directus';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+function normalizeIdArray(raw: unknown): string[] {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw.filter((v): v is string => typeof v === 'string');
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed.filter((v): v is string => typeof v === 'string');
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 export async function POST(request: NextRequest) {
   const raw = request.cookies.get(SESSION_COOKIE)?.value;
   if (!raw) {
@@ -30,13 +44,13 @@ export async function POST(request: NextRequest) {
 
   try {
     const postRes = await fetch(
-      `${DIRECTUS_URL}/items/posts/${id}?fields=id,images.id,images.file_original,images.file_public_preview,images.file_download,images.file_public_preview_watermarked,images.file_download_watermarked`,
+      `${DIRECTUS_URL}/items/posts/${id}?fields=id,images.id,images.source_media_id,images.file_original,images.file_public_preview,images.file_download,images.file_public_preview_watermarked,images.file_download_watermarked`,
       { headers }
     );
 
     if (!postRes.ok) {
       const errText = await postRes.text().catch(() => '');
-      console.error('[account/delete] Beitrag konnte nicht geladen werden:', {
+      console.error('[intern/delete] Beitrag konnte nicht geladen werden:', {
         id,
         status: postRes.status,
         body: errText,
@@ -52,6 +66,7 @@ export async function POST(request: NextRequest) {
 
     const imageRows: {
       id: string;
+      source_media_id: string | null;
       file_original: string | null;
       file_public_preview: string | null;
       file_download: string | null;
@@ -59,9 +74,16 @@ export async function POST(request: NextRequest) {
       file_download_watermarked: string | null;
     }[] = Array.isArray(data.images) ? data.images : [];
 
+    // Physische Dateien NUR für Bilder löschen, die direkt hochgeladen
+    // wurden (kein source_media_id). Bilder, die über die Medienbibliothek
+    // veröffentlicht wurden, gehören der Bibliothek -- ihre Dateien bleiben
+    // unangetastet, egal was hier im Post noch referenziert ist. Gleicher
+    // Schutz wie in app/api/admin/moderation/[postId]/route.ts, hier hat er
+    // bisher komplett gefehlt.
     const fileIds = Array.from(
       new Set(
         imageRows
+          .filter((img) => !img.source_media_id)
           .flatMap((img) => [
             img.file_original,
             img.file_public_preview,
@@ -82,7 +104,7 @@ export async function POST(request: NextRequest) {
 
       if (!deleteImageRes.ok) {
         const errText = await deleteImageRes.text().catch(() => '');
-        console.error('[account/delete] Bilddatensatz konnte nicht gelöscht werden:', {
+        console.error('[intern/delete] Bilddatensatz konnte nicht gelöscht werden:', {
           imageId: img.id,
           postId: id,
           status: deleteImageRes.status,
@@ -104,7 +126,7 @@ export async function POST(request: NextRequest) {
 
     if (!deletePostRes.ok) {
       const errText = await deletePostRes.text().catch(() => '');
-      console.error('[account/delete] Beitrag konnte nicht gelöscht werden:', {
+      console.error('[intern/delete] Beitrag konnte nicht gelöscht werden:', {
         postId: id,
         status: deletePostRes.status,
         body: errText,
@@ -116,7 +138,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Dateien zum Schluss löschen
+    // Nur direkt hochgeladene Dateien physisch löschen (siehe Filter oben).
     const fileDeleteResults = await Promise.allSettled(
       fileIds.map(async (fileId) => {
         const res = await fetch(`${DIRECTUS_URL}/files/${fileId}`, {
@@ -126,7 +148,7 @@ export async function POST(request: NextRequest) {
 
         if (!res.ok) {
           const errText = await res.text().catch(() => '');
-          console.error('[account/delete] Datei konnte nicht gelöscht werden:', {
+          console.error('[intern/delete] Datei konnte nicht gelöscht werden:', {
             fileId,
             postId: id,
             status: res.status,
@@ -141,20 +163,47 @@ export async function POST(request: NextRequest) {
     );
 
     if (rejectedDeletes.length > 0) {
-      console.error('[account/delete] Datei-Löschungen teilweise fehlgeschlagen:', {
+      console.error('[intern/delete] Datei-Löschungen teilweise fehlgeschlagen:', {
         postId: id,
         rejected: rejectedDeletes.length,
       });
     }
+
+    // Bibliotheks-Items nachführen: postId aus used_in_posts entfernen, damit
+    // die Bibliothek nicht auf einen inzwischen gelöschten Beitrag verweist.
+    const mediaLibraryIds = Array.from(
+      new Set(
+        imageRows
+          .map((img) => img.source_media_id)
+          .filter((v): v is string => !!v)
+      )
+    );
+
+    await Promise.allSettled(
+      mediaLibraryIds.map(async (mediaId) => {
+        const res = await fetch(`${DIRECTUS_URL}/items/media_library/${mediaId}?fields=used_in_posts`, {
+          headers,
+        });
+        if (!res.ok) return;
+        const { data: mediaData } = await res.json();
+        const usedInPosts = normalizeIdArray(mediaData?.used_in_posts);
+        await fetch(`${DIRECTUS_URL}/items/media_library/${mediaId}`, {
+          method: 'PATCH',
+          headers,
+          body: JSON.stringify({ used_in_posts: usedInPosts.filter((postId) => postId !== id) }),
+        }).catch(() => {});
+      })
+    );
 
     return NextResponse.json({
       ok: true,
       deletedPostId: id,
       deletedImages: imageRows.length,
       attemptedFileDeletes: fileIds.length,
+      preservedLibraryImages: mediaLibraryIds.length,
     });
   } catch (error) {
-    console.error('[account/delete] Unerwarteter Fehler:', error);
+    console.error('[intern/delete] Unerwarteter Fehler:', error);
     return NextResponse.json(
       { error: 'Löschen fehlgeschlagen.' },
       { status: 500 }
