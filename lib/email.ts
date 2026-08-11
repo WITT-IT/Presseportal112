@@ -521,6 +521,54 @@ export async function sendNewRegistrationAdminNotification({
   });
 }
 
+// Geht an die eingeladene Person, sobald ein bestehendes Organisationsmitglied
+// eine Einladung mit hinterlegter E-Mail-Adresse erstellt.
+export async function sendInviteEmail({
+  to,
+  organizationName,
+  invitedByName,
+  joinUrl,
+}: {
+  to: string;
+  organizationName: string;
+  invitedByName: string;
+  joinUrl: string;
+}) {
+  const transport = getTransporter();
+  const from = process.env.SMTP_FROM || process.env.SMTP_USER!;
+  const safeOrgName = escHtml(organizationName);
+  const safeInvitedBy = escHtml(invitedByName);
+
+  const bodyHtml = `
+    <p style="margin:0 0 16px;">Hallo,</p>
+    <p style="margin:0 0 16px;">
+      <strong>${safeInvitedBy}</strong> hat dich eingeladen, dem Konto von
+      <strong>${safeOrgName}</strong> bei Presseportal112 beizutreten.
+    </p>
+    <p style="margin:0;">
+      Der Link ist 14 Tage gültig. Nach dem Beitreten kannst du direkt
+      loslegen, ganz ohne weitere Wartezeit oder Prüfung.
+    </p>
+  `;
+
+  await transport.sendMail({
+    from,
+    to,
+    subject: `Presseportal112 -- Einladung zu ${organizationName}`,
+    text: [
+      `${invitedByName} hat dich eingeladen, dem Konto von ${organizationName} bei Presseportal112 beizutreten.`,
+      '',
+      `Link (14 Tage gültig): ${joinUrl}`,
+    ].join('\n'),
+    html: renderEmailLayout({
+      heading: 'Du wurdest eingeladen',
+      bodyHtml,
+      ctaLabel: 'Jetzt beitreten',
+      ctaUrl: joinUrl,
+    }),
+  });
+}
+
 // Geht an die Empfänger-Organisation, sobald eine andere Organisation eine
 // neue Unterhaltung im internen Nachrichtensystem startet. Zeigt die erste
 // Nachricht jetzt als echte Chat-Bubble statt als grauer Textkasten --
