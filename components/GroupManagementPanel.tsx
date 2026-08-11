@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useDialog } from './DialogProvider';
 
 type Participant = {
   organizationId: string;
@@ -23,6 +24,7 @@ export default function GroupManagementPanel({
   ownOrganizationId: string;
 }) {
   const router = useRouter();
+  const { confirm } = useDialog();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,12 +51,15 @@ export default function GroupManagementPanel({
   }
 
   async function handleRemove(orgId: string, name: string) {
-    if (
-      !window.confirm(
-        `${name} wirklich aus dieser Unterhaltung entfernen? Die Organisation kann den Verlauf danach nicht mehr öffnen.`
-      )
-    )
-      return;
+    const confirmed = await confirm({
+      title: 'Teilnehmer entfernen?',
+      message: `${name} wirklich aus dieser Unterhaltung entfernen? Die Organisation kann den Verlauf danach nicht mehr öffnen.`,
+      confirmLabel: 'Entfernen',
+      cancelLabel: 'Abbrechen',
+      danger: true,
+    });
+    if (!confirmed) return;
+
     setBusy(true);
     setError(null);
     const res = await fetch(`/api/intern/messages/${conversationId}/participants/${orgId}`, {
@@ -72,13 +77,17 @@ export default function GroupManagementPanel({
   async function handleTransfer() {
     if (!transferChoice) return;
     const target = participants.find((p) => p.organizationId === transferChoice);
-    if (
-      !target ||
-      !window.confirm(
-        `Moderation wirklich an ${target.organizationName} übertragen? Danach kann nur diese Organisation andere Teilnehmer entfernen.`
-      )
-    )
-      return;
+    if (!target) return;
+
+    const confirmed = await confirm({
+      title: 'Moderation übertragen?',
+      message: `Moderation wirklich an ${target.organizationName} übertragen? Danach kann nur diese Organisation andere Teilnehmer entfernen.`,
+      confirmLabel: 'Übertragen',
+      cancelLabel: 'Abbrechen',
+      danger: true,
+    });
+    if (!confirmed) return;
+
     setBusy(true);
     setError(null);
     const res = await fetch(`/api/intern/messages/${conversationId}/moderator`, {
@@ -97,12 +106,15 @@ export default function GroupManagementPanel({
   }
 
   async function handleLeave() {
-    if (
-      !window.confirm(
-        'Diese Unterhaltung wirklich verlassen? Du kannst sie danach nicht mehr öffnen.'
-      )
-    )
-      return;
+    const confirmed = await confirm({
+      title: 'Unterhaltung verlassen?',
+      message: 'Diese Unterhaltung wirklich verlassen? Du kannst sie danach nicht mehr öffnen.',
+      confirmLabel: 'Verlassen',
+      cancelLabel: 'Abbrechen',
+      danger: true,
+    });
+    if (!confirmed) return;
+
     setBusy(true);
     setError(null);
     const res = await fetch(`/api/intern/messages/${conversationId}/leave`, { method: 'POST' });
