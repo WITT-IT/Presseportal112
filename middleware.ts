@@ -12,8 +12,16 @@ export async function middleware(request: NextRequest) {
 
   const raw = request.cookies.get(SESSION_COOKIE)?.value;
 
+  console.log(
+    '[mw-debug]',
+    request.nextUrl.pathname,
+    'purpose:', request.headers.get('purpose'), // 'prefetch' bei Next.js-Prefetch-Requests
+    'cookie vorhanden:', !!raw
+  );
+
   if (!raw) {
     if (isApiRoute) return NextResponse.next();
+    console.log('[mw-debug] kein Cookie -> redirect /login für', request.nextUrl.pathname);
     return NextResponse.redirect(new URL('/login', request.url));
   }
 
@@ -21,6 +29,7 @@ export async function middleware(request: NextRequest) {
   try {
     session = JSON.parse(raw);
   } catch {
+    console.log('[mw-debug] Cookie kaputt -> redirect /login für', request.nextUrl.pathname);
     if (isApiRoute) return NextResponse.next();
     const response = NextResponse.redirect(new URL('/login', request.url));
     response.cookies.delete(SESSION_COOKIE);
@@ -31,19 +40,33 @@ export async function middleware(request: NextRequest) {
     request.headers.get('x-forwarded-proto') === 'https' ||
     request.nextUrl.protocol === 'https:';
 
+  const msRemaining = session.expiresAt - Date.now();
+  console.log(
+    '[mw-debug]',
+    request.nextUrl.pathname,
+    'accessToken (letzte 8):', session.accessToken.slice(-8),
+    'läuft ab in (ms):', msRemaining
+  );
+
   // Läuft der Directus-Access-Token in weniger als 60 Sekunden ab, jetzt
   // schon erneuern -- das gilt jetzt auch für die internen API-Routen
   // (vorher nur für Seitenaufrufe). Genau das hat gefehlt: eine Aktion wie
   // "Zu Freigabe hinzufügen" nutzte bisher das Token unverändert, egal wie
   // viel Zeit seit dem letzten Seitenaufruf vergangen war.
-  if (session.expiresAt - Date.now() < 60_000) {
+  if (msRemaining < 60_000) {
+    console.log('[mw-debug] Token läuft bald ab -> refreshDirectusSession() wird aufgerufen für', request.nextUrl.pathname);
     const refreshed = await refreshDirectusSession(session.refreshToken);
     if (!refreshed) {
+      console.log('[mw-debug] Refresh fehlgeschlagen -> redirect /login für', request.nextUrl.pathname);
       if (isApiRoute) return NextResponse.next();
       const response = NextResponse.redirect(new URL('/login', request.url));
       response.cookies.delete(SESSION_COOKIE);
       return response;
     }
+    console.log(
+      '[mw-debug] Refresh erfolgreich, neuer accessToken (letzte 8):',
+      refreshed.accessToken.slice(-8)
+    );
     session = refreshed;
   }
 
