@@ -63,7 +63,11 @@ export default async function InternLayout({ children }: { children: ReactNode }
   ]);
 
   return (
-    <div className="min-h-[calc(100vh-72px)] bg-paper">
+    // Gleicher warmer Verlauf wie /bildarchiv und /bildarchiv/[id]
+    // (from-white via-paper to-paper), statt der vorherigen flachen
+    // bg-paper-Fläche -- wirkt jetzt global auf jede /intern-Seite mit,
+    // ohne dass jede einzelne Seite ihren eigenen Hintergrund setzen muss.
+    <div className="min-h-[calc(100vh-72px)] bg-gradient-to-b from-white via-paper to-paper">
       <InternTopNav
         organizationName={user.organization?.name ?? null}
         isAdmin={admin}
