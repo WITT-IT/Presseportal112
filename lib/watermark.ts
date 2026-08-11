@@ -2,10 +2,11 @@
 // Bildes -- läuft komplett im Browser (Canvas-API), das Original wird nie
 // verändert hochgeladen.
 //
-// Ein einzelner, großer, diagonaler Schriftzug statt eines Wiederholungs-
-// musters -- bewusst auf Kundenwunsch reduziert. Schriftgröße wird
-// automatisch nach unten angepasst, falls der Text (organisationsabhängig
-// unterschiedlich lang) sonst über den Bildrand hinausragen würde.
+// Fußzeilen-Wasserzeichen statt diagonalem Schriftzug: ein dunkler
+// Verlaufsbalken am unteren Bildrand, weißer Text darüber. Der Verlauf
+// normalisiert den Untergrund -- die Lesbarkeit hängt dadurch nicht mehr
+// davon ab, ob darunter ein helles oder dunkles Motiv liegt, wie es bei
+// reinem Text-auf-Bild (auch mit Kontur) immer ein Stück weit der Fall ist.
 
 export type WatermarkResult = {
   preview: Blob;
@@ -39,31 +40,48 @@ function drawWatermarked(
   ctx.drawImage(img, 0, 0, width, height);
 
   const label = `© ${watermarkText} · Presseportal112.de`;
-  const angleDeg = -28;
 
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
-  ctx.strokeStyle = 'rgba(0, 0, 0, 0.28)';
+  // Fußzeilen-Höhe proportional zur Bildhöhe, mit sinnvollen Grenzen nach
+  // oben und unten -- bei sehr kleinen Vorschaubildern bleibt sie noch
+  // lesbar, bei sehr großen Downloads wird sie nicht unnötig dominant.
+  const footerHeight = Math.round(Math.min(Math.max(height * 0.07, 34), 96));
+  const padding = Math.round(footerHeight * 0.32);
 
-  // Startgröße großzügig, dann bei Bedarf nach unten anpassen -- lange
-  // Organisationsnamen dürfen nicht über den Bildrand hinausragen.
-  let fontSize = Math.round(width * 0.07);
-  const maxTextWidth = Math.hypot(width, height) * 0.82; // Bilddiagonale als Obergrenze
+  // Dunkler Verlauf von transparent nach halbtransparent-schwarz -- läuft
+  // über die doppelte Fußzeilenhöhe nach oben aus, damit der Übergang zum
+  // Bild weich ist statt einer harten Kante.
+  const gradient = ctx.createLinearGradient(0, height - footerHeight * 2, 0, height);
+  gradient.addColorStop(0, 'rgba(0, 0, 0, 0)');
+  gradient.addColorStop(1, 'rgba(0, 0, 0, 0.62)');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, height - footerHeight * 2, width, footerHeight * 2);
+
+  // Text mittig in der Fußzeile, linksbündig mit Innenabstand. Schriftgröße
+  // an die Fußzeilenhöhe gekoppelt, dann bei Bedarf so weit verkleinert,
+  // dass auch ein langer Organisationsname nicht über den Bildrand oder in
+  // den rechten Rand hineinragt.
+  let fontSize = Math.round(footerHeight * 0.36);
+  const maxTextWidth = width - padding * 2;
   ctx.font = `700 ${fontSize}px sans-serif`;
   const textWidth = ctx.measureText(label).width;
   if (textWidth > maxTextWidth) {
-    fontSize = Math.max(14, Math.floor(fontSize * (maxTextWidth / textWidth)));
+    fontSize = Math.max(11, Math.floor(fontSize * (maxTextWidth / textWidth)));
     ctx.font = `700 ${fontSize}px sans-serif`;
   }
-  ctx.lineWidth = Math.max(1.5, fontSize * 0.05);
 
-  ctx.save();
-  ctx.translate(width / 2, height / 2);
-  ctx.rotate((angleDeg * Math.PI) / 180);
-  ctx.strokeText(label, 0, 0);
-  ctx.fillText(label, 0, 0);
-  ctx.restore();
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  const textY = height - footerHeight / 2;
+
+  // Zusätzlich zum Verlauf noch ein dezenter dunkler Schatten hinter dem
+  // Text -- kostet auf einem Bild mit ohnehin dunklem Verlauf fast nichts,
+  // schützt aber zuverlässig die letzten paar Pixel bei sehr hellen,
+  // überstrahlten Fotomotiven (z. B. Blaulicht-Reflexionen).
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+  ctx.fillText(label, padding + 1, textY + 1);
+
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(label, padding, textY);
 
   return canvas;
 }
