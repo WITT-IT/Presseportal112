@@ -46,24 +46,39 @@ export default async function InternPage() {
     { label: 'Aktive Freigaben', value: activeShareCount },
   ];
 
+  const firstName = user.first_name || '';
+
   return (
-    <div className="mx-auto max-w-6xl px-4 py-6">
-      <header className="mb-6">
-        <h1 className="mb-2 font-display text-[28px] font-bold">Willkommen</h1>
-      </header>
-
-      <div className="mb-8 grid grid-cols-2 gap-3 nav:grid-cols-4">
-        {tiles.map((tile) => (
-          <div key={tile.label} className="rounded-[10px] border border-line bg-white px-3 py-2">
-            <div className="text-[11.5px] font-semibold text-ink-3">{tile.label}</div>
-            <div className="mt-1 text-[18px] font-bold text-ink">
-              {tile.value.toLocaleString('de-DE')}
-            </div>
+    <div className="-mx-6 -mt-10 nav:-mx-10 nav:-mt-12">
+      {/* Hero-Header im Bildarchiv-Stil: Eyebrow, große Headline, vier
+          Kennzahlen-Kacheln rechts statt der schlichten 4er-Grid-Reihe. */}
+      <section className="border-b border-line/70 px-6 pb-8 pt-6 nav:px-10 nav:pt-8">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+          <div className="max-w-2xl">
+            <span className="inline-flex items-center rounded-full bg-white/80 px-3 py-1 text-xs font-medium uppercase tracking-[0.16em] text-ink-2 shadow-sm">
+              Übersicht
+            </span>
+            <h1 className="mt-4 font-display text-[clamp(28px,4vw,42px)] leading-[0.95] text-ink">
+              Willkommen{firstName ? `, ${firstName}` : ''}.
+            </h1>
           </div>
-        ))}
-      </div>
 
-      <MediaLibraryView posts={posts} folders={foldersWithPostIds} mediaShares={mediaSharesForPicker} />
+          <div className="grid grid-cols-2 gap-3 sm:min-w-[320px] sm:grid-cols-4">
+            {tiles.map((tile) => (
+              <div key={tile.label} className="rounded-2xl bg-white/90 px-4 py-3 shadow-card">
+                <div className="text-xs uppercase tracking-[0.14em] text-ink-3">{tile.label}</div>
+                <div className="mt-1 font-mono text-xl font-semibold text-ink">
+                  {tile.value.toLocaleString('de-DE')}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <div className="px-6 pt-6 nav:px-10">
+        <MediaLibraryView posts={posts} folders={foldersWithPostIds} mediaShares={mediaSharesForPicker} />
+      </div>
     </div>
   );
 }
