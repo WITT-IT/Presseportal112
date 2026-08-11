@@ -162,7 +162,22 @@ export type MediaShareDetail = {
   posts: Post[];
 };
 
-// Öffentliche Medienfreigabe für den Token-Zugriff.
+// Direkt (ohne Umweg über einen Beitrag) an eine Freigabe angehängtes
+// Bibliotheksbild -- Original, kein Wasserzeichen. lib/queries.ts
+// definiert innerhalb von getMediaShareWithPosts einen strukturgleichen
+// lokalen Typ gleichen Namens für die interne Verwaltungsseite; dieser
+// hier ist die zentrale Version für den öffentlichen Zugriff.
+export type MediaShareLibraryImage = {
+  id: string;
+  displayName: string | null;
+  fileOriginal: string;
+};
+
+// Öffentliche Medienfreigabe für den Token-Zugriff. libraryImages ist das
+// Pendant zu MediaShareDetail.posts für direkt angehängte Bibliotheksbilder
+// -- ohne dieses Feld sah /medienfreigabe/[token] nur Beiträge, nie
+// einzeln hinzugefügte Bibliotheksbilder (siehe getMediaShareByToken in
+// lib/queries.ts).
 export type PublicMediaShare = {
   id: string;
   name: string;
@@ -170,6 +185,7 @@ export type PublicMediaShare = {
   organizationName: string | null;
   expiresAt: string;
   posts: Post[];
+  libraryImages: MediaShareLibraryImage[];
 };
 
 export const GEWERK_COLORS: Record<string, string> = {
