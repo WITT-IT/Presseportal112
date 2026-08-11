@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
 import { DIRECTUS_URL } from '@/lib/directus';
 import { getActiveParticipant, serviceHeaders } from '@/lib/messaging';
+import { sendAddedToConversationEmail } from '@/lib/email';
 
 const MAX_PARTICIPANTS = 10;
 
@@ -71,8 +72,10 @@ export async function POST(
       );
     }
 
+    // contact_email zusätzlich zu id,name laden -- vorher nur id,name, was
+    // für die neue Benachrichtigungsmail nicht gereicht hätte.
     const orgRes = await fetch(
-      `${DIRECTUS_URL}/items/organizations/${organizationId}?fields=id,name`,
+      `${DIRECTUS_URL}/items/organizations/${organizationId}?fields=id,name,contact_email`,
       { headers }
     );
     if (!orgRes.ok) {
@@ -123,6 +126,47 @@ export async function POST(
         created_at: now,
       }),
     });
+
+    // NEU: Einmalige Benachrichtigungsmail an die neu hinzugefügte
+    // Organisation -- vorher gab es dafür gar keine Mail, nur die
+    // System-Nachricht oben, die niemand sieht, der die Seite nicht gerade
+    // offen hat. Best-effort (Promise, kein await-Blocker, kein Abbruch der
+    // eigentlichen Aktion bei Mail-Fehlern) und komplett eigenständig vom
+    // eigentlichen Hinzufügen entkoppelt -- ein SMTP-Ausfall darf niemals
+    // verhindern, dass die Organisation tatsächlich Teil der Unterhaltung wird.
+    if (org.contact_email) {
+      (async () => {
+        try {
+          const subjectRes = await fetch(
+            `${DIRECTUS_URL}/items/conversations/${conversationId}?fields=subject`,
+            { headers }
+          );
+          const subject = subjectRes.ok ? (await subjectRes.json()).data?.subject ?? '' : '';
+
+          // Letzte echte Nachricht (kein System-Eintrag) für die Bubble in
+          // der Mail -- gibt sofort Kontext, worum es in der Unterhaltung
+          // gerade geht, statt einer inhaltsleeren "hinzugefügt"-Meldung.
+          const lastMessageRes = await fetch(
+            `${DIRECTUS_URL}/items/conversation_messages?filter[conversation][_eq]=${conversationId}&filter[message_type][_eq]=message&sort=-created_at&fields=body,sender_organization.name,sender_user_name&limit=1`,
+            { headers }
+          );
+          const lastMessages = lastMessageRes.ok ? (await lastMessageRes.json()).data : [];
+          const lastMessage = lastMessages?.[0] as
+            | { body: string; sender_organization: { name: string } | null; sender_user_name: string | null }
+            | undefined;
+
+          await sendAddedToConversationEmail({
+            to: org.contact_email,
+            addedByOrganizationName: user.organization!.name ?? 'Eine Organisation',
+            subject,
+            lastMessageSenderName: lastMessage?.sender_organization?.name ?? null,
+            lastMessagePreview: lastMessage?.body ?? null,
+          });
+        } catch (error) {
+          console.error('Benachrichtigungsmail (hinzugefügt) fehlgeschlagen:', error);
+        }
+      })();
+    }
 
     return NextResponse.json({ ok: true });
   } catch (error) {
