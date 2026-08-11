@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
 import { DIRECTUS_URL, directusAssetUrl } from '@/lib/directus';
 import { normalizeTags } from '@/lib/types';
+import { formatBytes, getStorageStatus } from '@/lib/storage';
 
 function getSession(request: NextRequest): { accessToken: string } | null {
   const raw = request.cookies.get(SESSION_COOKIE)?.value;
@@ -61,6 +62,49 @@ async function uploadBuffer(
   });
   if (!res.ok) throw new Error(`Datei-Upload fehlgeschlagen (${res.status}): ${await res.text()}`);
   return fileId;
+}
+
+// Lädt Speicherlimit + aktuellen Verbrauch der Organisation frisch aus
+// Directus -- bewusst bei jedem Upload/Löschen neu abgefragt statt
+// gecacht, damit der Zähler nie mit einem veralteten Stand weiterrechnet,
+// wenn z.B. parallel aus einem anderen Tab gelöscht wurde.
+async function getOrgStorage(
+  token: string,
+  organizationId: string
+): Promise<{ usedBytes: number; limitBytes: number }> {
+  const res = await fetch(
+    `${DIRECTUS_URL}/items/organizations/${organizationId}?fields=storage_used_bytes,storage_limit_bytes`,
+    { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' }
+  );
+  if (!res.ok) return { usedBytes: 0, limitBytes: 0 };
+  const { data } = await res.json();
+  return {
+    usedBytes: Number(data?.storage_used_bytes) || 0,
+    limitBytes: Number(data?.storage_limit_bytes) || 0,
+  };
+}
+
+// Schreibt den neuen Verbrauchswert zurück -- additiv über den zuvor
+// gelesenen Ist-Stand (delta kann positiv beim Upload oder negativ beim
+// Löschen sein), nie negativ werden lassen falls die Buchhaltung mal
+// aus dem Ruder läuft (z.B. durch eine Alt-Datei ohne sauberen Zähler-Start).
+async function adjustOrgStorage(
+  token: string,
+  organizationId: string,
+  currentUsedBytes: number,
+  deltaBytes: number
+): Promise<void> {
+  const newValue = Math.max(0, currentUsedBytes + deltaBytes);
+  await fetch(`${DIRECTUS_URL}/items/organizations/${organizationId}`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ storage_used_bytes: newValue }),
+  }).catch((err) => {
+    console.error(`Speicherverbrauch für Organisation ${organizationId} konnte nicht aktualisiert werden:`, err);
+  });
 }
 
 // GET /api/intern/library?q=tag&folder=&limit=48&offset=0
@@ -184,6 +228,14 @@ export async function GET(request: NextRequest) {
 
 // POST /api/intern/library — Direkt-Upload in die Bibliothek, KEIN Beitrag.
 // FormData: folder (optional), image_count, file_0..N
+//
+// Speicherlimit: vor JEDER Datei wird geprüft, ob genug Kontingent übrig
+// ist -- bei Erreichen des Limits mittendrin in einer Mehrfachauswahl
+// werden die bereits hochgeladenen Dateien behalten (kein Rollback), die
+// verbleibenden brechen mit einer klaren Fehlermeldung ab. Der Zähler
+// wird direkt nach jedem einzelnen erfolgreichen Upload aktualisiert,
+// nicht erst am Ende -- so bleibt storage_used_bytes auch bei einem
+// Abbruch mittendrin korrekt.
 export async function POST(request: NextRequest) {
   const session = getSession(request);
   if (!session) return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
@@ -198,9 +250,23 @@ export async function POST(request: NextRequest) {
   const created: string[] = [];
   const errors: string[] = [];
 
+  const orgStorage = await getOrgStorage(session.accessToken, user.organization.id);
+  const limitBytes = orgStorage.limitBytes;
+  let usedBytes = orgStorage.usedBytes;
+
   for (let i = 0; i < imageCount; i++) {
     const file = formData.get(`file_${i}`) as File | null;
     if (!file) continue;
+
+    // Limit-Check VOR dem eigentlichen Upload -- verhindert, dass wir erst
+    // Bytes zu Directus hochladen und dann feststellen, dass sie nicht
+    // mehr ins Kontingent passen.
+    if (limitBytes > 0 && usedBytes + file.size > limitBytes) {
+      errors.push(
+        `${file.name}: Speicherlimit erreicht (${formatBytes(usedBytes)} von ${formatBytes(limitBytes)} belegt).`
+      );
+      continue;
+    }
 
     try {
       const buffer = Buffer.from(await file.arrayBuffer());
@@ -230,6 +296,12 @@ export async function POST(request: NextRequest) {
       }
 
       created.push(itemId);
+
+      // Zähler direkt nach diesem einen erfolgreichen Upload nachführen --
+      // usedBytes lokal mitziehen, damit der Limit-Check der nächsten
+      // Datei in dieser Schleife den aktuellen Stand kennt.
+      await adjustOrgStorage(session.accessToken, user.organization.id, usedBytes, buffer.length);
+      usedBytes += buffer.length;
     } catch (err) {
       console.error(`Upload fehlgeschlagen für "${file.name}":`, err);
       errors.push(`${file.name}: ${err instanceof Error ? err.message : 'Unbekannter Fehler'}`);
@@ -245,6 +317,8 @@ export async function POST(request: NextRequest) {
 
 // PATCH /api/intern/library — umbenennen oder verschieben
 // Body: { id, display_name?, folder? }  (folder: null = Wurzel)
+// Rührt storage_used_bytes bewusst nicht an -- Umbenennen/Verschieben
+// ändert an der tatsächlichen Bytemenge nichts.
 export async function PATCH(request: NextRequest) {
   const session = getSession(request);
   if (!session) return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
@@ -275,10 +349,12 @@ export async function PATCH(request: NextRequest) {
 // DELETE /api/intern/library?id=... — nur wenn in einem WIRKLICH noch
 // existierenden Beitrag verwendet. Prüft nicht nur, ob used_in_posts
 // nicht-leer ist, sondern ob die referenzierten Post-IDs überhaupt noch
-// existieren -- verwaiste Referenzen (z.B. von einem Post, der über einen
-// Pfad gelöscht wurde, der used_in_posts damals nicht bereinigt hat)
-// werden automatisch erkannt und aufgeräumt, statt die Löschung für immer
-// zu blockieren.
+// existieren -- verwaiste Referenzen werden automatisch erkannt und
+// aufgeräumt, statt die Löschung für immer zu blockieren.
+//
+// Speicherlimit: bevor die Directus-Dateien gelöscht werden, wird ihre
+// tatsächliche Größe (filesize) abgefragt -- die einzige verlässliche
+// Quelle, um den Verbrauchszähler exakt um die richtige Menge zu senken.
 export async function DELETE(request: NextRequest) {
   const session = getSession(request);
   if (!session) return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
@@ -289,8 +365,13 @@ export async function DELETE(request: NextRequest) {
   const headers = { Authorization: `Bearer ${session.accessToken}` };
   const jsonHeaders = { ...headers, 'Content-Type': 'application/json' };
 
+  const user = await getCurrentUser(session.accessToken);
+  if (!user?.organization?.id) {
+    return NextResponse.json({ error: 'Keine Organisation.' }, { status: 403 });
+  }
+
   const checkRes = await fetch(
-    `${DIRECTUS_URL}/items/media_library/${id}?fields=id,used_in_posts,file,file_preview,file_preview_watermarked,file_download_watermarked`,
+    `${DIRECTUS_URL}/items/media_library/${id}?fields=id,organization,used_in_posts,file,file_preview,file_preview_watermarked,file_download_watermarked`,
     { headers }
   );
   if (!checkRes.ok) {
@@ -301,6 +382,10 @@ export async function DELETE(request: NextRequest) {
   }
 
   const { data } = await checkRes.json();
+  if (data?.organization !== user.organization.id) {
+    return NextResponse.json({ error: 'Keine Berechtigung.' }, { status: 403 });
+  }
+
   const rawUsedInPosts = normalizeIdArray(data?.used_in_posts);
 
   let validUsedInPosts: string[] = [];
@@ -339,6 +424,24 @@ export async function DELETE(request: NextRequest) {
     data?.file_download_watermarked,
   ].filter((v): v is string => typeof v === 'string' && v.length > 0);
 
+  // Tatsächliche Dateigrößen vor dem Löschen abfragen -- nur so lässt sich
+  // der Verbrauchszähler exakt zurückführen, statt zu raten.
+  let totalDeletedBytes = 0;
+  if (fileIds.length > 0) {
+    const sizeResults = await Promise.allSettled(
+      fileIds.map((fileId) =>
+        fetch(`${DIRECTUS_URL}/files/${fileId}?fields=filesize`, { headers }).then((res) =>
+          res.ok ? res.json() : null
+        )
+      )
+    );
+    for (const result of sizeResults) {
+      if (result.status === 'fulfilled' && result.value?.data?.filesize) {
+        totalDeletedBytes += Number(result.value.data.filesize) || 0;
+      }
+    }
+  }
+
   await Promise.allSettled(
     fileIds.map((fileId) =>
       fetch(`${DIRECTUS_URL}/files/${fileId}`, { method: 'DELETE', headers }).then((res) => {
@@ -351,5 +454,10 @@ export async function DELETE(request: NextRequest) {
 
   await fetch(`${DIRECTUS_URL}/items/media_library/${id}`, { method: 'DELETE', headers }).catch(() => {});
 
-  return NextResponse.json({ ok: true, deletedFiles: fileIds.length });
+  if (totalDeletedBytes > 0) {
+    const { usedBytes } = await getOrgStorage(session.accessToken, user.organization.id);
+    await adjustOrgStorage(session.accessToken, user.organization.id, usedBytes, -totalDeletedBytes);
+  }
+
+  return NextResponse.json({ ok: true, deletedFiles: fileIds.length, freedBytes: totalDeletedBytes });
 }
