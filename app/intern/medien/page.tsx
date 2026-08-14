@@ -2,8 +2,10 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
 import { getFolderContents, getMyOrganizationImages, getMyMediaShares } from '@/lib/queries';
+import { getOrgStorageInfo } from '@/lib/orgStorage';
 import Breadcrumbs from '@/components/Breadcrumbs';
 import MediaBrowser from '@/components/MediaBrowser';
+import StorageUsageBar from '@/components/StorageUsageBar';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,10 +32,11 @@ export default async function MedienPage({
   if (!user.organization?.id) redirect('/intern');
   if (user.organization.organization_type === 'press') redirect('/intern');
 
-  const [contents, calendarPosts, mediaShares] = await Promise.all([
+  const [contents, calendarPosts, mediaShares, storage] = await Promise.all([
     getFolderContents(session.accessToken, user.organization.id, folder ?? null),
     getMyOrganizationImages(session.accessToken, user.organization.id),
     getMyMediaShares(session.accessToken, user.organization.id),
+    getOrgStorageInfo(session.accessToken, user.organization.id),
   ]);
 
   const breadcrumbItems = [
@@ -77,6 +80,18 @@ export default async function MedienPage({
               <div className="mt-1 font-mono text-xl font-semibold text-ink">{itemCount}</div>
             </div>
           </div>
+        </div>
+
+        {/* Speicherverbrauch -- eigene volle Zeile statt einer dritten
+            Kennzahlen-Kachel, weil der Balken mehr Breite braucht als eine
+            reine Zahl. Zeigt organisationsweiten Gesamtverbrauch (nicht nur
+            den aktuellen Ordner), deshalb bewusst als Fußzeile der ganzen
+            Hero-Sektion statt neben "Bilder hier". */}
+        <div className="mt-5 max-w-md rounded-2xl bg-white/90 px-4 py-3 shadow-card">
+          <div className="mb-1.5 text-[11px] uppercase tracking-[0.14em] text-ink-3">
+            Speicherplatz (gesamte Organisation)
+          </div>
+          <StorageUsageBar usedBytes={storage.usedBytes} limitBytes={storage.limitBytes} />
         </div>
       </section>
 
