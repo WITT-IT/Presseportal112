@@ -4,6 +4,7 @@ import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
 import { DIRECTUS_URL, directusAssetUrl } from '@/lib/directus';
 import { normalizeTags } from '@/lib/types';
 import { formatBytes, getStorageStatus } from '@/lib/storage';
+import { sendStorageWarningEmail, sendStorageLimitReachedEmail } from '@/lib/email';
 
 function getSession(request: NextRequest): { accessToken: string } | null {
   const raw = request.cookies.get(SESSION_COOKIE)?.value;
@@ -71,17 +72,98 @@ async function uploadBuffer(
 async function getOrgStorage(
   token: string,
   organizationId: string
-): Promise<{ usedBytes: number; limitBytes: number }> {
+): Promise<{
+  usedBytes: number;
+  limitBytes: number;
+  contactEmail: string | null;
+  organizationName: string;
+  warningSentAt: string | null;
+  limitReachedNotifiedAt: string | null;
+}> {
   const res = await fetch(
-    `${DIRECTUS_URL}/items/organizations/${organizationId}?fields=storage_used_bytes,storage_limit_bytes`,
+    `${DIRECTUS_URL}/items/organizations/${organizationId}?fields=storage_used_bytes,storage_limit_bytes,contact_email,name,storage_warning_sent_at,storage_limit_reached_notified_at`,
     { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' }
   );
-  if (!res.ok) return { usedBytes: 0, limitBytes: 0 };
+  if (!res.ok) {
+    return {
+      usedBytes: 0,
+      limitBytes: 0,
+      contactEmail: null,
+      organizationName: '',
+      warningSentAt: null,
+      limitReachedNotifiedAt: null,
+    };
+  }
   const { data } = await res.json();
   return {
     usedBytes: Number(data?.storage_used_bytes) || 0,
     limitBytes: Number(data?.storage_limit_bytes) || 0,
+    contactEmail: data?.contact_email || null,
+    organizationName: data?.name || '',
+    warningSentAt: data?.storage_warning_sent_at || null,
+    limitReachedNotifiedAt: data?.storage_limit_reached_notified_at || null,
   };
+}
+
+// Prüft nach einem Upload, ob eine der beiden Schwellen (90%/100%) NEU
+// überschritten wurde, und verschickt in diesem Fall die passende Mail --
+// jeweils nur einmal pro Überschreitung. storage_warning_sent_at /
+// storage_limit_reached_notified_at wirken dabei wie ein Riegel: solange
+// sie gesetzt sind, wird nicht erneut verschickt. Beide werden
+// zurückgesetzt (auf null), sobald der Verbrauch wieder unter die
+// jeweilige Schwelle fällt (siehe adjustOrgStorage) -- damit eine echte
+// erneute Annäherung ans Limit wieder eine frische Warnung auslöst, statt
+// für immer stummgeschaltet zu bleiben.
+async function maybeSendStorageThresholdEmail(
+  token: string,
+  organizationId: string,
+  organizationName: string,
+  contactEmail: string | null,
+  usedBytes: number,
+  limitBytes: number,
+  warningSentAt: string | null,
+  limitReachedNotifiedAt: string | null
+): Promise<void> {
+  if (!contactEmail || limitBytes <= 0) return;
+
+  const status = getStorageStatus(usedBytes, limitBytes);
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    'Content-Type': 'application/json',
+  };
+
+  try {
+    if (status.isAtLimit && !limitReachedNotifiedAt) {
+      await sendStorageLimitReachedEmail({
+        to: contactEmail,
+        organizationName,
+        usedBytes,
+        limitBytes,
+      });
+      await fetch(`${DIRECTUS_URL}/items/organizations/${organizationId}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ storage_limit_reached_notified_at: new Date().toISOString() }),
+      }).catch(() => {});
+    } else if (status.isNearLimit && !status.isAtLimit && !warningSentAt) {
+      await sendStorageWarningEmail({
+        to: contactEmail,
+        organizationName,
+        usedBytes,
+        limitBytes,
+        percentUsed: status.percentUsed,
+      });
+      await fetch(`${DIRECTUS_URL}/items/organizations/${organizationId}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ storage_warning_sent_at: new Date().toISOString() }),
+      }).catch(() => {});
+    }
+  } catch (error) {
+    // Mail-Fehler dürfen den Upload selbst nie beeinträchtigen -- der ist
+    // zu diesem Zeitpunkt schon erfolgreich abgeschlossen.
+    console.error(`Speicherlimit-Benachrichtigung fehlgeschlagen für Organisation ${organizationId}:`, error);
+  }
 }
 
 // Schreibt den neuen Verbrauchswert zurück -- additiv über den zuvor
@@ -92,16 +174,28 @@ async function adjustOrgStorage(
   token: string,
   organizationId: string,
   currentUsedBytes: number,
-  deltaBytes: number
+  deltaBytes: number,
+  limitBytes = 0
 ): Promise<void> {
   const newValue = Math.max(0, currentUsedBytes + deltaBytes);
+  const patch: Record<string, unknown> = { storage_used_bytes: newValue };
+
+  // Beim Löschen (deltaBytes negativ): sobald der neue Stand wieder unter
+  // eine Schwelle fällt, die zugehörige Sperre aufheben -- sonst würde nach
+  // einem Aufräumen + erneutem Vollmachen nie wieder eine Warnung kommen.
+  if (deltaBytes < 0 && limitBytes > 0) {
+    const status = getStorageStatus(newValue, limitBytes);
+    if (!status.isAtLimit) patch.storage_limit_reached_notified_at = null;
+    if (!status.isNearLimit) patch.storage_warning_sent_at = null;
+  }
+
   await fetch(`${DIRECTUS_URL}/items/organizations/${organizationId}`, {
     method: 'PATCH',
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ storage_used_bytes: newValue }),
+    body: JSON.stringify(patch),
   }).catch((err) => {
     console.error(`Speicherverbrauch für Organisation ${organizationId} konnte nicht aktualisiert werden:`, err);
   });
@@ -312,6 +406,23 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: errors.join(' | ') }, { status: 500 });
   }
 
+  // Schwellen-Check EINMAL nach der ganzen Schleife, nicht pro Datei --
+  // sonst würde bei 10 Dateien in einer Mehrfachauswahl bis zu 10x geprüft
+  // werden, obwohl nur der Endstand zählt. usedBytes hat zu diesem
+  // Zeitpunkt bereits den finalen Wert nach allen erfolgreichen Uploads.
+  if (created.length > 0) {
+    await maybeSendStorageThresholdEmail(
+      session.accessToken,
+      user.organization.id,
+      orgStorage.organizationName,
+      orgStorage.contactEmail,
+      usedBytes,
+      limitBytes,
+      orgStorage.warningSentAt,
+      orgStorage.limitReachedNotifiedAt
+    );
+  }
+
   return NextResponse.json({ ok: true, created, errors: errors.length ? errors : undefined });
 }
 
@@ -455,8 +566,8 @@ export async function DELETE(request: NextRequest) {
   await fetch(`${DIRECTUS_URL}/items/media_library/${id}`, { method: 'DELETE', headers }).catch(() => {});
 
   if (totalDeletedBytes > 0) {
-    const { usedBytes } = await getOrgStorage(session.accessToken, user.organization.id);
-    await adjustOrgStorage(session.accessToken, user.organization.id, usedBytes, -totalDeletedBytes);
+    const { usedBytes, limitBytes } = await getOrgStorage(session.accessToken, user.organization.id);
+    await adjustOrgStorage(session.accessToken, user.organization.id, usedBytes, -totalDeletedBytes, limitBytes);
   }
 
   return NextResponse.json({ ok: true, deletedFiles: fileIds.length, freedBytes: totalDeletedBytes });
