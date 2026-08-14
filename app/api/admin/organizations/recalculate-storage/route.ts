@@ -1,90 +1,60 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
+import { getCurrentUser, isAdministrator, SESSION_COOKIE } from '@/lib/auth';
 import { DIRECTUS_URL } from '@/lib/directus';
 import { recalculateOrgStorage } from '@/lib/storageRecalc';
 
-export const dynamic = 'force-dynamic';
-// Kann bei vielen Organisationen ein paar Minuten dauern (pro Organisation
-// mehrere Directus-Requests) -- sicherheitshalber explizit hochgesetzt.
-export const maxDuration = 300;
-
-// GET /api/cron/recalculate-storage?secret=...
+// POST /api/admin/organizations/recalculate-storage
+// Body: { organizationId }
 //
-// Wöchentlicher automatischer Lauf: geht ALLE Organisationen durch und
-// berechnet ihren Speicherverbrauch aus den echten Directus-Dateigrößen
-// neu -- korrigiert stillschweigende Drift im additiv geführten Zähler
-// (siehe app/api/intern/library/route.ts), ohne dass ein Admin manuell
-// eingreifen muss. Genau die Automatisierung, die ein produktiv
-// verkauftes Speicherlimit-Feature braucht statt eines reinen "hoffentlich
-// klickt das mal jemand"-Buttons.
-//
-// KEIN Session-Cookie-Schutz wie bei den Admin-Routen -- hier ruft kein
-// eingeloggter Mensch auf, sondern Coolifys Scheduler. Schutz stattdessen
-// über ein Secret in der URL, das nur im Coolify-Scheduler hinterlegt ist.
-// Läuft bewusst über GET (nicht POST), weil die meisten Cron-Scheduler
-// (inkl. Coolify) primär einfache GET-Requests gegen eine URL feuern.
-export async function GET(request: NextRequest) {
-  const secret = request.nextUrl.searchParams.get('secret');
-  const expectedSecret = process.env.CRON_SECRET;
-
-  if (!expectedSecret) {
-    console.error('Cron-Speicher-Neuberechnung: CRON_SECRET ist nicht konfiguriert.');
-    return NextResponse.json({ error: 'Nicht konfiguriert.' }, { status: 500 });
+// Sofort-Reparaturknopf für einen einzelnen Fall (z.B. "Kunde ruft gerade
+// an und beschwert sich"). Für den Regelfall läuft die gleiche Logik
+// automatisch als wöchentlicher Job über alle Organisationen -- siehe
+// app/api/cron/recalculate-storage/route.ts. Beide nutzen dieselbe
+// Kernfunktion aus lib/storageRecalc.ts.
+export async function POST(request: NextRequest) {
+  const cookieStore = await cookies();
+  const raw = cookieStore.get(SESSION_COOKIE)?.value;
+  if (!raw) {
+    return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
   }
-  if (secret !== expectedSecret) {
-    return NextResponse.json({ error: 'Ungültiges Secret.' }, { status: 401 });
+  let session: { accessToken: string };
+  try {
+    session = JSON.parse(raw);
+  } catch {
+    return NextResponse.json({ error: 'Sitzung ungültig.' }, { status: 401 });
+  }
+
+  const user = await getCurrentUser(session.accessToken);
+  if (!user) {
+    return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
+  }
+  const admin = await isAdministrator(user.id);
+  if (!admin) {
+    return NextResponse.json({ error: 'Keine Berechtigung.' }, { status: 403 });
+  }
+
+  const { organizationId } = await request.json().catch(() => ({}));
+  if (!organizationId) {
+    return NextResponse.json({ error: 'organizationId ist erforderlich.' }, { status: 400 });
   }
 
   const serviceToken = process.env.DIRECTUS_SERVICE_TOKEN;
   if (!serviceToken) {
-    console.error('Cron-Speicher-Neuberechnung: DIRECTUS_SERVICE_TOKEN fehlt.');
+    console.error('Speicher-Neuberechnung: DIRECTUS_SERVICE_TOKEN fehlt.');
     return NextResponse.json({ error: 'Nicht verfügbar.' }, { status: 500 });
   }
 
-  const orgsRes = await fetch(`${DIRECTUS_URL}/items/organizations?fields=id,name&limit=-1`, {
-    headers: { Authorization: `Bearer ${serviceToken}` },
-  });
-  if (!orgsRes.ok) {
-    console.error(`Cron-Speicher-Neuberechnung: Organisationen laden fehlgeschlagen (Status ${orgsRes.status})`);
-    return NextResponse.json({ error: 'Organisationen konnten nicht geladen werden.' }, { status: 502 });
+  try {
+    const orgRes = await fetch(`${DIRECTUS_URL}/items/organizations/${organizationId}?fields=name`, {
+      headers: { Authorization: `Bearer ${serviceToken}` },
+    });
+    const organizationName = orgRes.ok ? (await orgRes.json()).data?.name ?? '' : '';
+
+    const result = await recalculateOrgStorage(serviceToken, organizationId, organizationName);
+    return NextResponse.json({ ok: true, ...result });
+  } catch (error) {
+    console.error(`Speicher-Neuberechnung fehlgeschlagen für Organisation ${organizationId}:`, error);
+    return NextResponse.json({ error: 'Neuberechnung fehlgeschlagen.' }, { status: 500 });
   }
-  const { data: organizations } = await orgsRes.json();
-
-  const results: { organizationName: string; difference: number; ok: boolean }[] = [];
-  let errorCount = 0;
-
-  // Nacheinander statt Promise.all über alle Organisationen -- Directus
-  // bekommt sonst bei vielen Organisationen gleichzeitig sehr viele
-  // parallele Einzel-Datei-Requests (jede Organisation fragt selbst schon
-  // pro Bild einzeln ab) und könnte überlastet werden. Sequentiell dauert
-  // länger, ist aber verlässlicher für einen Hintergrund-Job ohne Nutzer,
-  // der ungeduldig auf eine Antwort wartet.
-  for (const org of organizations as { id: string; name: string }[]) {
-    try {
-      const result = await recalculateOrgStorage(serviceToken, org.id, org.name);
-      results.push({ organizationName: org.name, difference: result.difference, ok: true });
-      if (result.difference !== 0) {
-        console.log(
-          `[cron/recalculate-storage] ${org.name}: Zähler korrigiert um ${result.difference} Bytes.`
-        );
-      }
-    } catch (error) {
-      errorCount++;
-      console.error(`[cron/recalculate-storage] Fehlgeschlagen für ${org.name} (${org.id}):`, error);
-      results.push({ organizationName: org.name, difference: 0, ok: false });
-    }
-  }
-
-  const correctedCount = results.filter((r) => r.ok && r.difference !== 0).length;
-
-  console.log(
-    `[cron/recalculate-storage] Durchlauf abgeschlossen: ${organizations.length} Organisationen, ${correctedCount} korrigiert, ${errorCount} Fehler.`
-  );
-
-  return NextResponse.json({
-    ok: true,
-    totalOrganizations: organizations.length,
-    correctedCount,
-    errorCount,
-    results,
-  });
 }
