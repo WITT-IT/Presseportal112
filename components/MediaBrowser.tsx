@@ -1,5 +1,6 @@
 'use client';
 
+import { getStorageStatus } from '@/lib/storage';
 import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
@@ -84,6 +85,7 @@ export default function MediaBrowser({
   items,
   calendarPosts,
   mediaShares,
+  storageStatus,
 }: {
   currentFolderId: string | null;
   parentFolderId: string | null;
@@ -91,6 +93,11 @@ export default function MediaBrowser({
   items: MediaItem[];
   calendarPosts: Post[];
   mediaShares: { id: string; name: string }[];
+  // Optional gehalten -- falls eine Aufrufstelle (noch) keine Speicherdaten
+  // mitgibt, verhält sich der Upload-Button wie bisher (immer aktiv). So
+  // bricht nichts, falls MediaBrowser noch von woanders ohne diese Prop
+  // verwendet wird.
+  storageStatus?: { usedBytes: number; limitBytes: number };
 }) {
   const router = useRouter();
   const { confirm } = useDialog();
@@ -104,6 +111,13 @@ export default function MediaBrowser({
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Vorab-Check fürs UI -- verhindert, dass jemand erst die Dateiauswahl
+  // öffnet und Dateien wählt, nur um dann eine Fehlermeldung vom Server zu
+  // bekommen. Der eigentliche, verbindliche Check bleibt serverseitig in
+  // app/api/intern/library/route.ts (POST) -- das hier ist reine UX,
+  // niemals der einzige Schutz.
+  const isAtLimit = storageStatus ? getStorageStatus(storageStatus.usedBytes, storageStatus.limitBytes).isAtLimit : false;
 
   function openFolder(id: string | null) {
     router.push(id ? `/intern/medien?folder=${id}` : '/intern/medien');
@@ -154,6 +168,10 @@ export default function MediaBrowser({
     e.preventDefault();
     setIsDraggingFiles(false);
     if (isInternalDrag(e)) return;
+    if (isAtLimit) {
+      setError('Speicherlimit erreicht — bitte zuerst Speicherplatz freigeben oder Stufe upgraden.');
+      return;
+    }
     if (e.dataTransfer.files?.length) uploadFiles(Array.from(e.dataTransfer.files), currentFolderId);
   }
 
@@ -312,8 +330,16 @@ export default function MediaBrowser({
           onDrop={handleGridDrop}
         >
           <p className="pl-2 text-[12px] leading-[1.5] text-ink-2">
-            Bilder direkt auf einen Ordner ziehen, um sie dort abzulegen.
-            <br className="hidden nav:block" /> Klick auf ein Bild öffnet die Großansicht.
+            {isAtLimit ? (
+              <span className="font-medium text-signal-deep">
+                Speicherlimit erreicht — neue Uploads sind aktuell nicht möglich.
+              </span>
+            ) : (
+              <>
+                Bilder direkt auf einen Ordner ziehen, um sie dort abzulegen.
+                <br className="hidden nav:block" /> Klick auf ein Bild öffnet die Großansicht.
+              </>
+            )}
           </p>
           <div className="flex flex-none gap-2">
             <button
@@ -328,11 +354,12 @@ export default function MediaBrowser({
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              disabled={busy}
-              className="flex items-center gap-2 rounded-full bg-signal px-4 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-signal-deep disabled:opacity-50"
+              disabled={busy || isAtLimit}
+              title={isAtLimit ? 'Speicherlimit erreicht — bitte zuerst Speicherplatz freigeben oder Stufe upgraden.' : undefined}
+              className="flex items-center gap-2 rounded-full bg-signal px-4 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-signal-deep disabled:cursor-not-allowed disabled:opacity-40"
             >
               <IconUpload className="h-[15px] w-[15px]" />
-              Hochladen
+              {isAtLimit ? 'Speicher voll' : 'Hochladen'}
             </button>
             <input ref={fileInputRef} type="file" multiple accept="image/*" hidden onChange={handleFileInputChange} />
           </div>
