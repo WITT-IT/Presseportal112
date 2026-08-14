@@ -30,6 +30,12 @@ export default async function AdminHubPage() {
       description: 'Neue Organisations-Konten freigeben oder ablehnen.',
     },
     {
+      href: '/intern/admin/organisationen',
+      icon: 'ti-server-2',
+      title: 'Organisationen & Speicher',
+      description: 'Speicherstufe pro Organisation einsehen und ändern.',
+    },
+    {
       href: '/intern/admin/moderation',
       icon: 'ti-photo',
       title: 'Bildmoderation',
