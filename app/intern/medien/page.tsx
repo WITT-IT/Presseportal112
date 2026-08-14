@@ -103,6 +103,7 @@ export default async function MedienPage({
           items={contents.items}
           calendarPosts={calendarPosts}
           mediaShares={mediaShares.map((s) => ({ id: s.id, name: s.name }))}
+          storageStatus={{ usedBytes: storage.usedBytes, limitBytes: storage.limitBytes }}
         />
       </div>
     </div>
