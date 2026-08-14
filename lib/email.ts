@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer';
+import { formatBytes } from './storage';
 
 let transporter: nodemailer.Transporter | null = null;
 
@@ -565,6 +566,119 @@ export async function sendInviteEmail({
       bodyHtml,
       ctaLabel: 'Jetzt beitreten',
       ctaUrl: joinUrl,
+    }),
+  });
+}
+
+// Geht an die contact_email einer Organisation, sobald ihr Speicherverbrauch
+// die 90%-Schwelle überschreitet. Wird NUR einmal pro Schwellen-Überschreitung
+// verschickt -- app/api/intern/library/route.ts prüft vor dem Aufruf, ob
+// bereits eine Warnung für den aktuellen Zustand verschickt wurde
+// (storage_warning_sent_at), damit nicht bei jedem weiteren Upload erneut
+// eine Mail rausgeht.
+export async function sendStorageWarningEmail({
+  to,
+  organizationName,
+  usedBytes,
+  limitBytes,
+  percentUsed,
+}: {
+  to: string;
+  organizationName: string;
+  usedBytes: number;
+  limitBytes: number;
+  percentUsed: number;
+}) {
+  const transport = getTransporter();
+  const from = process.env.SMTP_FROM || process.env.SMTP_USER!;
+  const url = siteUrl();
+  const safeOrgName = escHtml(organizationName);
+
+  const bodyHtml = `
+    <p style="margin:0 0 16px;">Hallo${safeOrgName ? ` ${safeOrgName}` : ''},</p>
+    <p style="margin:0 0 16px;">
+      euer Speicherplatz bei <strong>Presseportal112</strong> ist zu
+      <strong>${Math.round(percentUsed)}%</strong> belegt
+      (${formatBytes(usedBytes)} von ${formatBytes(limitBytes)}).
+    </p>
+    <p style="margin:0;">
+      Sobald der Speicher voll ist, sind neue Uploads nicht mehr möglich.
+      Räumt entweder nicht mehr benötigte Bilder auf, oder wechselt in eine
+      höhere Speicherstufe — meldet euch dafür einfach bei uns.
+    </p>
+  `;
+
+  await transport.sendMail({
+    from,
+    to,
+    subject: `Presseportal112 -- Speicherplatz zu ${Math.round(percentUsed)}% belegt`,
+    text: [
+      `Hallo ${organizationName},`,
+      '',
+      `euer Speicherplatz ist zu ${Math.round(percentUsed)}% belegt (${formatBytes(usedBytes)} von ${formatBytes(limitBytes)}).`,
+      '',
+      'Sobald der Speicher voll ist, sind neue Uploads nicht mehr möglich.',
+      'Räumt nicht mehr benötigte Bilder auf oder wechselt in eine höhere Speicherstufe.',
+    ].join('\n'),
+    html: renderEmailLayout({
+      heading: 'Speicherplatz wird knapp',
+      bodyHtml,
+      ctaLabel: 'Zur Medienbibliothek',
+      ctaUrl: `${url}/intern/medien`,
+    }),
+  });
+}
+
+// Geht an die contact_email einer Organisation, sobald ihr Speicherlimit
+// tatsächlich erreicht ist (100%) -- ab diesem Punkt lehnt der Server neue
+// Uploads aktiv ab. Ebenfalls nur einmal pro Erreichen versendet.
+export async function sendStorageLimitReachedEmail({
+  to,
+  organizationName,
+  usedBytes,
+  limitBytes,
+}: {
+  to: string;
+  organizationName: string;
+  usedBytes: number;
+  limitBytes: number;
+}) {
+  const transport = getTransporter();
+  const from = process.env.SMTP_FROM || process.env.SMTP_USER!;
+  const url = siteUrl();
+  const safeOrgName = escHtml(organizationName);
+
+  const bodyHtml = `
+    <p style="margin:0 0 16px;">Hallo${safeOrgName ? ` ${safeOrgName}` : ''},</p>
+    <p style="margin:0 0 16px;">
+      euer Speicherplatz bei <strong>Presseportal112</strong> ist jetzt
+      <strong>vollständig belegt</strong> (${formatBytes(usedBytes)} von
+      ${formatBytes(limitBytes)}). Neue Uploads sind ab sofort nicht mehr
+      möglich, bis wieder Platz frei ist.
+    </p>
+    <p style="margin:0;">
+      Räumt nicht mehr benötigte Bilder auf, oder wechselt in eine höhere
+      Speicherstufe — meldet euch dafür einfach bei uns.
+    </p>
+  `;
+
+  await transport.sendMail({
+    from,
+    to,
+    subject: 'Presseportal112 -- Speicherplatz vollständig belegt',
+    text: [
+      `Hallo ${organizationName},`,
+      '',
+      `euer Speicherplatz ist vollständig belegt (${formatBytes(usedBytes)} von ${formatBytes(limitBytes)}).`,
+      'Neue Uploads sind ab sofort nicht mehr möglich, bis wieder Platz frei ist.',
+      '',
+      'Räumt nicht mehr benötigte Bilder auf oder wechselt in eine höhere Speicherstufe.',
+    ].join('\n'),
+    html: renderEmailLayout({
+      heading: 'Speicherplatz vollständig belegt',
+      bodyHtml,
+      ctaLabel: 'Zur Medienbibliothek',
+      ctaUrl: `${url}/intern/medien`,
     }),
   });
 }
