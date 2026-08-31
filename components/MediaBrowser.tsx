@@ -163,7 +163,7 @@ export default function MediaBrowser({
 }) {
   const router = useRouter();
   const { confirm } = useDialog();
-  const { enqueue, liveUsedBytes, uploadedBytes, resetUploadedBytes } = useUploadQueue();
+  const { enqueue, reportedUsedBytes, reportUsedBytes, clearReportedUsedBytes } = useUploadQueue();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
 
@@ -179,23 +179,21 @@ export default function MediaBrowser({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [anchorIndex, setAnchorIndex] = useState<number | null>(null);
 
-  const serverUsedBytes = liveUsedBytes ?? storageStatus?.usedBytes ?? 0;
+  const renderedUsedBytes = storageStatus?.usedBytes ?? 0;
 
-  // Der Server-Wert allein hat sich als unzuverlässig erwiesen: Er hängt
-  // daran, dass router.refresh() rechtzeitig durchkommt UND Directus den
-  // frisch geschriebenen Zähler bereits ausliefert. Deshalb rechnen wir die
-  // Bytes, die in dieser Sitzung nachweislich erfolgreich hochgeladen
-  // wurden, oben drauf. Der Aufschlag ist kein Schätzwert -- Directus legt
-  // exakt die übertragene Dateigröße ab.
-  const effectiveUsedBytes = serverUsedBytes + uploadedBytes;
+  // Der gemeldete Wert schlägt den gerenderten, solange er existiert.
+  // Beide stammen aus derselben serverseitigen Berechnung -- der gemeldete
+  // ist nur früher da, weil er direkt aus der Antwort des Uploads oder der
+  // Löschung kommt, statt auf einen Server-Rerender zu warten.
+  const effectiveUsedBytes = reportedUsedBytes ?? renderedUsedBytes;
 
-  // Sobald ein NEUER Server-Wert eintrifft, ist der Aufschlag darin bereits
-  // enthalten und muss weg -- sonst würde doppelt gezählt. Die Abhängigkeit
-  // auf den reinen Zahlenwert sorgt dafür, dass das genau einmal pro
-  // tatsächlicher Änderung passiert, nicht bei jedem Rerender.
+  // Sobald ein NEUER gerenderter Wert eintrifft, ist die Meldung überholt
+  // und wird verworfen. Damit gewinnt der Server wieder die Oberhand --
+  // wichtig, wenn sich der Bestand woanders geändert hat, etwa durch einen
+  // zweiten Browsertab oder den nächtlichen Neuberechnungs-Job.
   useEffect(() => {
-    resetUploadedBytes();
-  }, [serverUsedBytes, resetUploadedBytes]);
+    clearReportedUsedBytes();
+  }, [renderedUsedBytes, clearReportedUsedBytes]);
 
   const isAtLimit = storageStatus
     ? getStorageStatus(effectiveUsedBytes, storageStatus.limitBytes).isAtLimit
@@ -224,6 +222,16 @@ export default function MediaBrowser({
     setSelectedIds(new Set());
     setAnchorIndex(null);
     router.push(id ? `/intern/medien?folder=${id}` : '/intern/medien');
+  }
+
+  // Wertet den Speicherstand aus einer beliebigen API-Antwort aus.
+  // Zentral gehalten, damit keine Aufrufstelle das Auslesen vergisst --
+  // genau deshalb hing der Balken beim Löschen bisher hinterher.
+  function applyStorageFromResponse(body: unknown) {
+    if (body && typeof body === 'object' && 'usedBytes' in body) {
+      const value = (body as { usedBytes?: unknown }).usedBytes;
+      if (typeof value === 'number') reportUsedBytes(value);
+    }
   }
 
   // ── Auswahl ────────────────────────────────────────────────────────────
@@ -487,10 +495,14 @@ export default function MediaBrowser({
     setError(null);
     try {
       const res = await fetch(`/api/intern/folders?id=${folder.id}`, { method: 'DELETE' });
+      const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
         throw new Error(body.error ?? 'Löschen fehlgeschlagen.');
       }
+      // Die Ordner-Route meldet den Speicherstand derzeit nicht mit; falls
+      // sie es später tut, wird er hier automatisch übernommen. Bis dahin
+      // zieht der Balken über router.refresh() nach.
+      applyStorageFromResponse(body);
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Löschen fehlgeschlagen.');
@@ -521,11 +533,18 @@ export default function MediaBrowser({
     try {
       for (const target of targets) {
         const res = await fetch(`/api/intern/library?id=${target.id}`, { method: 'DELETE' });
+        const body = await res.json().catch(() => ({}));
+
         if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
           failures.push(`${shortName(target.display_name || 'Bild', 28)}: ${body.error ?? `Status ${res.status}`}`);
           continue;
         }
+
+        // Nach JEDEM gelöschten Bild den neuen Stand übernehmen, nicht erst
+        // am Ende: Bei einem Stapel von 40 Bildern läuft der Balken so
+        // sichtbar mit, statt minutenlang unverändert zu stehen.
+        applyStorageFromResponse(body);
+
         if (lightboxId === target.id) setLightboxId(null);
       }
 
@@ -810,11 +829,7 @@ export default function MediaBrowser({
                                 />
                                 {/* Ordner-Plakette über dem Bild: Ohne sie
                                     wäre eine Ordnerkachel mit Vorschaubild
-                                    von einem Foto kaum noch zu unterscheiden
-                                    -- das Querformat allein trägt das nicht.
-                                    Der Verlauf unten sorgt dafür, dass helle
-                                    Motive die Kante zur Beschriftung nicht
-                                    verwaschen. */}
+                                    von einem Foto kaum zu unterscheiden. */}
                                 <span className="absolute left-2 top-2 flex h-7 w-7 items-center justify-center rounded-[8px] bg-white/85 text-ink-2 shadow-sm backdrop-blur">
                                   {isNested ? (
                                     <IconFolderNested className="h-[15px] w-[15px]" />
@@ -930,8 +945,7 @@ export default function MediaBrowser({
                       >
                         {/* Auswahlkästchen dauerhaft sichtbar, sobald etwas
                             markiert ist -- ohne diese Regel wäre auf
-                            Touch-Geräten gar keine Auswahl möglich, weil es
-                            dort kein Hovern gibt. */}
+                            Touch-Geräten gar keine Auswahl möglich. */}
                         <button
                           type="button"
                           onClick={(e) => {
