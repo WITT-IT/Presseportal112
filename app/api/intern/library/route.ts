@@ -140,23 +140,25 @@ async function computeUsedBytes(token: string, organizationId: string): Promise<
 // Speicherstand + Limit.
 //
 // BEWUSST NUR DIE SPEICHERFELDER:
-// Vorher wurden hier in EINER Abfrage auch contact_email, name und die
-// beiden Benachrichtigungs-Zeitstempel mitgeladen. Directus lehnt aber
-// eine Anfrage KOMPLETT mit 403 ab, sobald darin ein einziges Feld
-// vorkommt, für das die Policy keine Leseberechtigung hat -- es lässt das
-// Feld nicht etwa weg. Genau das ist passiert (Log: "getOrgStorage(...)
-// fehlgeschlagen (Status 403)"), sehr wahrscheinlich wegen contact_email.
+// Directus lehnt eine Anfrage KOMPLETT mit 403 ab, sobald darin ein
+// einziges Feld vorkommt, für das die Policy keine Leseberechtigung hat --
+// es lässt das Feld nicht etwa weg. Genau daran ist die frühere
+// Sammelabfrage gescheitert (Log: "getOrgStorage(...) Status 403"), sehr
+// wahrscheinlich wegen contact_email. Die Kontaktfelder liegen deshalb in
+// getOrgNotificationInfo.
 //
-// Die Folge war schlimmer als eine fehlende Anzeige: Bei 403 kam
-// limitBytes: 0 zurück, und "limitBytes > 0" ist die Bedingung der
-// Limitprüfung beim Upload -- das Kontingent war damit stillschweigend
-// außer Kraft. Deshalb sind die Felder jetzt getrennt: Was für Anzeige
-// und Limit gebraucht wird, hängt nicht mehr an Feldern, die nur die
-// Warnmails betreffen.
+// computed = berechneter Ist-Wert (null, wenn die Berechnung scheiterte).
+// Aufrufer, die den Unterschied kennen müssen, greifen direkt darauf zu --
+// usedBytes allein verwischt "berechnet" und "aus dem Zähler geraten".
 async function getOrgStorage(
   token: string,
   organizationId: string
-): Promise<{ usedBytes: number; storedUsedBytes: number; limitBytes: number }> {
+): Promise<{
+  usedBytes: number;
+  computed: number | null;
+  storedUsedBytes: number;
+  limitBytes: number;
+}> {
   const sysToken = storageToken(token);
 
   const [res, computed] = await Promise.all([
@@ -174,9 +176,9 @@ async function getOrgStorage(
     );
     return {
       usedBytes: computed ?? 0,
+      computed,
       storedUsedBytes: 0,
-      // NIEMALS 0 zurückgeben: 0 schaltet die Limitprüfung ab. Lieber das
-      // Limit der Standardstufe annehmen und im Zweifel zu streng sein.
+      // NIEMALS 0 zurückgeben: 0 schaltet die Limitprüfung ab.
       limitBytes: storageLimitForTier(DEFAULT_STORAGE_TIER),
     };
   }
@@ -189,9 +191,8 @@ async function getOrgStorage(
   const rawLimit = Number(data?.storage_limit_bytes);
 
   return {
-    // Berechneter Wert gewinnt -- der gespeicherte Zähler springt nur ein,
-    // wenn die Berechnung nicht durchlief.
     usedBytes: computed ?? storedUsedBytes,
+    computed,
     storedUsedBytes,
     limitBytes: Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : storageLimitForTier(tier),
   };
@@ -200,8 +201,6 @@ async function getOrgStorage(
 // Kontakt- und Benachrichtigungsfelder -- ausschließlich für die
 // Warnmails. Getrennt von getOrgStorage, weil ein Rechteproblem an
 // contact_email nur die Mails kosten darf, niemals die Limitprüfung.
-// Liefert null, wenn die Felder nicht lesbar sind; dann entfallen die
-// Mails stillschweigend.
 async function getOrgNotificationInfo(
   token: string,
   organizationId: string
@@ -232,10 +231,9 @@ async function getOrgNotificationInfo(
 }
 
 // Prüft nach einem Upload, ob eine der beiden Schwellen (90%/100%) NEU
-// überschritten wurde. storage_warning_sent_at /
-// storage_limit_reached_notified_at wirken wie ein Riegel: solange sie
+// überschritten wurde. Die Zeitstempel wirken wie ein Riegel: solange sie
 // gesetzt sind, wird nicht erneut verschickt. Beide werden zurückgesetzt,
-// sobald der Verbrauch wieder unter die Schwelle fällt (adjustOrgStorage).
+// sobald der Verbrauch wieder unter die Schwelle fällt.
 async function maybeSendStorageThresholdEmail(
   token: string,
   organizationId: string,
@@ -287,27 +285,36 @@ async function maybeSendStorageThresholdEmail(
   }
 }
 
-// Schreibt den neuen Verbrauchswert zurück. Gibt den geschriebenen Wert
+// Schreibt einen ABSOLUTEN Verbrauchswert. Gibt den geschriebenen Wert
 // zurück, oder null bei Fehlschlag.
 //
-// Der Statuscode wird explizit geprüft. Vorher stand hier nur ein
-// .catch() -- und fetch wirft bei 403/400 keinen Fehler, sondern resolved
-// normal. Dieser catch-Block hat also nie ausgelöst, und ein abgelehnter
-// PATCH verschwand spurlos.
-async function adjustOrgStorage(
+// Absolut statt additiv: Die Aufrufer kennen den Zielwert bereits genau
+// (Upload: Ist-Wert + Dateigröße, Löschen: Ist-Wert - Dateigröße). Die
+// frühere Signatur nahm Ausgangswert und Delta entgegen -- damit war beim
+// Lesen der Aufrufstelle nie sofort klar, welcher Wert am Ende in der
+// Datenbank landet, und genau da hat sich der Fehler versteckt, dass beim
+// Löschen ein Delta von 0 auf einen unveränderten Ausgangswert addiert
+// wurde. Ein Aufruf, der den Zielwert nennt, kann diesen Fehler nicht
+// mehr enthalten.
+//
+// Der Statuscode wird explizit geprüft: fetch wirft bei 403/400 keinen
+// Fehler, sondern resolved normal -- ein reines .catch() hätte einen
+// abgelehnten PATCH nie bemerkt.
+async function writeOrgStorage(
   token: string,
   organizationId: string,
-  currentUsedBytes: number,
-  deltaBytes: number,
-  limitBytes = 0
+  newUsedBytes: number,
+  limitBytes = 0,
+  clearNotificationFlags = false
 ): Promise<number | null> {
-  const newValue = Math.max(0, currentUsedBytes + deltaBytes);
-  const patch: Record<string, unknown> = { storage_used_bytes: newValue };
+  const value = Math.max(0, Math.round(newUsedBytes));
+  const patch: Record<string, unknown> = { storage_used_bytes: value };
 
-  // Beim Löschen (deltaBytes negativ): sobald der neue Stand wieder unter
-  // eine Schwelle fällt, die zugehörige Sperre aufheben.
-  if (deltaBytes < 0 && limitBytes > 0) {
-    const status = getStorageStatus(newValue, limitBytes);
+  // Beim Sinken des Verbrauchs: sobald der neue Stand wieder unter eine
+  // Schwelle fällt, die zugehörige Sperre aufheben -- sonst käme nach
+  // einem Aufräumen und erneutem Vollmachen nie wieder eine Warnung.
+  if (clearNotificationFlags && limitBytes > 0) {
+    const status = getStorageStatus(value, limitBytes);
     if (!status.isAtLimit) patch.storage_limit_reached_notified_at = null;
     if (!status.isNearLimit) patch.storage_warning_sent_at = null;
   }
@@ -326,11 +333,11 @@ async function adjustOrgStorage(
       const body = await res.text().catch(() => '');
       console.error(
         `Speicherzähler für Organisation ${organizationId} konnte nicht geschrieben werden ` +
-          `(Status ${res.status}): ${body}. Gewollter Wert: ${newValue} Bytes.`
+          `(Status ${res.status}): ${body}. Gewollter Wert: ${value} Bytes.`
       );
       return null;
     }
-    return newValue;
+    return value;
   } catch (err) {
     console.error(`Speicherzähler für Organisation ${organizationId} konnte nicht geschrieben werden:`, err);
     return null;
@@ -518,11 +525,9 @@ export async function POST(request: NextRequest) {
 
       created.push(itemId);
 
-      // Zähler direkt nach diesem einen erfolgreichen Upload nachführen --
-      // usedBytes lokal mitziehen, damit der Limit-Check der nächsten
-      // Datei den aktuellen Stand kennt.
-      await adjustOrgStorage(session.accessToken, user.organization.id, usedBytes, buffer.length);
+      // Zielwert direkt nennen: aktueller Stand plus diese Datei.
       usedBytes += buffer.length;
+      await writeOrgStorage(session.accessToken, user.organization.id, usedBytes);
     } catch (err) {
       console.error(`Upload fehlgeschlagen für "${file.name}":`, err);
       errors.push(`${file.name}: ${err instanceof Error ? err.message : 'Unbekannter Fehler'}`);
@@ -534,8 +539,6 @@ export async function POST(request: NextRequest) {
   }
 
   // Schwellen-Check EINMAL nach der ganzen Schleife, nicht pro Datei.
-  // Die Kontaktdaten werden erst hier geladen -- sind sie nicht lesbar,
-  // entfallen nur die Mails.
   if (created.length > 0) {
     const notify = await getOrgNotificationInfo(session.accessToken, user.organization.id);
     if (notify) {
@@ -667,14 +670,25 @@ export async function DELETE(request: NextRequest) {
     data?.file_download_watermarked,
   ].filter((v): v is string => typeof v === 'string' && v.length > 0);
 
-  // Nur die Größe des ORIGINALS gilt als freigegeben.
+  // WICHTIG: Ist-Stand und Dateigröße VOR dem Löschen ermitteln.
   //
-  // Vorher wurden alle vier Dateivarianten aufsummiert -- also auch
-  // Vorschau und Wasserzeichen-Kopien. Beim Upload zählt aber nur das
-  // Original ins Kontingent. Das Löschen senkte den Zähler damit um mehr,
-  // als der Upload ihn erhöht hatte, und der Stand lief mit jedem Zyklus
-  // weiter nach unten -- bis auf 0, weil adjustOrgStorage nicht negativ
-  // werden lässt.
+  // Danach lässt sich beides nicht mehr zuverlässig feststellen: Die Datei
+  // ist weg, ihre filesize also nicht mehr abfragbar, und eine
+  // Neuberechnung liefert direkt nach dem Löschvorgang oft noch den alten
+  // Stand, weil Directus die Löschung asynchron verarbeitet.
+  //
+  // Genau daran ist die vorherige Fassung gescheitert: Sie hat NACH dem
+  // Löschen neu berechnet und das Ergebnis zurückgeschrieben. Lieferte die
+  // Berechnung dabei den alten gespeicherten Zähler zurück (Fallback bei
+  // fehlgeschlagener Berechnung) oder noch den Stand von vor der Löschung,
+  // wurde der unveränderte Wert erneut geschrieben -- der Speicherstand
+  // blieb sichtbar stehen.
+  const before = await getOrgStorage(session.accessToken, user.organization.id);
+
+  // Nur die Größe des ORIGINALS zählt. Beim Upload geht ebenfalls nur das
+  // Original ins Kontingent -- würde man hier alle vier Dateivarianten
+  // abziehen, sänke der Zähler mit jedem Zyklus stärker als er gestiegen
+  // ist, bis auf 0.
   let freedBytes = 0;
   if (originalFileId) {
     try {
@@ -682,9 +696,14 @@ export async function DELETE(request: NextRequest) {
       if (sizeRes.ok) {
         const body = await sizeRes.json();
         freedBytes = Number(body?.data?.filesize) || 0;
+      } else {
+        console.error(
+          `DELETE: Dateigröße von ${originalFileId} nicht ermittelbar (Status ${sizeRes.status}) — ` +
+            `der Speicherzähler kann für dieses Bild nicht gesenkt werden.`
+        );
       }
-    } catch {
-      freedBytes = 0;
+    } catch (err) {
+      console.error(`DELETE: Dateigröße von ${originalFileId} nicht ermittelbar:`, err);
     }
   }
 
@@ -700,17 +719,16 @@ export async function DELETE(request: NextRequest) {
 
   await fetch(`${DIRECTUS_URL}/items/media_library/${id}`, { method: 'DELETE', headers }).catch(() => {});
 
-  // Neu berechnen statt vom alten Stand abzuziehen: Der Datensatz ist jetzt
-  // weg, der berechnete Wert ist bereits der korrekte Endstand -- genauer
-  // als jede Differenzrechnung.
-  const after = await getOrgStorage(session.accessToken, user.organization.id);
-  await adjustOrgStorage(session.accessToken, user.organization.id, after.usedBytes, 0, after.limitBytes);
+  // Zielwert: Stand von vorher minus dieser einen Datei. Reine
+  // Differenzrechnung, ohne Neuberechnung und ohne Timing-Abhängigkeit.
+  const newUsedBytes = Math.max(0, before.usedBytes - freedBytes);
+  await writeOrgStorage(session.accessToken, user.organization.id, newUsedBytes, before.limitBytes, true);
 
   return NextResponse.json({
     ok: true,
     deletedFiles: fileIds.length,
     freedBytes,
-    usedBytes: after.usedBytes,
-    limitBytes: after.limitBytes,
+    usedBytes: newUsedBytes,
+    limitBytes: before.limitBytes,
   });
 }
