@@ -16,6 +16,21 @@ function getSession(request: NextRequest): { accessToken: string } | null {
   }
 }
 
+// Systemtoken für alle Schreibvorgänge am Speicherzähler.
+//
+// storage_used_bytes ist ein Abrechnungswert, den der Server pflegt --
+// kein Nutzerinhalt. Mit dem Nutzertoken hing die Fortschreibung an den
+// Feldberechtigungen der jeweiligen Directus-Rolle, und genau daran ist
+// sie gescheitert: Directus lehnte den PATCH ab, der Fehler wurde nie
+// bemerkt (siehe adjustOrgStorage), und der Zähler blieb auf 0 stehen.
+//
+// Fällt auf das Nutzertoken zurück, falls die Variable in einer Umgebung
+// nicht gesetzt ist -- dann verhält sich alles wie bisher, statt gar
+// nicht zu funktionieren.
+function storageToken(userToken: string): string {
+  return process.env.DIRECTUS_SERVICE_TOKEN || userToken;
+}
+
 // used_in_posts kommt manchmal als roher Text statt als echtes JSON-Array
 // zurück (gleiches Problem wie bei "tags" an anderer Stelle im Projekt) --
 // ein String wie "[]" hat eine .length von 2, nicht 0, und würde die
@@ -65,28 +80,105 @@ async function uploadBuffer(
   return fileId;
 }
 
-// Lädt Speicherlimit + aktuellen Verbrauch der Organisation frisch aus
-// Directus -- bewusst bei jedem Upload/Löschen neu abgefragt statt
-// gecacht, damit der Zähler nie mit einem veralteten Stand weiterrechnet,
-// wenn z.B. parallel aus einem anderen Tab gelöscht wurde.
+// Rechnet den tatsächlichen Verbrauch aus den ECHTEN Dateigrößen aller
+// Originale der Organisation aus -- dieselbe Logik wie in
+// lib/orgStorage.ts, hier für die Limitprüfung.
+//
+// WARUM NICHT DER GESPEICHERTE ZÄHLER FÜR DIE PRÜFUNG:
+// Der Zähler ist ein abgeleiteter Wert, der beim Schreiben kaputtgehen
+// kann -- und genau das ist passiert. Eine Limitprüfung gegen einen
+// kaputten Zähler ist schlimmer als keine: Steht dort 0, während real
+// 200 GB belegt sind, lässt der Server jeden Upload durch und die
+// gebuchte Speicherstufe ist wirkungslos. Bei einem Bezahlprodukt mit
+// Kontingenten ist das der teure Fehler.
+//
+// Nur die Originale (media_library.file) zählen. Vorschau- und
+// Wasserzeichen-Varianten werden bewusst nicht mitgezählt -- so war die
+// Kontingentrechnung von Anfang an gedacht.
+async function computeUsedBytes(token: string, organizationId: string): Promise<number | null> {
+  const headers = { Authorization: `Bearer ${token}` };
+
+  const itemsRes = await fetch(
+    `${DIRECTUS_URL}/items/media_library?filter[organization][_eq]=${organizationId}&fields=file&limit=-1`,
+    { headers, cache: 'no-store' }
+  );
+  if (!itemsRes.ok) {
+    console.error(
+      `computeUsedBytes(${organizationId}): media_library laden fehlgeschlagen (Status ${itemsRes.status}).`
+    );
+    return null;
+  }
+
+  const { data } = await itemsRes.json();
+  const fileIds = (data as { file: string | null }[])
+    .map((row) => row.file)
+    .filter((value): value is string => typeof value === 'string' && value.length > 0);
+
+  // Keine Bilder ist ein gültiger Zustand mit dem Ergebnis 0 -- klar zu
+  // unterscheiden von "Berechnung fehlgeschlagen" (null).
+  if (fileIds.length === 0) return 0;
+
+  // 100 IDs je Abfrage: Directus verkraftet längere _in-Listen, Reverse
+  // Proxies quittieren zu lange URLs aber mit 414.
+  const chunks: string[][] = [];
+  for (let i = 0; i < fileIds.length; i += 100) {
+    chunks.push(fileIds.slice(i, i + 100));
+  }
+
+  const results = await Promise.all(
+    chunks.map(async (chunk) => {
+      try {
+        const res = await fetch(
+          `${DIRECTUS_URL}/files?aggregate[sum]=filesize&filter[id][_in]=${chunk.join(',')}&limit=-1`,
+          { headers, cache: 'no-store' }
+        );
+        if (!res.ok) return null;
+        const body = await res.json();
+        const sum = Number(body?.data?.[0]?.sum?.filesize);
+        return Number.isFinite(sum) ? sum : 0;
+      } catch {
+        return null;
+      }
+    })
+  );
+
+  // Ein fehlgeschlagener Teil macht die Summe zu niedrig -- und eine zu
+  // niedrige Summe gaukelt freien Speicher vor, den es nicht gibt.
+  if (results.some((value) => value === null)) return null;
+
+  return results.reduce<number>((total, value) => total + (value ?? 0), 0);
+}
+
+// Lädt Speicherlimit + Verbrauch der Organisation frisch aus Directus.
+// usedBytes ist der BERECHNETE Ist-Wert; storedUsedBytes daneben nur der
+// gespeicherte Zähler, damit adjustOrgStorage weiß, worauf es addiert.
 async function getOrgStorage(
   token: string,
   organizationId: string
 ): Promise<{
   usedBytes: number;
+  storedUsedBytes: number;
   limitBytes: number;
   contactEmail: string | null;
   organizationName: string;
   warningSentAt: string | null;
   limitReachedNotifiedAt: string | null;
 }> {
-  const res = await fetch(
-    `${DIRECTUS_URL}/items/organizations/${organizationId}?fields=storage_used_bytes,storage_limit_bytes,contact_email,name,storage_warning_sent_at,storage_limit_reached_notified_at`,
-    { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' }
-  );
+  const sysToken = storageToken(token);
+
+  const [res, computed] = await Promise.all([
+    fetch(
+      `${DIRECTUS_URL}/items/organizations/${organizationId}?fields=storage_used_bytes,storage_limit_bytes,contact_email,name,storage_warning_sent_at,storage_limit_reached_notified_at`,
+      { headers: { Authorization: `Bearer ${sysToken}` }, cache: 'no-store' }
+    ),
+    computeUsedBytes(sysToken, organizationId),
+  ]);
+
   if (!res.ok) {
+    console.error(`getOrgStorage(${organizationId}) fehlgeschlagen (Status ${res.status}).`);
     return {
-      usedBytes: 0,
+      usedBytes: computed ?? 0,
+      storedUsedBytes: 0,
       limitBytes: 0,
       contactEmail: null,
       organizationName: '',
@@ -94,9 +186,16 @@ async function getOrgStorage(
       limitReachedNotifiedAt: null,
     };
   }
+
   const { data } = await res.json();
+  const rawStored = Number(data?.storage_used_bytes);
+  const storedUsedBytes = Number.isFinite(rawStored) ? Math.max(0, rawStored) : 0;
+
   return {
-    usedBytes: Number(data?.storage_used_bytes) || 0,
+    // Berechneter Wert gewinnt, der Zähler springt nur ein, wenn die
+    // Berechnung nicht durchlief.
+    usedBytes: computed ?? storedUsedBytes,
+    storedUsedBytes,
     limitBytes: Number(data?.storage_limit_bytes) || 0,
     contactEmail: data?.contact_email || null,
     organizationName: data?.name || '',
@@ -111,9 +210,7 @@ async function getOrgStorage(
 // storage_limit_reached_notified_at wirken dabei wie ein Riegel: solange
 // sie gesetzt sind, wird nicht erneut verschickt. Beide werden
 // zurückgesetzt (auf null), sobald der Verbrauch wieder unter die
-// jeweilige Schwelle fällt (siehe adjustOrgStorage) -- damit eine echte
-// erneute Annäherung ans Limit wieder eine frische Warnung auslöst, statt
-// für immer stummgeschaltet zu bleiben.
+// jeweilige Schwelle fällt (siehe adjustOrgStorage).
 async function maybeSendStorageThresholdEmail(
   token: string,
   organizationId: string,
@@ -128,7 +225,7 @@ async function maybeSendStorageThresholdEmail(
 
   const status = getStorageStatus(usedBytes, limitBytes);
   const headers = {
-    Authorization: `Bearer ${token}`,
+    Authorization: `Bearer ${storageToken(token)}`,
     'Content-Type': 'application/json',
   };
 
@@ -166,17 +263,27 @@ async function maybeSendStorageThresholdEmail(
   }
 }
 
-// Schreibt den neuen Verbrauchswert zurück -- additiv über den zuvor
-// gelesenen Ist-Stand (delta kann positiv beim Upload oder negativ beim
-// Löschen sein), nie negativ werden lassen falls die Buchhaltung mal
-// aus dem Ruder läuft (z.B. durch eine Alt-Datei ohne sauberen Zähler-Start).
+// Schreibt den neuen Verbrauchswert zurück. Gibt den geschriebenen Wert
+// zurück, oder null, wenn der Schreibvorgang fehlschlug.
+//
+// ZWEI FEHLER, DIE HIER FRÜHER STECKTEN:
+//
+// 1. Geschrieben wurde mit dem Nutzertoken. Fehlt der Rolle die
+//    Schreibberechtigung auf organizations, lehnt Directus ab -- und
+//    dieser Weg wurde nie bemerkt, siehe Punkt 2. Jetzt Service-Token.
+//
+// 2. Der Statuscode wurde NICHT geprüft. Es stand nur ein .catch() dran,
+//    und fetch wirft bei 403/400 keinen Fehler, sondern resolved ganz
+//    normal. Dieser catch-Block hat also nie ausgelöst: Der Zähler blieb
+//    auf 0 stehen, ohne eine einzige Zeile im Log. Deshalb hier explizit
+//    res.ok prüfen und den Antworttext mitloggen.
 async function adjustOrgStorage(
   token: string,
   organizationId: string,
   currentUsedBytes: number,
   deltaBytes: number,
   limitBytes = 0
-): Promise<void> {
+): Promise<number | null> {
   const newValue = Math.max(0, currentUsedBytes + deltaBytes);
   const patch: Record<string, unknown> = { storage_used_bytes: newValue };
 
@@ -189,16 +296,30 @@ async function adjustOrgStorage(
     if (!status.isNearLimit) patch.storage_warning_sent_at = null;
   }
 
-  await fetch(`${DIRECTUS_URL}/items/organizations/${organizationId}`, {
-    method: 'PATCH',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(patch),
-  }).catch((err) => {
-    console.error(`Speicherverbrauch für Organisation ${organizationId} konnte nicht aktualisiert werden:`, err);
-  });
+  try {
+    const res = await fetch(`${DIRECTUS_URL}/items/organizations/${organizationId}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${storageToken(token)}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(patch),
+    });
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      console.error(
+        `Speicherzähler für Organisation ${organizationId} konnte nicht geschrieben werden ` +
+          `(Status ${res.status}): ${body}. Gewollter Wert: ${newValue} Bytes. ` +
+          `Bei 403 fehlt dem verwendeten Token die Schreibberechtigung auf organizations.storage_used_bytes.`
+      );
+      return null;
+    }
+    return newValue;
+  } catch (err) {
+    console.error(`Speicherzähler für Organisation ${organizationId} konnte nicht geschrieben werden:`, err);
+    return null;
+  }
 }
 
 // GET /api/intern/library?q=tag&folder=&limit=48&offset=0
@@ -287,10 +408,7 @@ export async function GET(request: NextRequest) {
   } else if (!q) {
     // Weder Ordner noch Suchbegriff angegeben -- das ist die Wurzel-
     // Ansicht. Vorher wurde hier gar kein Filter gesetzt, wodurch Bilder
-    // aus JEDEM Unterordner mit in die Wurzel-Antwort gerutscht sind
-    // (genau der Bug: ein Bild, das eindeutig in "Test01" liegt, tauchte
-    // trotzdem schon in der Wurzel-Ansicht auf). Jetzt explizit auf
-    // "kein Ordner gesetzt" filtern.
+    // aus JEDEM Unterordner mit in die Wurzel-Antwort gerutscht sind.
     url += `&filter[folder][_null]=true`;
   }
   // Bei aktiver Suche (q gesetzt, kein folder) bewusst KEIN Ordner-Filter --
@@ -324,12 +442,13 @@ export async function GET(request: NextRequest) {
 // FormData: folder (optional), image_count, file_0..N
 //
 // Speicherlimit: vor JEDER Datei wird geprüft, ob genug Kontingent übrig
-// ist -- bei Erreichen des Limits mittendrin in einer Mehrfachauswahl
-// werden die bereits hochgeladenen Dateien behalten (kein Rollback), die
-// verbleibenden brechen mit einer klaren Fehlermeldung ab. Der Zähler
-// wird direkt nach jedem einzelnen erfolgreichen Upload aktualisiert,
-// nicht erst am Ende -- so bleibt storage_used_bytes auch bei einem
-// Abbruch mittendrin korrekt.
+// ist -- bei Erreichen des Limits mittendrin werden die bereits
+// hochgeladenen Dateien behalten (kein Rollback), die verbleibenden
+// brechen mit einer klaren Fehlermeldung ab.
+//
+// Antwort enthält usedBytes: den Stand nach diesem Upload. Der Client
+// zeigt damit den Speicherbalken sofort richtig an, statt auf einen
+// Server-Rerender zu warten.
 export async function POST(request: NextRequest) {
   const session = getSession(request);
   if (!session) return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
@@ -346,6 +465,9 @@ export async function POST(request: NextRequest) {
 
   const orgStorage = await getOrgStorage(session.accessToken, user.organization.id);
   const limitBytes = orgStorage.limitBytes;
+  // Gegen den BERECHNETEN Ist-Wert prüfen und weiterzählen, nicht gegen
+  // den gespeicherten Zähler -- ein kaputter Zähler darf das Kontingent
+  // nicht aushebeln.
   let usedBytes = orgStorage.usedBytes;
 
   for (let i = 0; i < imageCount; i++) {
@@ -393,7 +515,10 @@ export async function POST(request: NextRequest) {
 
       // Zähler direkt nach diesem einen erfolgreichen Upload nachführen --
       // usedBytes lokal mitziehen, damit der Limit-Check der nächsten
-      // Datei in dieser Schleife den aktuellen Stand kennt.
+      // Datei den aktuellen Stand kennt. Schlägt das Schreiben fehl,
+      // steht der Grund jetzt im Log und die Antwort meldet trotzdem den
+      // korrekten Stand: Die Anzeige stimmt also selbst dann, wenn der
+      // gespeicherte Zähler klemmt.
       await adjustOrgStorage(session.accessToken, user.organization.id, usedBytes, buffer.length);
       usedBytes += buffer.length;
     } catch (err) {
@@ -403,13 +528,11 @@ export async function POST(request: NextRequest) {
   }
 
   if (created.length === 0 && errors.length > 0) {
-    return NextResponse.json({ error: errors.join(' | ') }, { status: 500 });
+    return NextResponse.json({ error: errors.join(' | '), usedBytes, limitBytes }, { status: 500 });
   }
 
   // Schwellen-Check EINMAL nach der ganzen Schleife, nicht pro Datei --
-  // sonst würde bei 10 Dateien in einer Mehrfachauswahl bis zu 10x geprüft
-  // werden, obwohl nur der Endstand zählt. usedBytes hat zu diesem
-  // Zeitpunkt bereits den finalen Wert nach allen erfolgreichen Uploads.
+  // usedBytes hat hier bereits den finalen Wert.
   if (created.length > 0) {
     await maybeSendStorageThresholdEmail(
       session.accessToken,
@@ -423,7 +546,13 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  return NextResponse.json({ ok: true, created, errors: errors.length ? errors : undefined });
+  return NextResponse.json({
+    ok: true,
+    created,
+    usedBytes,
+    limitBytes,
+    errors: errors.length ? errors : undefined,
+  });
 }
 
 // PATCH /api/intern/library — umbenennen oder verschieben
@@ -462,10 +591,6 @@ export async function PATCH(request: NextRequest) {
 // nicht-leer ist, sondern ob die referenzierten Post-IDs überhaupt noch
 // existieren -- verwaiste Referenzen werden automatisch erkannt und
 // aufgeräumt, statt die Löschung für immer zu blockieren.
-//
-// Speicherlimit: bevor die Directus-Dateien gelöscht werden, wird ihre
-// tatsächliche Größe (filesize) abgefragt -- die einzige verlässliche
-// Quelle, um den Verbrauchszähler exakt um die richtige Menge zu senken.
 export async function DELETE(request: NextRequest) {
   const session = getSession(request);
   if (!session) return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
@@ -528,6 +653,8 @@ export async function DELETE(request: NextRequest) {
     }).catch(() => {});
   }
 
+  const originalFileId = typeof data?.file === 'string' && data.file.length > 0 ? data.file : null;
+
   const fileIds = [
     data?.file,
     data?.file_preview,
@@ -535,21 +662,24 @@ export async function DELETE(request: NextRequest) {
     data?.file_download_watermarked,
   ].filter((v): v is string => typeof v === 'string' && v.length > 0);
 
-  // Tatsächliche Dateigrößen vor dem Löschen abfragen -- nur so lässt sich
-  // der Verbrauchszähler exakt zurückführen, statt zu raten.
-  let totalDeletedBytes = 0;
-  if (fileIds.length > 0) {
-    const sizeResults = await Promise.allSettled(
-      fileIds.map((fileId) =>
-        fetch(`${DIRECTUS_URL}/files/${fileId}?fields=filesize`, { headers }).then((res) =>
-          res.ok ? res.json() : null
-        )
-      )
-    );
-    for (const result of sizeResults) {
-      if (result.status === 'fulfilled' && result.value?.data?.filesize) {
-        totalDeletedBytes += Number(result.value.data.filesize) || 0;
+  // Nur die Größe des ORIGINALS zurückrechnen.
+  //
+  // Vorher wurden hier alle vier Dateivarianten aufsummiert -- also auch
+  // Vorschau und Wasserzeichen-Kopien. Beim Upload zählt aber ausschließlich
+  // das Original ins Kontingent. Das Löschen hat den Zähler damit um mehr
+  // gesenkt, als der Upload ihn erhöht hatte, und der Stand lief mit jedem
+  // Lösch-/Upload-Zyklus weiter nach unten -- bis auf 0, weil
+  // adjustOrgStorage nicht negativ werden lässt.
+  let freedBytes = 0;
+  if (originalFileId) {
+    try {
+      const sizeRes = await fetch(`${DIRECTUS_URL}/files/${originalFileId}?fields=filesize`, { headers });
+      if (sizeRes.ok) {
+        const body = await sizeRes.json();
+        freedBytes = Number(body?.data?.filesize) || 0;
       }
+    } catch {
+      freedBytes = 0;
     }
   }
 
@@ -565,10 +695,17 @@ export async function DELETE(request: NextRequest) {
 
   await fetch(`${DIRECTUS_URL}/items/media_library/${id}`, { method: 'DELETE', headers }).catch(() => {});
 
-  if (totalDeletedBytes > 0) {
-    const { usedBytes, limitBytes } = await getOrgStorage(session.accessToken, user.organization.id);
-    await adjustOrgStorage(session.accessToken, user.organization.id, usedBytes, -totalDeletedBytes, limitBytes);
-  }
+  // Neu berechnen statt vom alten Stand abzuziehen: Der Datensatz ist zu
+  // diesem Zeitpunkt weg, der berechnete Wert ist also bereits der korrekte
+  // Endstand. Das ist genauer als jede Differenzrechnung.
+  const after = await getOrgStorage(session.accessToken, user.organization.id);
+  await adjustOrgStorage(session.accessToken, user.organization.id, after.usedBytes, 0, after.limitBytes);
 
-  return NextResponse.json({ ok: true, deletedFiles: fileIds.length, freedBytes: totalDeletedBytes });
+  return NextResponse.json({
+    ok: true,
+    deletedFiles: fileIds.length,
+    freedBytes,
+    usedBytes: after.usedBytes,
+    limitBytes: after.limitBytes,
+  });
 }
