@@ -96,14 +96,11 @@ export function DialogProvider({ children }: { children: ReactNode }) {
     <DialogContext.Provider value={{ confirm, prompt }}>
       {children}
 
-      {/* z-[120]: bewusst die höchste Ebene der gesamten Anwendung.
-          Vorher lag der Dialog auf z-[60] und damit UNTER der Lightbox
-          (z-[70] in MediaLightbox.tsx und PostGallery.tsx) -- der
-          Lösch-Dialog aus der Großansicht wurde zwar gerendert, aber vom
-          dunklen Lightbox-Overlay verdeckt. Ein Bestätigungsdialog blockiert
-          per Definition alles darunter, also gehört er über jede andere
-          Overlay-Ebene (Sidebar z-50, Lightbox z-70). Neue Overlays deshalb
-          immer unterhalb von 120 einsortieren. */}
+      {/* z-[120]: bewusst die höchste Ebene der gesamten Anwendung. Ein
+          Bestätigungsdialog blockiert per Definition alles darunter, also
+          gehört er über jede andere Overlay-Ebene (Sidebar z-50, Lightbox
+          z-70, Upload-Panel z-90). Neue Overlays deshalb immer unterhalb
+          von 120 einsortieren. */}
       {dialog && (
         <div
           className="fixed inset-0 z-[120] flex items-center justify-center bg-ink/40 px-4"
@@ -113,12 +110,26 @@ export function DialogProvider({ children }: { children: ReactNode }) {
             role="dialog"
             aria-modal="true"
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-[400px] rounded-[12px] border border-line-strong bg-white p-6 shadow-2xl"
+            className="flex max-h-[85vh] w-full max-w-[400px] flex-col overflow-hidden rounded-[12px] border border-line-strong bg-white p-6 shadow-2xl"
           >
-            <h2 className="mb-2 font-display text-[18px] font-bold">{dialog.options.title}</h2>
+            {/* break-words + overflow-wrap:anywhere sind hier keine Kosmetik:
+                Dateinamen sind oft ein einziges Wort ohne Leerzeichen
+                ("DSC_2024_Einsatz_Hauptstrasse_Nachloeschen_0042.jpg").
+                Ohne Umbruchregel schiebt so ein Wort die Dialogbox
+                auseinander und läuft rechts aus dem Kasten heraus.
+                break-words allein greift nicht in jedem Browser bei
+                Zeichenketten ohne Trennstelle -- anywhere erlaubt den
+                Umbruch an JEDER Position und ist die verlässliche Variante. */}
+            <h2 className="mb-2 break-words font-display text-[18px] font-bold [overflow-wrap:anywhere]">
+              {dialog.options.title}
+            </h2>
 
             {dialog.options.message && (
-              <p className="mb-4 text-[13px] leading-[1.55] text-ink-2">
+              // Eigener Scrollbereich: Falls eine Meldung doch mal sehr lang
+              // wird (mehrere Dateinamen, Serverfehler im Klartext), wächst
+              // der Dialog nicht über den Bildschirm hinaus und schiebt die
+              // Buttons nach unten weg -- der Text scrollt stattdessen.
+              <p className="mb-4 max-h-[40vh] overflow-y-auto break-words text-[13px] leading-[1.55] text-ink-2 [overflow-wrap:anywhere]">
                 {dialog.options.message}
               </p>
             )}
@@ -140,7 +151,7 @@ export function DialogProvider({ children }: { children: ReactNode }) {
               />
             )}
 
-            <div className="flex justify-end gap-2.5">
+            <div className="flex flex-none justify-end gap-2.5">
               <button
                 type="button"
                 onClick={() => closeWith(dialog.type === 'confirm' ? false : null)}
