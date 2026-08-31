@@ -53,10 +53,23 @@ function IconFolderUp({ className }: { className?: string }) {
     </svg>
   );
 }
+// Ordner mit sichtbarer Lasche -- klar als Ordner lesbar, auch klein.
 function IconFolder({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
-      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d="M3 7.5a2 2 0 0 1 2-2h3.6a2 2 0 0 1 1.6.8l.9 1.2H19a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-9z" />
+    </svg>
+  );
+}
+// Ordner IM Ordner: äußere Hülle plus ein zweiter, kleiner Ordner darin.
+// Bewusst ein eigenes Symbol -- die Verschachtelung soll man am Icon
+// erkennen, nicht erst am Pfad in der Kopfzeile.
+function IconFolderNested({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d="M2.5 6.5a1.6 1.6 0 0 1 1.6-1.6h2.9a1.6 1.6 0 0 1 1.3.65l.7 1h6.9" />
+      <path d="M2.5 6.5v10a1.8 1.8 0 0 0 1.8 1.8h1" />
+      <path d="M7.5 11.2a1.7 1.7 0 0 1 1.7-1.7h2.6a1.7 1.7 0 0 1 1.36.68l.74 1.02H19.8a1.7 1.7 0 0 1 1.7 1.7v4.4a1.7 1.7 0 0 1-1.7 1.7H9.2a1.7 1.7 0 0 1-1.7-1.7v-6.1z" />
     </svg>
   );
 }
@@ -124,7 +137,7 @@ export default function MediaBrowser({
 }) {
   const router = useRouter();
   const { confirm } = useDialog();
-  const { enqueue } = useUploadQueue();
+  const { enqueue, liveUsedBytes } = useUploadQueue();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
 
@@ -137,10 +150,17 @@ export default function MediaBrowser({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Der vom Upload gemeldete Live-Wert hat Vorrang vor dem serverseitig
+  // gerenderten: Er trifft sofort nach jedem Upload ein, während der
+  // Server-Wert erst mit dem nächsten router.refresh() nachzieht. Solange
+  // die Upload-Route kein usedBytes mitliefert, bleibt liveUsedBytes null
+  // und es gilt unverändert der Server-Wert.
+  const effectiveUsedBytes = liveUsedBytes ?? storageStatus?.usedBytes ?? 0;
   const isAtLimit = storageStatus
-    ? getStorageStatus(storageStatus.usedBytes, storageStatus.limitBytes).isAtLimit
+    ? getStorageStatus(effectiveUsedBytes, storageStatus.limitBytes).isAtLimit
     : false;
 
+  const isNested = Boolean(currentFolderId);
   const isEmpty = subfolders.length === 0 && items.length === 0 && !creatingFolder;
 
   function openFolder(id: string | null) {
@@ -168,8 +188,7 @@ export default function MediaBrowser({
   }
 
   // entriesFromDataTransfer MUSS synchron laufen, bevor irgendein await
-  // passiert -- die DataTransferItemList wird sonst vom Browser geleert und
-  // fallengelassene Ordner gehen verloren.
+  // passiert -- die DataTransferItemList wird sonst vom Browser geleert.
   function ingestDrop(dataTransfer: DataTransfer, targetFolderId: string | null) {
     const entries = entriesFromDataTransfer(dataTransfer);
     const flatFiles = Array.from(dataTransfer.files ?? []);
@@ -345,18 +364,11 @@ export default function MediaBrowser({
   return (
     <div>
       {/* ── KOPF ────────────────────────────────────────────────────────
-          Vier Informationsebenen in fester Rangfolge, von oben nach unten
-          absteigend wichtig: Pfad (wo bin ich) → Titel (was ist das) →
-          Metazeile (wie viel ist drin) → rechts die Aktionen.
-
-          Die Pfadzeile besetzt exakt den Platz, an dem vorher das
-          Eyebrow-Label "MEDIENBIBLIOTHEK" stand. Gleiche Typo, gleiche
-          Position -- aber statt einer Dekoration, die nur wiederholt was
-          die Navigation schon anzeigt, steht dort jetzt eine echte,
-          klickbare Ortsangabe. */}
+          Vier Ebenen in fester Rangfolge: Pfad → Titel → Metazeile →
+          Aktionen rechts. */}
       <header className="border-b border-line/70 px-6 pb-7 pt-6 nav:px-10 nav:pt-8">
         <div className="mb-4 flex min-h-[28px] flex-wrap items-center gap-x-2 gap-y-1">
-          {currentFolderId && (
+          {isNested && (
             <button
               type="button"
               onClick={() => openFolder(parentFolderId)}
@@ -384,7 +396,7 @@ export default function MediaBrowser({
             <button
               type="button"
               onClick={() => openFolder(null)}
-              disabled={!currentFolderId}
+              disabled={!isNested}
               className="transition-colors hover:text-ink disabled:cursor-default disabled:hover:text-ink-3"
             >
               Medienbibliothek
@@ -413,30 +425,32 @@ export default function MediaBrowser({
 
         <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0">
-            <h1 className="truncate font-display text-[clamp(26px,3.4vw,38px)] leading-[1.05] text-ink">
-              {folderName ?? 'Alle Medien'}
-            </h1>
-            {/* Metazeile statt zweier Kennzahl-Kacheln: dieselbe Information
-                in einer Zeile. Zwei Zahlen rechtfertigen keine zwei Karten
-                mit Schatten -- das hat den Kopf optisch schwerer gemacht als
-                den Inhalt darunter. */}
+            <div className="flex items-center gap-2.5">
+              {/* Titelmarke: im Ordner das Verschachtelungs-Symbol, in der
+                  Wurzel keins. Zusammen mit dem Pfad darüber ist damit auf
+                  einen Blick klar, auf welcher Ebene man steht. */}
+              {isNested && (
+                <span className="flex h-8 w-8 flex-none items-center justify-center rounded-[10px] bg-signal/10 text-signal-deep">
+                  <IconFolder className="h-[18px] w-[18px]" />
+                </span>
+              )}
+              <h1 className="truncate font-display text-[clamp(26px,3.4vw,38px)] leading-[1.05] text-ink">
+                {folderName ?? 'Alle Medien'}
+              </h1>
+            </div>
             <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] text-ink-2">
               <span>
                 <span className="font-mono font-semibold text-ink">{subfolders.length}</span>{' '}
-                {subfolders.length === 1 ? 'Ordner' : 'Ordner'}
+                {isNested ? 'Unterordner' : 'Ordner'}
               </span>
-              <span className="text-ink-3/60" aria-hidden="true">
-                ·
-              </span>
+              <span className="text-ink-3/60" aria-hidden="true">·</span>
               <span>
                 <span className="font-mono font-semibold text-ink">{items.length}</span>{' '}
                 {items.length === 1 ? 'Bild' : 'Bilder'}
               </span>
               {isAtLimit && (
                 <>
-                  <span className="text-ink-3/60" aria-hidden="true">
-                    ·
-                  </span>
+                  <span className="text-ink-3/60" aria-hidden="true">·</span>
                   <span className="font-medium text-signal-deep">Speicher voll</span>
                 </>
               )}
@@ -451,7 +465,7 @@ export default function MediaBrowser({
               className="flex items-center gap-2 rounded-full border border-line-strong bg-white px-4 py-2.5 text-[13px] font-semibold text-ink transition-colors hover:border-ink disabled:opacity-50"
             >
               <IconFolderPlus className="h-[15px] w-[15px]" />
-              Neuer Ordner
+              {isNested ? 'Neuer Unterordner' : 'Neuer Ordner'}
             </button>
             <button
               type="button"
@@ -496,17 +510,9 @@ export default function MediaBrowser({
         )}
 
         <div className="flex flex-col gap-7 nav:flex-row nav:items-start nav:gap-8">
-          {/* ── INHALT ──────────────────────────────────────────────────
-              Ordner und Bilder sind jetzt getrennte Sektionen statt eines
-              gemischten Rasters. Vorher hatten beide dasselbe quadratische
-              Kachelmaß -- ein Ordner mit 200 Bildern sah aus wie ein
-              einzelnes Foto. Ordner sind Navigation und deshalb kompakte
-              Zeilen; Bilder sind Inhalt und bekommen die Fläche. */}
           <div
             onDragOver={handleZoneDragOver}
             onDragLeave={(e) => {
-              // Nur zurücksetzen, wenn der Zeiger die Zone wirklich verlässt
-              // und nicht bloß über ein Kind-Element wandert.
               if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
                 setIsDraggingFiles(false);
               }
@@ -514,11 +520,6 @@ export default function MediaBrowser({
             onDrop={handleZoneDrop}
             className="relative min-w-0 flex-1"
           >
-            {/* Drop-Overlay statt Dauerhinweis: Der Satz "Bilder hierher
-                ziehen" stand vorher permanent im Kopf und kostete eine
-                ganze Zeile für eine Information, die nur im Moment des
-                Ziehens relevant ist. pointer-events-none ist zwingend,
-                sonst fängt das Overlay das drop-Event ab. */}
             {isDraggingFiles && (
               <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-[20px] border-2 border-dashed border-signal bg-paper/85 backdrop-blur-sm">
                 <div className="text-center">
@@ -534,100 +535,121 @@ export default function MediaBrowser({
             {(subfolders.length > 0 || creatingFolder) && (
               <section className="mb-8">
                 <h2 className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-3">
-                  Ordner
-                </h2>
-                <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
-                  {creatingFolder && (
-                    <div className="flex items-center gap-3 rounded-[14px] border border-signal/40 bg-white px-3 py-2.5 shadow-card">
-                      <span className="flex h-9 w-9 flex-none items-center justify-center rounded-[10px] bg-signal/10 text-signal-deep">
-                        <IconFolder className="h-[18px] w-[18px]" />
-                      </span>
-                      <input
-                        autoFocus
-                        value={newFolderName}
-                        onChange={(e) => setNewFolderName(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') submitNewFolder();
-                          if (e.key === 'Escape') setCreatingFolder(false);
-                        }}
-                        onBlur={submitNewFolder}
-                        placeholder="Ordnername"
-                        className="w-full rounded-md border border-ink px-2 py-1 text-[13px] outline-none"
-                      />
-                    </div>
+                  {isNested ? (
+                    <>
+                      Unterordner in{' '}
+                      <span className="normal-case tracking-normal text-ink-2">„{folderName}"</span>
+                    </>
+                  ) : (
+                    'Ordner'
                   )}
+                </h2>
 
-                  {subfolders.map((folder) => (
-                    <div
-                      key={folder.id}
-                      draggable
-                      onDragStart={(e) => handleDragStart(e, { id: folder.id, type: 'folder' })}
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setDragOverId(folder.id);
-                      }}
-                      onDragLeave={() => setDragOverId(null)}
-                      onDrop={(e) => handleDropOnFolderTile(e, folder.id)}
-                      onClick={() => openFolder(folder.id)}
-                      title="Klick zum Öffnen — Bilder hierher ziehen zum Ablegen"
-                      className={`group relative flex cursor-pointer items-center gap-3 rounded-[14px] border border-white/70 bg-white px-3 py-2.5 shadow-card transition-all hover:-translate-y-0.5 hover:shadow-card-hover ${
-                        dragOverId === folder.id ? 'border-signal ring-2 ring-signal/40' : ''
-                      }`}
-                    >
-                      <span className="flex h-9 w-9 flex-none items-center justify-center rounded-[10px] bg-panel text-ink-2 transition-colors group-hover:bg-signal/10 group-hover:text-signal-deep">
-                        <IconFolder className="h-[18px] w-[18px]" />
-                      </span>
-
-                      {renaming?.id === folder.id ? (
+                {/* Verschachtelung wird als Einrückung mit Rail-Linie
+                    dargestellt -- dasselbe Prinzip wie in jedem Dateibaum.
+                    In der Wurzel gibt es keine Rail, weil es dort nichts
+                    einzurücken gibt. Das ist der eigentliche Grund, warum
+                    vorher nicht erkennbar war, dass ein Ordner IN einem
+                    Ordner liegt: alle Ebenen sahen exakt gleich aus. */}
+                <div className={isNested ? 'border-l-2 border-line pl-4' : ''}>
+                  <div className="grid grid-cols-1 gap-2.5 lg:grid-cols-2">
+                    {creatingFolder && (
+                      <div className="flex items-center gap-3 rounded-[12px] border border-signal/40 bg-white px-3.5 py-3 shadow-card">
+                        <span className="flex h-10 w-10 flex-none items-center justify-center rounded-[10px] bg-signal/10 text-signal-deep">
+                          {isNested ? <IconFolderNested className="h-[20px] w-[20px]" /> : <IconFolder className="h-[20px] w-[20px]" />}
+                        </span>
                         <input
                           autoFocus
-                          value={renaming.value}
-                          onChange={(e) => setRenaming({ ...renaming, value: e.target.value })}
+                          value={newFolderName}
+                          onChange={(e) => setNewFolderName(e.target.value)}
                           onKeyDown={(e) => {
-                            if (e.key === 'Enter') submitRename();
-                            if (e.key === 'Escape') setRenaming(null);
+                            if (e.key === 'Enter') submitNewFolder();
+                            if (e.key === 'Escape') setCreatingFolder(false);
                           }}
-                          onBlur={submitRename}
-                          onClick={(e) => e.stopPropagation()}
+                          onBlur={submitNewFolder}
+                          placeholder="Ordnername"
                           className="w-full rounded-md border border-ink px-2 py-1 text-[13px] outline-none"
                         />
-                      ) : (
-                        <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-ink">
-                          {folder.name}
-                        </span>
-                      )}
+                      </div>
+                    )}
 
-                      {/* Aktionen liegen im Fluss statt absolut positioniert:
-                          Sie belegen ihren Platz dauerhaft und werden nur
-                          ein-/ausgeblendet. Dadurch springt beim Hovern
-                          nichts und der Name wird nie überdeckt. */}
-                      {renaming?.id !== folder.id && (
-                        <div className="flex flex-none items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-                          <ShareFolderControl folderId={folder.id} folderName={folder.name} mediaShares={mediaShares} />
-                          <button
-                            type="button"
-                            onClick={(e) => startRenameFolder(e, folder)}
-                            title="Ordner umbenennen"
-                            className="flex h-7 w-7 items-center justify-center rounded-full text-ink-3 transition-colors hover:bg-panel hover:text-ink"
-                          >
-                            <IconEdit className="h-[13px] w-[13px]" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              deleteItem({ id: folder.id, type: 'folder' }, folder.name);
+                    {subfolders.map((folder) => (
+                      <div
+                        key={folder.id}
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, { id: folder.id, type: 'folder' })}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setDragOverId(folder.id);
+                        }}
+                        onDragLeave={() => setDragOverId(null)}
+                        onDrop={(e) => handleDropOnFolderTile(e, folder.id)}
+                        onClick={() => openFolder(folder.id)}
+                        title="Klick zum Öffnen — Bilder hierher ziehen zum Ablegen"
+                        className={`group relative flex cursor-pointer items-center gap-3 rounded-[12px] border border-white/70 bg-white px-3.5 py-3 shadow-card transition-all hover:-translate-y-0.5 hover:shadow-card-hover ${
+                          dragOverId === folder.id ? 'border-signal ring-2 ring-signal/40' : ''
+                        }`}
+                      >
+                        <span className="flex h-10 w-10 flex-none items-center justify-center rounded-[10px] bg-panel text-ink-2 transition-colors group-hover:bg-signal/10 group-hover:text-signal-deep">
+                          {isNested ? (
+                            <IconFolderNested className="h-[20px] w-[20px]" />
+                          ) : (
+                            <IconFolder className="h-[20px] w-[20px]" />
+                          )}
+                        </span>
+
+                        {renaming?.id === folder.id ? (
+                          <input
+                            autoFocus
+                            value={renaming.value}
+                            onChange={(e) => setRenaming({ ...renaming, value: e.target.value })}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') submitRename();
+                              if (e.key === 'Escape') setRenaming(null);
                             }}
-                            title="Ordner löschen"
-                            className="flex h-7 w-7 items-center justify-center rounded-full text-ink-3 transition-colors hover:bg-signal-deep hover:text-white"
-                          >
-                            <IconX className="h-[13px] w-[13px]" />
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                            onBlur={submitRename}
+                            onClick={(e) => e.stopPropagation()}
+                            className="w-full rounded-md border border-ink px-2 py-1 text-[13px] outline-none"
+                          />
+                        ) : (
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-[13.5px] font-semibold text-ink">
+                              {folder.name}
+                            </span>
+                            <span className="mt-0.5 block text-[11px] text-ink-3">
+                              {isNested ? `Unterordner von „${folderName}"` : 'Ordner'}
+                            </span>
+                          </span>
+                        )}
+
+                        {renaming?.id !== folder.id && (
+                          <div className="flex flex-none items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                            <ShareFolderControl folderId={folder.id} folderName={folder.name} mediaShares={mediaShares} />
+                            <button
+                              type="button"
+                              onClick={(e) => startRenameFolder(e, folder)}
+                              title="Ordner umbenennen"
+                              className="flex h-7 w-7 items-center justify-center rounded-full text-ink-3 transition-colors hover:bg-panel hover:text-ink"
+                            >
+                              <IconEdit className="h-[13px] w-[13px]" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                deleteItem({ id: folder.id, type: 'folder' }, folder.name);
+                              }}
+                              title="Ordner löschen"
+                              className="flex h-7 w-7 items-center justify-center rounded-full text-ink-3 transition-colors hover:bg-signal-deep hover:text-white"
+                            >
+                              <IconX className="h-[13px] w-[13px]" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </section>
             )}
@@ -721,20 +743,13 @@ export default function MediaBrowser({
             )}
           </div>
 
-          {/* ── KONTEXTSPALTE ───────────────────────────────────────────
-              Speicherplatz und Kalender sind beides Randinformationen zum
-              Bestand, keine Werkzeuge zum aktuellen Ordner. Gebündelt in
-              einer schmalen rechten Spalte stören sie den Lesefluss nicht
-              mehr und begründen sich gegenseitig -- vorher hing der
-              Kalender allein und ohne erkennbaren Bezug rechts, während
-              der Speicherbalken quer im Kopf lag. */}
           <aside className="flex w-full flex-none flex-col gap-4 nav:sticky nav:top-6 nav:w-[280px]">
             {storageStatus && (
               <div className="rounded-[16px] border border-white/70 bg-white p-4 shadow-card">
                 <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-3">
                   Speicherplatz
                 </div>
-                <StorageUsageBar usedBytes={storageStatus.usedBytes} limitBytes={storageStatus.limitBytes} />
+                <StorageUsageBar usedBytes={effectiveUsedBytes} limitBytes={storageStatus.limitBytes} />
                 <p className="mt-2 text-[11.5px] leading-[1.5] text-ink-3">
                   Gilt für die gesamte Organisation, nicht nur diesen Ordner.
                 </p>
