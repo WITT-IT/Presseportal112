@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser, isAdministrator, SESSION_COOKIE } from '@/lib/auth';
 import { DIRECTUS_URL } from '@/lib/directus';
+import { isUuid } from '@/lib/validate';
 
 const CONFIRM_PHRASE = 'KONTO LÖSCHEN';
 
@@ -15,16 +16,6 @@ type PostForDeletion = {
   }[];
 };
 
-// Collections, auf denen dieser Nutzer als user_created/user_updated
-// (Directus-Systemfelder) stehen könnte. Diese Liste ist der eigentliche
-// Grund, warum Konto-Löschungen bisher manuelles Aufräumen in Directus
-// brauchten -- jede Collection, die hier fehlt, blockt die finale
-// User-Löschung mit einem Fremdschlüssel-Fehler, sobald der Nutzer
-// irgendwas in dieser Collection angelegt hat.
-//
-// Fehlt das Feld auf einer Collection (weil sie ohne die optionalen
-// Systemfelder angelegt wurde), bricht nullifyReferences() dafür einfach
-// lautlos ab -- diese Liste großzügig zu halten ist also gefahrlos.
 const USER_FIELD_COLLECTIONS: { collection: string; field: string }[] = [
   { collection: 'media_library', field: 'user_created' },
   { collection: 'media_library', field: 'user_updated' },
@@ -58,6 +49,18 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // ECHTE INJECTION-FLÄCHE: targetUserId landet -- sobald ein Admin ein
+  // fremdes Konto löscht -- als effectiveTargetId in zahlreiche Directus-
+  // Filter-URLs weiter unten (filter[uploaded_by][_eq]=..., filter mit
+  // user_created/user_updated). Das ist der sensibelste Endpunkt im ganzen
+  // Projekt (löscht Konten unwiderruflich), deshalb hier besonders streng:
+  // ein optionales Feld wird nur akzeptiert, wenn es entweder fehlt oder
+  // ein echtes UUID ist -- alles andere wird sofort abgewiesen, bevor
+  // überhaupt eine Berechtigungsprüfung stattfindet.
+  if (targetUserId !== undefined && targetUserId !== null && !isUuid(targetUserId)) {
+    return NextResponse.json({ error: 'Ungültige Nutzer-ID.' }, { status: 400 });
+  }
+
   const caller = await getCurrentUser(session.accessToken);
   if (!caller) {
     return NextResponse.json({ error: 'Sitzung ungültig.' }, { status: 401 });
@@ -85,11 +88,6 @@ export async function POST(request: NextRequest) {
     'Content-Type': 'application/json',
   };
 
-  // Kleiner Helfer: alle Datensätze einer Collection finden, die per FK auf
-  // diesen Nutzer verweisen, und das Feld auf null setzen -- statt die
-  // Datensätze selbst zu löschen. So bleiben z. B. bereits verschickte
-  // Einladungen, Freigaben oder Bibliotheks-Einträge funktionsfähig
-  // erhalten, nur der Bezug zum gelöschten Konto verschwindet.
   async function nullifyReferences(collection: string, field: string, userId: string) {
     try {
       const res = await fetch(
@@ -152,9 +150,6 @@ export async function POST(request: NextRequest) {
         }).catch(() => {});
       }
 
-      // Zugehörige Ordner- UND Freigabe-Zuordnungen mit aufräumen -- beide
-      // Junction-Tabellen, kosmetisch, schadet aber nichts falls es mal
-      // fehlschlägt.
       for (const junction of ['folders_posts', 'media_shares_posts']) {
         await fetch(`${DIRECTUS_URL}/items/${junction}?filter[posts_id][_eq]=${post.id}&fields=id`, {
           headers: adminHeaders,
@@ -190,16 +185,10 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Eigene, benannte Felder nullen (Einladungssystem, Medienfreigaben).
     await nullifyReferences('organization_invites', 'created_by', effectiveTargetId);
     await nullifyReferences('organization_invites', 'used_by', effectiveTargetId);
     await nullifyReferences('media_shares', 'created_by', effectiveTargetId);
 
-    // Directus-Systemfelder (user_created/user_updated) auf allen
-    // Collections nullen, auf denen dieser Nutzer je etwas angelegt oder
-    // geändert hat -- ohne das lehnt Directus die finale User-Löschung
-    // unten mit einem Fremdschlüssel-Fehler ab. Das ist der eigentliche
-    // Grund, warum das bisher manuelles Nacharbeiten in Directus brauchte.
     for (const { collection, field } of USER_FIELD_COLLECTIONS) {
       await nullifyReferences(collection, field, effectiveTargetId);
     }
