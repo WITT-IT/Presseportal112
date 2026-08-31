@@ -192,6 +192,9 @@ export default function MediaBrowser({
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ordner anlegen fehlgeschlagen.');
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ordner anlegen fehlgeschlagen.');
     } finally {
       setBusy(false);
       setCreatingFolder(false);
@@ -371,6 +374,35 @@ export default function MediaBrowser({
           </p>
         )}
 
+        {/* Zurück: bewusst KEINE Grid-Kachel mehr. Als vollwertige Kachel im
+            aspect-square-Raster hat er optisch dasselbe Gewicht bekommen wie
+            ein echter Ordner -- also ein "Ort", den man betritt, obwohl es
+            reine Navigation ist. Als kompakte Pille über dem Raster steht er
+            außerhalb der Inhaltsebene und nimmt keinen Rasterplatz mehr weg.
+            Die Drop-Ziel-Logik bleibt vollständig erhalten: Bilder und Ordner
+            lassen sich weiterhin auf ihn ziehen, um sie eine Ebene höher zu
+            verschieben. */}
+        {currentFolderId && (
+          <button
+            type="button"
+            onClick={() => openFolder(parentFolderId)}
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setDragOverId('ROOT');
+            }}
+            onDragLeave={() => setDragOverId(null)}
+            onDrop={(e) => handleDropOnFolderTile(e, parentFolderId)}
+            title="Eine Ebene höher — Bilder oder Ordner hierher ziehen zum Verschieben"
+            className={`mb-4 ml-2 inline-flex items-center gap-2 rounded-full border border-line-strong bg-white px-3.5 py-2 text-[12.5px] font-semibold text-ink-2 shadow-sm transition-colors hover:border-ink hover:text-ink ${
+              dragOverId === 'ROOT' ? 'border-signal bg-signal/5 text-signal-deep' : ''
+            }`}
+          >
+            <IconBack className="h-[14px] w-[14px]" />
+            Zurück
+          </button>
+        )}
+
         <div
           onDragOver={handleGridDragOver}
           onDragLeave={() => setIsDraggingFiles(false)}
@@ -379,28 +411,6 @@ export default function MediaBrowser({
             isDraggingFiles ? 'bg-white/60 outline-dashed outline-2 outline-signal' : ''
           }`}
         >
-          {currentFolderId && (
-            <button
-              type="button"
-              onClick={() => openFolder(parentFolderId)}
-              onDragOver={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setDragOverId('ROOT');
-              }}
-              onDragLeave={() => setDragOverId(null)}
-              onDrop={(e) => handleDropOnFolderTile(e, parentFolderId)}
-              className={`group flex flex-col items-center gap-2.5 rounded-[20px] border border-white/70 bg-white/70 p-4 text-center shadow-card transition-all hover:-translate-y-0.5 hover:shadow-card-hover ${
-                dragOverId === 'ROOT' ? 'outline outline-2 outline-signal' : ''
-              }`}
-            >
-              <div className="flex aspect-square w-full items-center justify-center rounded-2xl bg-panel/70 text-ink-3 transition-colors group-hover:text-ink-2">
-                <IconBack className="h-[28px] w-[28px]" />
-              </div>
-              <span className="text-[12.5px] font-medium text-ink-2">Zurück</span>
-            </button>
-          )}
-
           {creatingFolder && (
             <div className="flex flex-col items-center gap-2.5 rounded-[20px] border border-signal/40 bg-white p-4 text-center shadow-card">
               <div className="flex aspect-square w-full items-center justify-center rounded-2xl bg-gradient-to-b from-panel to-panel/40 text-ink-2">
