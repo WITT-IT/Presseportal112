@@ -69,23 +69,44 @@ export function DialogProvider({ children }: { children: ReactNode }) {
 
   // Escape schließt/verwirft immer, Enter bestätigt bei reinen Confirm-Dialogen
   // (bei Prompt übernimmt das eigene Eingabefeld die Enter-Taste).
+  //
+  // stopImmediatePropagation im Capture-Phase: Solange ein Dialog offen ist,
+  // darf keine dahinterliegende Ebene mehr auf Tasten reagieren. Sonst hat
+  // Escape im Lösch-Dialog der MediaLightbox gleichzeitig den Dialog verworfen
+  // UND die Großansicht geschlossen, und die Pfeiltasten hätten unter dem
+  // offenen Dialog weiter durch die Bilder geblättert.
   useEffect(() => {
     if (!dialog) return;
     function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape' || e.key === 'Enter') {
+        e.stopImmediatePropagation();
+      }
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        e.stopImmediatePropagation();
+        return;
+      }
       if (e.key === 'Escape') closeWith(dialog?.type === 'confirm' ? false : null);
       if (e.key === 'Enter' && dialog?.type === 'confirm') closeWith(true);
     }
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [dialog, closeWith]);
 
   return (
     <DialogContext.Provider value={{ confirm, prompt }}>
       {children}
 
+      {/* z-[120]: bewusst die höchste Ebene der gesamten Anwendung.
+          Vorher lag der Dialog auf z-[60] und damit UNTER der Lightbox
+          (z-[70] in MediaLightbox.tsx und PostGallery.tsx) -- der
+          Lösch-Dialog aus der Großansicht wurde zwar gerendert, aber vom
+          dunklen Lightbox-Overlay verdeckt. Ein Bestätigungsdialog blockiert
+          per Definition alles darunter, also gehört er über jede andere
+          Overlay-Ebene (Sidebar z-50, Lightbox z-70). Neue Overlays deshalb
+          immer unterhalb von 120 einsortieren. */}
       {dialog && (
         <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-ink/40 px-4"
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-ink/40 px-4"
           onClick={() => closeWith(dialog.type === 'confirm' ? false : null)}
         >
           <div
