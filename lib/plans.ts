@@ -1,14 +1,7 @@
 // Einzige Quelle der Wahrheit für das Abo-Modell.
 //
 // Preisseite, Speicherprüfung, Admin-Panel und Stripe greifen alle hier
-// zu -- Speichergrenzen dürfen nirgends ein zweites Mal stehen. Genau
-// solche Doppelungen sind der Grund, warum Kontingente in Bezahlprodukten
-// irgendwann auseinanderlaufen und Kunden mehr oder weniger bekommen als
-// sie bezahlt haben.
-//
-// Diese Datei ist bewusst frei von Umgebungsvariablen und Server-Imports,
-// damit sie sowohl im Server- als auch im Client-Bundle liegen kann. Die
-// Stripe-Preis-IDs stehen in lib/stripe.ts, die nur serverseitig läuft.
+// zu -- Speichergrenzen dürfen nirgends ein zweites Mal stehen.
 
 const MB = 1024 ** 2;
 const GB = 1024 ** 3;
@@ -18,15 +11,11 @@ export type PlanId = 'erkundung' | 'staffel' | 'gruppe' | 'zug' | 'verband';
 export type Plan = {
   id: PlanId;
   name: string;
-  /** Ein Satz, für wen der Plan gedacht ist. */
   tagline: string;
   storageBytes: number;
-  /** Vorformatiert statt gerechnet -- "100 GB" liest sich besser als "102,4 GB". */
   storageLabel: string;
-  /** Netto in Cent. 0 = kostenlos. */
   monthlyPriceCents: number;
   features: string[];
-  /** Hebt genau einen Plan optisch hervor. */
   recommended?: boolean;
 };
 
@@ -66,11 +55,7 @@ export const PLANS: Plan[] = [
     storageBytes: 500 * GB,
     storageLabel: '500 GB',
     monthlyPriceCents: 3900,
-    features: [
-      'Alles aus Staffel',
-      'Fünffacher Speicher',
-      'Vorrangiger Support per E-Mail',
-    ],
+    features: ['Alles aus Staffel', 'Fünffacher Speicher', 'Vorrangiger Support per E-Mail'],
     recommended: true,
   },
   {
@@ -80,11 +65,7 @@ export const PLANS: Plan[] = [
     storageBytes: 750 * GB,
     storageLabel: '750 GB',
     monthlyPriceCents: 5900,
-    features: [
-      'Alles aus Gruppe',
-      'Speicher für jahrelange Einsatzarchive',
-      'Support per Telefon',
-    ],
+    features: ['Alles aus Gruppe', 'Speicher für jahrelange Einsatzarchive', 'Support per Telefon'],
   },
   {
     id: 'verband',
@@ -102,11 +83,16 @@ export const PLANS: Plan[] = [
   },
 ];
 
-// Jede neu registrierte Organisation startet hier. Kein Zahlungsmittel,
-// keine Frist, keine automatische Umstellung auf einen Bezahlplan -- ein
-// Testzugang, der stillschweigend kostenpflichtig wird, ist genau die Sorte
-// Überraschung, die Vereinsvorstände zu Recht ärgert.
 export const DEFAULT_PLAN_ID: PlanId = 'erkundung';
+
+// Fallback-Limit für den Fehlerfall (siehe getOrgStorage in
+// app/api/intern/library/route.ts): Wenn die Planfelder einer Organisation
+// nicht lesbar sind, gilt hier ABSICHTLICH das großzügigste Limit, nicht
+// das kostenlose. Ein zahlender Kunde darf wegen eines vorübergehenden
+// Lesefehlers nie fälschlich ausgesperrt werden -- ein kurzzeitig zu
+// großzügiges Limit ist der ungefährlichere Fehler als ein blockierter
+// Upload bei jemandem, der bezahlt.
+export const FAILSAFE_LIMIT_BYTES = PLANS[PLANS.length - 1].storageBytes;
 
 const PLAN_MAP: Record<PlanId, Plan> = PLANS.reduce(
   (acc, plan) => ({ ...acc, [plan.id]: plan }),
@@ -129,25 +115,26 @@ export function isPaidPlan(id: unknown): boolean {
   return getPlan(id).monthlyPriceCents > 0;
 }
 
-// Übersetzt die ALTEN Stufenwerte (small/medium/large) auf die neuen Pläne.
+// Übersetzt die ALTEN Stufenwerte aus lib/storage.ts (tier_250 / tier_500 /
+// tier_1000) auf die neuen Pläne.
 //
-// In Directus steht bei bestehenden Organisationen noch der alte Wert im
-// Feld storage_tier. Ohne diese Zuordnung stünde jede dieser Organisationen
-// nach dem Deploy schlagartig auf dem kostenlosen Plan mit 500 MB -- und
-// wäre damit sofort weit über ihrem Limit, ohne dass sich für sie etwas
-// geändert hätte.
-//
-// WICHTIG: Die Zuordnung so anpassen, dass niemand WENIGER Speicher bekommt
-// als bisher. Im Zweifel großzügig runden -- ein Kunde, der plötzlich
-// weniger hat als gebucht, ist ein Supportfall und ein Vertrauensverlust.
+// tier_250 (250 GB) liegt zwischen Staffel (100 GB) und Gruppe (500 GB) --
+// es gibt keinen exakt passenden neuen Plan. Zugeordnet wird IMMER nach
+// OBEN gerundet (Gruppe), nie nach unten: Ein bestehender Kunde darf nach
+// dieser Umstellung unter keinen Umständen weniger Speicher haben als
+// vorher, selbst wenn das bedeutet, dass er vorübergehend mehr bekommt, als
+// er zahlt. Das ist ein bewusster, kleiner Margen-Verlust zugunsten von
+// Vertrauen -- betrifft nur Alt-Organisationen, bis sie auf ein echtes
+// Stripe-Abo wechseln.
 const LEGACY_TIER_MAP: Record<string, PlanId> = {
-  small: 'staffel',
-  medium: 'gruppe',
-  large: 'verband',
+  tier_250: 'gruppe',
+  tier_500: 'gruppe',
+  tier_1000: 'verband',
 };
 
 // Ermittelt den geltenden Plan einer Organisation. Bevorzugt das neue Feld
-// plan, fällt auf die alte Stufe zurück, dann auf den kostenlosen Plan.
+// "plan" (von Stripe/Webhook gepflegt), fällt auf die alte Stufe zurück,
+// dann auf den kostenlosen Plan.
 export function resolvePlan(fields: { plan?: unknown; storage_tier?: unknown }): Plan {
   if (isPlanId(fields.plan)) return PLAN_MAP[fields.plan];
 
@@ -170,25 +157,14 @@ export function formatPlanPrice(plan: Plan): string {
 // Abo-Zustand aus Stripe, gespiegelt in Directus.
 //
 // "past_due" bewusst NICHT wie gekündigt behandeln: Eine geplatzte
-// Lastschrift ist bei Vereinen Alltag (Kontowechsel, Vorstandswechsel).
-// Der Zugang bleibt bestehen, Stripe versucht es mehrfach erneut -- erst
-// bei "canceled" fällt die Organisation zurück auf den kostenlosen Plan.
-export type SubscriptionStatus =
-  | 'none'
-  | 'active'
-  | 'trialing'
-  | 'past_due'
-  | 'canceled';
+// Lastschrift ist bei Vereinen Alltag. Der Zugang bleibt bestehen, Stripe
+// versucht es mehrfach erneut -- erst bei "canceled" fällt die
+// Organisation zurück auf den kostenlosen Plan.
+export type SubscriptionStatus = 'none' | 'active' | 'trialing' | 'past_due' | 'canceled';
 
 export function subscriptionGrantsAccess(status: unknown): boolean {
   return status === 'active' || status === 'trialing' || status === 'past_due';
 }
 
-// Wohin die Preisseite ihre Checkout-Anfrage schickt.
-//
-// An EINER Stelle definiert, weil die Zieladresse noch von der
-// Standalone-Build-Einschränkung abhängt (neue route.ts-Dateien tauchen
-// nicht zuverlässig im routes-manifest.json auf). Wenn die Route feststeht,
-// wird hier eine Zeile geändert und nirgends sonst.
 export const CHECKOUT_ENDPOINT = '/api/intern/billing?mode=checkout';
 export const PORTAL_ENDPOINT = '/api/intern/billing?mode=portal';
