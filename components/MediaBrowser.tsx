@@ -192,9 +192,6 @@ export default function MediaBrowser({
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ordner anlegen fehlgeschlagen.');
-      router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Ordner anlegen fehlgeschlagen.');
     } finally {
       setBusy(false);
       setCreatingFolder(false);
@@ -375,10 +372,10 @@ export default function MediaBrowser({
         )}
 
         {/* Zurück: bewusst KEINE Grid-Kachel mehr. Als vollwertige Kachel im
-            aspect-square-Raster hat er optisch dasselbe Gewicht bekommen wie
-            ein echter Ordner -- also ein "Ort", den man betritt, obwohl es
-            reine Navigation ist. Als kompakte Pille über dem Raster steht er
-            außerhalb der Inhaltsebene und nimmt keinen Rasterplatz mehr weg.
+            aspect-square-Raster hatte er optisch dasselbe Gewicht wie ein
+            echter Ordner -- also ein "Ort", den man betritt, obwohl es reine
+            Navigation ist. Als kompakte Pille über dem Raster steht er
+            außerhalb der Inhaltsebene und nimmt keinen Rasterplatz weg.
             Die Drop-Ziel-Logik bleibt vollständig erhalten: Bilder und Ordner
             lassen sich weiterhin auf ihn ziehen, um sie eine Ebene höher zu
             verschieben. */}
