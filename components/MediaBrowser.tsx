@@ -1,7 +1,7 @@
 'use client';
 
 import { getStorageStatus } from '@/lib/storage';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { useDialog } from './DialogProvider';
@@ -24,7 +24,18 @@ type MediaItem = {
   file: string;
   file_preview: string | null;
 };
-type DragPayload = { id: string; type: 'folder' | 'media' };
+
+// Ziehen überträgt IMMER eine Liste, auch bei einem einzelnen Element.
+// Ein Sonderweg für "eins" und einer für "mehrere" wäre die Sorte
+// Doppelpfad, in der sich Fehler verstecken.
+type DragPayload = { type: 'folder' | 'media'; ids: string[] };
+
+// Dateinamen in Dialogtexten kappen. Der Dialog bricht lange Namen zwar
+// jetzt sauber um, aber ein 120-Zeichen-Name als halber Absatz macht die
+// eigentliche Frage trotzdem unleserlich.
+function shortName(name: string, max = 52): string {
+  return name.length <= max ? name : `${name.slice(0, max - 1)}…`;
+}
 
 function IconUpload({ className }: { className?: string }) {
   return (
@@ -53,7 +64,6 @@ function IconFolderUp({ className }: { className?: string }) {
     </svg>
   );
 }
-// Ordner mit sichtbarer Lasche -- klar als Ordner lesbar, auch klein.
 function IconFolder({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
@@ -62,8 +72,6 @@ function IconFolder({ className }: { className?: string }) {
   );
 }
 // Ordner IM Ordner: äußere Hülle plus ein zweiter, kleiner Ordner darin.
-// Bewusst ein eigenes Symbol -- die Verschachtelung soll man am Icon
-// erkennen, nicht erst am Pfad in der Kopfzeile.
 function IconFolderNested({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
@@ -101,6 +109,24 @@ function IconEdit({ className }: { className?: string }) {
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
       <path d="M12 20h9" />
       <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
+    </svg>
+  );
+}
+function IconCheck({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d="M20 6L9 17l-5-5" />
+    </svg>
+  );
+}
+function IconTrash({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d="M4 7h16" />
+      <path d="M10 11v6" />
+      <path d="M14 11v6" />
+      <path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12" />
+      <path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
     </svg>
   );
 }
@@ -142,7 +168,7 @@ export default function MediaBrowser({
   const folderInputRef = useRef<HTMLInputElement>(null);
 
   const [lightboxId, setLightboxId] = useState<string | null>(null);
-  const [renaming, setRenaming] = useState<(DragPayload & { value: string }) | null>(null);
+  const [renaming, setRenaming] = useState<{ id: string; type: 'folder' | 'media'; value: string } | null>(null);
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
   const [dragOverId, setDragOverId] = useState<string | null>(null);
@@ -150,11 +176,12 @@ export default function MediaBrowser({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Der vom Upload gemeldete Live-Wert hat Vorrang vor dem serverseitig
-  // gerenderten: Er trifft sofort nach jedem Upload ein, während der
-  // Server-Wert erst mit dem nächsten router.refresh() nachzieht. Solange
-  // die Upload-Route kein usedBytes mitliefert, bleibt liveUsedBytes null
-  // und es gilt unverändert der Server-Wert.
+  // Mehrfachauswahl. anchorIndex merkt sich den Startpunkt für
+  // Shift-Bereichsauswahl -- ohne den wäre "von hier bis dort" nicht
+  // umsetzbar.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [anchorIndex, setAnchorIndex] = useState<number | null>(null);
+
   const effectiveUsedBytes = liveUsedBytes ?? storageStatus?.usedBytes ?? 0;
   const isAtLimit = storageStatus
     ? getStorageStatus(effectiveUsedBytes, storageStatus.limitBytes).isAtLimit
@@ -163,9 +190,93 @@ export default function MediaBrowser({
   const isNested = Boolean(currentFolderId);
   const isEmpty = subfolders.length === 0 && items.length === 0 && !creatingFolder;
 
+  // Immer gegen die aktuell sichtbaren Bilder rechnen: Nach einem Löschen
+  // oder Ordnerwechsel können IDs in selectedIds stehen, die es hier gar
+  // nicht mehr gibt -- die dürfen weder mitgezählt noch mitgeschickt werden.
+  const selectedItems = items.filter((it) => selectedIds.has(it.id));
+  const selectionCount = selectedItems.length;
+  const hasSelection = selectionCount > 0;
+
+  // Escape hebt die Auswahl auf -- aber nur, wenn keine Großansicht offen
+  // ist, denn dort gehört Escape dem Schließen der Lightbox.
+  useEffect(() => {
+    if (!hasSelection || lightboxId) return;
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        setSelectedIds(new Set());
+        setAnchorIndex(null);
+      }
+    }
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [hasSelection, lightboxId]);
+
   function openFolder(id: string | null) {
+    setSelectedIds(new Set());
+    setAnchorIndex(null);
     router.push(id ? `/intern/medien?folder=${id}` : '/intern/medien');
   }
+
+  // ── Auswahl ────────────────────────────────────────────────────────────
+
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function selectRange(from: number, to: number) {
+    const [start, end] = from <= to ? [from, to] : [to, from];
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (let i = start; i <= end; i++) {
+        const item = items[i];
+        if (item) next.add(item.id);
+      }
+      return next;
+    });
+  }
+
+  // Klickverhalten wie in gängigen Dateimanagern und Foto-Apps:
+  // Strg/Cmd  -> einzeln zur Auswahl hinzu oder heraus
+  // Shift     -> Bereich ab dem zuletzt angeklickten Bild
+  // normal    -> Großansicht ... AUSSER es ist bereits etwas ausgewählt,
+  //              dann erweitert/verkleinert ein Klick die Auswahl. Sonst
+  //              müsste man für jedes weitere Bild eine Sondertaste halten,
+  //              was auf Touch-Geräten gar nicht ginge.
+  function handleTileClick(e: React.MouseEvent, item: MediaItem, index: number) {
+    if (e.metaKey || e.ctrlKey) {
+      e.preventDefault();
+      toggleSelect(item.id);
+      setAnchorIndex(index);
+      return;
+    }
+    if (e.shiftKey && anchorIndex !== null) {
+      e.preventDefault();
+      selectRange(anchorIndex, index);
+      return;
+    }
+    if (hasSelection) {
+      toggleSelect(item.id);
+      setAnchorIndex(index);
+      return;
+    }
+    setLightboxId(item.id);
+  }
+
+  function clearSelection() {
+    setSelectedIds(new Set());
+    setAnchorIndex(null);
+  }
+
+  function selectAll() {
+    setSelectedIds(new Set(items.map((it) => it.id)));
+  }
+
+  // ── Upload ─────────────────────────────────────────────────────────────
 
   function startUpload(files: File[], targetFolderId: string | null) {
     if (isAtLimit) {
@@ -220,6 +331,8 @@ export default function MediaBrowser({
     if (isInternalDrag(e)) return;
     ingestDrop(e.dataTransfer, currentFolderId);
   }
+
+  // ── Ordner anlegen / umbenennen ────────────────────────────────────────
 
   async function submitNewFolder() {
     const name = newFolderName.trim();
@@ -279,23 +392,37 @@ export default function MediaBrowser({
     }
   }
 
-  async function moveItem(dragged: DragPayload, targetFolderId: string | null) {
-    if (dragged.type === 'folder' && dragged.id === targetFolderId) return;
+  // ── Verschieben (Einzeln und Mehrfach) ─────────────────────────────────
+
+  // Sequentiell, nicht parallel: Directus quittiert einen Schwall
+  // gleichzeitiger PATCHes gern mit Rate-Limits, und bei 40 markierten
+  // Bildern wäre ein halb durchgelaufener Stapel schwer nachvollziehbar.
+  async function moveMany(payload: DragPayload, targetFolderId: string | null) {
+    const ids = payload.ids.filter((id) => !(payload.type === 'folder' && id === targetFolderId));
+    if (ids.length === 0) return;
+
+    const endpoint = payload.type === 'folder' ? '/api/intern/folders' : '/api/intern/library';
     setBusy(true);
+    setError(null);
+    let failed = 0;
+
     try {
-      if (dragged.type === 'folder') {
-        await fetch('/api/intern/folders', {
+      for (const id of ids) {
+        const body =
+          payload.type === 'folder'
+            ? { id, parent_folder: targetFolderId }
+            : { id, folder: targetFolderId };
+        const res = await fetch(endpoint, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: dragged.id, parent_folder: targetFolderId }),
+          body: JSON.stringify(body),
         });
-      } else {
-        await fetch('/api/intern/library', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: dragged.id, folder: targetFolderId }),
-        });
+        if (!res.ok) failed++;
       }
+      if (failed > 0) {
+        setError(`${failed} von ${ids.length} Elementen konnten nicht verschoben werden.`);
+      }
+      clearSelection();
       router.refresh();
     } catch {
       setError('Verschieben fehlgeschlagen.');
@@ -305,8 +432,21 @@ export default function MediaBrowser({
     }
   }
 
-  function handleDragStart(e: React.DragEvent, payload: DragPayload) {
+  // Wird ein bereits markiertes Bild gezogen, wandert die GANZE Auswahl mit.
+  // Wird ein nicht markiertes gezogen, gilt nur dieses eine -- und die
+  // bestehende Auswahl bleibt unangetastet, statt überraschend zu
+  // verschwinden.
+  function handleMediaDragStart(e: React.DragEvent, item: MediaItem) {
+    const ids = selectedIds.has(item.id) && selectionCount > 1 ? selectedItems.map((it) => it.id) : [item.id];
+    const payload: DragPayload = { type: 'media', ids };
     e.dataTransfer.setData('application/x-media-item', JSON.stringify(payload));
+    e.dataTransfer.effectAllowed = 'move';
+  }
+
+  function handleFolderDragStart(e: React.DragEvent, folder: SubFolder) {
+    const payload: DragPayload = { type: 'folder', ids: [folder.id] };
+    e.dataTransfer.setData('application/x-media-item', JSON.stringify(payload));
+    e.dataTransfer.effectAllowed = 'move';
   }
 
   function handleDropOnFolderTile(e: React.DragEvent, targetId: string | null) {
@@ -317,19 +457,25 @@ export default function MediaBrowser({
 
     const raw = e.dataTransfer.getData('application/x-media-item');
     if (raw) {
-      moveItem(JSON.parse(raw), targetId);
+      try {
+        const payload = JSON.parse(raw) as DragPayload;
+        if (Array.isArray(payload.ids) && payload.ids.length > 0) {
+          moveMany(payload, targetId);
+        }
+      } catch {
+        setError('Verschieben fehlgeschlagen — ungültige Übergabedaten.');
+      }
       return;
     }
     ingestDrop(e.dataTransfer, targetId);
   }
 
-  async function deleteItem(target: DragPayload, name: string) {
+  // ── Löschen (Einzeln und Mehrfach) ─────────────────────────────────────
+
+  async function deleteFolder(folder: SubFolder) {
     const confirmed = await confirm({
-      title: target.type === 'folder' ? 'Ordner wirklich löschen?' : 'Bild wirklich löschen?',
-      message:
-        target.type === 'folder'
-          ? `„${name}" muss leer sein, damit das Löschen klappt.`
-          : `„${name}" wird dauerhaft aus der Bibliothek entfernt.`,
+      title: 'Ordner wirklich löschen?',
+      message: `„${shortName(folder.name)}" wird mit seinem gesamten Inhalt entfernt.`,
       confirmLabel: 'Löschen',
       cancelLabel: 'Abbrechen',
       danger: true,
@@ -339,20 +485,57 @@ export default function MediaBrowser({
     setBusy(true);
     setError(null);
     try {
-      if (target.type === 'folder') {
-        const res = await fetch(`/api/intern/folders?id=${target.id}`, { method: 'DELETE' });
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error(body.error ?? 'Löschen fehlgeschlagen.');
-        }
-      } else {
+      const res = await fetch(`/api/intern/folders?id=${folder.id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? 'Löschen fehlgeschlagen.');
+      }
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Löschen fehlgeschlagen.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteMedia(targets: MediaItem[]) {
+    if (targets.length === 0) return;
+    const single = targets.length === 1;
+
+    const confirmed = await confirm({
+      title: single ? 'Bild wirklich löschen?' : `${targets.length} Bilder wirklich löschen?`,
+      message: single
+        ? `„${shortName(targets[0].display_name || 'Bild')}" wird dauerhaft aus der Bibliothek entfernt.`
+        : `${targets.length} Bilder werden dauerhaft aus der Bibliothek entfernt. Bilder, die in einem Beitrag verwendet werden, bleiben erhalten und werden übersprungen.`,
+      confirmLabel: single ? 'Löschen' : `${targets.length} löschen`,
+      cancelLabel: 'Abbrechen',
+      danger: true,
+    });
+    if (!confirmed) return;
+
+    setBusy(true);
+    setError(null);
+    const failures: string[] = [];
+
+    try {
+      for (const target of targets) {
         const res = await fetch(`/api/intern/library?id=${target.id}`, { method: 'DELETE' });
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
-          throw new Error(body.error ?? 'Löschen fehlgeschlagen.');
+          failures.push(`${shortName(target.display_name || 'Bild', 28)}: ${body.error ?? `Status ${res.status}`}`);
+          continue;
         }
         if (lightboxId === target.id) setLightboxId(null);
       }
+
+      if (failures.length > 0) {
+        // Alle Gründe zeigen, nicht nur den ersten -- bei einem Stapel ist
+        // "3 von 12 nicht gelöscht" ohne das Warum wertlos.
+        setError(
+          `${failures.length} von ${targets.length} Bildern nicht gelöscht — ${failures.join(' | ')}`
+        );
+      }
+      clearSelection();
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Löschen fehlgeschlagen.');
@@ -363,9 +546,7 @@ export default function MediaBrowser({
 
   return (
     <div>
-      {/* ── KOPF ────────────────────────────────────────────────────────
-          Vier Ebenen in fester Rangfolge: Pfad → Titel → Metazeile →
-          Aktionen rechts. */}
+      {/* ── KOPF ──────────────────────────────────────────────────────── */}
       <header className="border-b border-line/70 px-6 pb-7 pt-6 nav:px-10 nav:pt-8">
         <div className="mb-4 flex min-h-[28px] flex-wrap items-center gap-x-2 gap-y-1">
           {isNested && (
@@ -426,9 +607,6 @@ export default function MediaBrowser({
         <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0">
             <div className="flex items-center gap-2.5">
-              {/* Titelmarke: im Ordner das Verschachtelungs-Symbol, in der
-                  Wurzel keins. Zusammen mit dem Pfad darüber ist damit auf
-                  einen Blick klar, auf welcher Ebene man steht. */}
               {isNested && (
                 <span className="flex h-8 w-8 flex-none items-center justify-center rounded-[10px] bg-signal/10 text-signal-deep">
                   <IconFolder className="h-[18px] w-[18px]" />
@@ -504,7 +682,7 @@ export default function MediaBrowser({
 
       <div className="px-6 py-7 nav:px-10 nav:py-8">
         {error && (
-          <p className="mb-5 rounded-[12px] border border-signal-deep/25 bg-signal-deep/5 px-3.5 py-2.5 text-[12.5px] text-signal-deep">
+          <p className="mb-5 break-words rounded-[12px] border border-signal-deep/25 bg-signal-deep/5 px-3.5 py-2.5 text-[12.5px] text-signal-deep [overflow-wrap:anywhere]">
             {error}
           </p>
         )}
@@ -545,31 +723,36 @@ export default function MediaBrowser({
                   )}
                 </h2>
 
-                {/* Verschachtelung wird als Einrückung mit Rail-Linie
-                    dargestellt -- dasselbe Prinzip wie in jedem Dateibaum.
-                    In der Wurzel gibt es keine Rail, weil es dort nichts
-                    einzurücken gibt. Das ist der eigentliche Grund, warum
-                    vorher nicht erkennbar war, dass ein Ordner IN einem
-                    Ordner liegt: alle Ebenen sahen exakt gleich aus. */}
+                {/* Verschachtelung als Einrückung mit Rail-Linie -- dasselbe
+                    Prinzip wie in jedem Dateibaum. In der Wurzel gibt es
+                    keine Rail, weil es dort nichts einzurücken gibt. */}
                 <div className={isNested ? 'border-l-2 border-line pl-4' : ''}>
-                  <div className="grid grid-cols-1 gap-2.5 lg:grid-cols-2">
+                  {/* Gleiches Spaltenraster wie die Bilder darunter, aber
+                      QUERFORMATIGE Kacheln (aspect-[5/3]) statt Quadraten.
+                      Das ist der eigentliche Unterschied: Ein Ordner ist
+                      breiter als hoch und damit auf einen Blick von einem
+                      quadratischen Foto zu unterscheiden -- ohne dass er
+                      wie eine Listenzeile aus dem Kachel-Rhythmus fällt. */}
+                  <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 nav:grid-cols-3 xl:grid-cols-4">
                     {creatingFolder && (
-                      <div className="flex items-center gap-3 rounded-[12px] border border-signal/40 bg-white px-3.5 py-3 shadow-card">
-                        <span className="flex h-10 w-10 flex-none items-center justify-center rounded-[10px] bg-signal/10 text-signal-deep">
-                          {isNested ? <IconFolderNested className="h-[20px] w-[20px]" /> : <IconFolder className="h-[20px] w-[20px]" />}
-                        </span>
-                        <input
-                          autoFocus
-                          value={newFolderName}
-                          onChange={(e) => setNewFolderName(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') submitNewFolder();
-                            if (e.key === 'Escape') setCreatingFolder(false);
-                          }}
-                          onBlur={submitNewFolder}
-                          placeholder="Ordnername"
-                          className="w-full rounded-md border border-ink px-2 py-1 text-[13px] outline-none"
-                        />
+                      <div className="flex flex-col overflow-hidden rounded-[16px] border border-signal/40 bg-white shadow-card">
+                        <div className="flex aspect-[5/3] w-full items-center justify-center bg-gradient-to-b from-panel to-panel/40 text-signal-deep">
+                          {isNested ? <IconFolderNested className="h-[30px] w-[30px]" /> : <IconFolder className="h-[30px] w-[30px]" />}
+                        </div>
+                        <div className="px-3 py-2.5">
+                          <input
+                            autoFocus
+                            value={newFolderName}
+                            onChange={(e) => setNewFolderName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') submitNewFolder();
+                              if (e.key === 'Escape') setCreatingFolder(false);
+                            }}
+                            onBlur={submitNewFolder}
+                            placeholder="Ordnername"
+                            className="w-full rounded-md border border-ink px-2 py-1 text-[12.5px] outline-none"
+                          />
+                        </div>
                       </div>
                     )}
 
@@ -577,7 +760,7 @@ export default function MediaBrowser({
                       <div
                         key={folder.id}
                         draggable
-                        onDragStart={(e) => handleDragStart(e, { id: folder.id, type: 'folder' })}
+                        onDragStart={(e) => handleFolderDragStart(e, folder)}
                         onDragOver={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
@@ -587,66 +770,66 @@ export default function MediaBrowser({
                         onDrop={(e) => handleDropOnFolderTile(e, folder.id)}
                         onClick={() => openFolder(folder.id)}
                         title="Klick zum Öffnen — Bilder hierher ziehen zum Ablegen"
-                        className={`group relative flex cursor-pointer items-center gap-3 rounded-[12px] border border-white/70 bg-white px-3.5 py-3 shadow-card transition-all hover:-translate-y-0.5 hover:shadow-card-hover ${
+                        className={`group relative flex cursor-pointer flex-col overflow-hidden rounded-[16px] border border-white/70 bg-white shadow-card transition-all hover:-translate-y-0.5 hover:shadow-card-hover ${
                           dragOverId === folder.id ? 'border-signal ring-2 ring-signal/40' : ''
                         }`}
                       >
-                        <span className="flex h-10 w-10 flex-none items-center justify-center rounded-[10px] bg-panel text-ink-2 transition-colors group-hover:bg-signal/10 group-hover:text-signal-deep">
-                          {isNested ? (
-                            <IconFolderNested className="h-[20px] w-[20px]" />
-                          ) : (
-                            <IconFolder className="h-[20px] w-[20px]" />
-                          )}
-                        </span>
-
-                        {renaming?.id === folder.id ? (
-                          <input
-                            autoFocus
-                            value={renaming.value}
-                            onChange={(e) => setRenaming({ ...renaming, value: e.target.value })}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') submitRename();
-                              if (e.key === 'Escape') setRenaming(null);
+                        <div className="absolute right-2 top-2 z-10 flex gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                          <ShareFolderControl folderId={folder.id} folderName={folder.name} mediaShares={mediaShares} />
+                          <button
+                            type="button"
+                            onClick={(e) => startRenameFolder(e, folder)}
+                            title="Ordner umbenennen"
+                            className="flex h-7 w-7 items-center justify-center rounded-full bg-white/90 text-ink-2 shadow-sm ring-1 ring-line-strong backdrop-blur transition-colors hover:bg-panel hover:text-ink"
+                          >
+                            <IconEdit className="h-[13px] w-[13px]" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteFolder(folder);
                             }}
-                            onBlur={submitRename}
-                            onClick={(e) => e.stopPropagation()}
-                            className="w-full rounded-md border border-ink px-2 py-1 text-[13px] outline-none"
-                          />
-                        ) : (
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate text-[13.5px] font-semibold text-ink">
-                              {folder.name}
-                            </span>
-                            <span className="mt-0.5 block text-[11px] text-ink-3">
-                              {isNested ? `Unterordner von „${folderName}"` : 'Ordner'}
-                            </span>
-                          </span>
-                        )}
+                            title="Ordner löschen"
+                            className="flex h-7 w-7 items-center justify-center rounded-full bg-white/90 text-ink-2 shadow-sm ring-1 ring-line-strong backdrop-blur transition-colors hover:bg-signal-deep hover:text-white hover:ring-signal-deep"
+                          >
+                            <IconX className="h-[13px] w-[13px]" />
+                          </button>
+                        </div>
 
-                        {renaming?.id !== folder.id && (
-                          <div className="flex flex-none items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-                            <ShareFolderControl folderId={folder.id} folderName={folder.name} mediaShares={mediaShares} />
-                            <button
-                              type="button"
-                              onClick={(e) => startRenameFolder(e, folder)}
-                              title="Ordner umbenennen"
-                              className="flex h-7 w-7 items-center justify-center rounded-full text-ink-3 transition-colors hover:bg-panel hover:text-ink"
-                            >
-                              <IconEdit className="h-[13px] w-[13px]" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                deleteItem({ id: folder.id, type: 'folder' }, folder.name);
+                        <div className="flex aspect-[5/3] w-full items-center justify-center bg-gradient-to-b from-panel to-panel/40 text-ink-2 transition-colors group-hover:from-signal/10 group-hover:to-signal/[0.03] group-hover:text-signal-deep">
+                          {isNested ? (
+                            <IconFolderNested className="h-[30px] w-[30px]" />
+                          ) : (
+                            <IconFolder className="h-[30px] w-[30px]" />
+                          )}
+                        </div>
+
+                        <div className="px-3 py-2.5">
+                          {renaming?.id === folder.id ? (
+                            <input
+                              autoFocus
+                              value={renaming.value}
+                              onChange={(e) => setRenaming({ ...renaming, value: e.target.value })}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') submitRename();
+                                if (e.key === 'Escape') setRenaming(null);
                               }}
-                              title="Ordner löschen"
-                              className="flex h-7 w-7 items-center justify-center rounded-full text-ink-3 transition-colors hover:bg-signal-deep hover:text-white"
-                            >
-                              <IconX className="h-[13px] w-[13px]" />
-                            </button>
-                          </div>
-                        )}
+                              onBlur={submitRename}
+                              onClick={(e) => e.stopPropagation()}
+                              className="w-full rounded-md border border-ink px-1.5 py-0.5 text-[12.5px] outline-none"
+                            />
+                          ) : (
+                            <>
+                              <span className="line-clamp-1 text-[13px] font-semibold text-ink">
+                                {folder.name}
+                              </span>
+                              <span className="mt-0.5 block text-[11px] text-ink-3">
+                                {isNested ? 'Unterordner' : 'Ordner'}
+                              </span>
+                            </>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -656,24 +839,93 @@ export default function MediaBrowser({
 
             {items.length > 0 && (
               <section>
-                <h2 className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-3">
-                  Bilder
-                </h2>
+                {/* Die Auswahlleiste ersetzt die Überschrift, statt sich
+                    zusätzlich darüberzulegen -- so springt beim ersten
+                    markierten Bild nichts nach unten weg. */}
+                {hasSelection ? (
+                  <div className="mb-3 flex flex-wrap items-center gap-2 rounded-[12px] border border-signal/30 bg-signal/[0.06] px-3 py-2">
+                    <span className="text-[12.5px] font-semibold text-ink">
+                      {selectionCount} {selectionCount === 1 ? 'Bild' : 'Bilder'} ausgewählt
+                    </span>
+                    <span className="hidden text-[11.5px] text-ink-2 sm:inline">
+                      · zum Verschieben auf einen Ordner ziehen
+                    </span>
+
+                    <div className="ml-auto flex flex-wrap items-center gap-2">
+                      {selectionCount < items.length && (
+                        <button
+                          type="button"
+                          onClick={selectAll}
+                          className="rounded-full px-3 py-1.5 text-[12px] font-semibold text-ink-2 transition-colors hover:bg-white hover:text-ink"
+                        >
+                          Alle auswählen
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={clearSelection}
+                        className="rounded-full px-3 py-1.5 text-[12px] font-semibold text-ink-2 transition-colors hover:bg-white hover:text-ink"
+                      >
+                        Aufheben
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deleteMedia(selectedItems)}
+                        disabled={busy}
+                        className="flex items-center gap-1.5 rounded-full bg-signal-deep px-3.5 py-1.5 text-[12px] font-semibold text-white transition-colors hover:bg-black disabled:opacity-50"
+                      >
+                        <IconTrash className="h-[13px] w-[13px]" />
+                        Löschen
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <h2 className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-3">
+                    Bilder
+                  </h2>
+                )}
+
                 <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 nav:grid-cols-3 xl:grid-cols-4">
-                  {items.map((item) => {
+                  {items.map((item, index) => {
                     const label = item.display_name || 'Bild';
+                    const selected = selectedIds.has(item.id);
                     return (
                       <figure
                         key={item.id}
                         draggable
-                        onDragStart={(e) => handleDragStart(e, { id: item.id, type: 'media' })}
-                        className="group relative flex flex-col overflow-hidden rounded-[16px] border border-white/70 bg-white shadow-card transition-all hover:-translate-y-0.5 hover:shadow-card-hover"
+                        onDragStart={(e) => handleMediaDragStart(e, item)}
+                        className={`group relative flex flex-col overflow-hidden rounded-[16px] border bg-white shadow-card transition-all hover:-translate-y-0.5 hover:shadow-card-hover ${
+                          selected ? 'border-signal ring-2 ring-signal' : 'border-white/70'
+                        }`}
                       >
+                        {/* Auswahlkästchen: dauerhaft sichtbar, sobald etwas
+                            markiert ist oder dieses Bild selbst markiert ist,
+                            sonst erst beim Überfahren. Ohne diese Regel
+                            könnte man auf Touch-Geräten gar nichts auswählen,
+                            weil es dort kein Hovern gibt. */}
                         <button
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            deleteItem({ id: item.id, type: 'media' }, label);
+                            toggleSelect(item.id);
+                            setAnchorIndex(index);
+                          }}
+                          aria-label={selected ? `${label} abwählen` : `${label} auswählen`}
+                          aria-pressed={selected}
+                          className={`absolute left-2.5 top-2.5 z-10 flex h-6 w-6 items-center justify-center rounded-[7px] border transition-all ${
+                            selected
+                              ? 'border-signal bg-signal text-white'
+                              : 'border-line-strong bg-white/90 text-transparent backdrop-blur hover:border-ink'
+                          } ${hasSelection || selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+                        >
+                          <IconCheck className="h-[12px] w-[12px]" />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteMedia([item]);
                           }}
                           title="Bild löschen"
                           className="absolute right-2.5 top-2.5 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-white/90 text-ink-2 opacity-0 shadow-sm ring-1 ring-line-strong backdrop-blur transition-opacity group-hover:opacity-100 hover:bg-signal-deep hover:text-white hover:ring-signal-deep"
@@ -683,17 +935,24 @@ export default function MediaBrowser({
 
                         <button
                           type="button"
-                          onClick={() => setLightboxId(item.id)}
-                          title="Klick für Großansicht"
+                          onClick={(e) => handleTileClick(e, item, index)}
+                          title={
+                            hasSelection
+                              ? 'Klick wählt aus — Strg/Cmd oder Shift für mehrere'
+                              : 'Klick für Großansicht — Strg/Cmd-Klick zum Auswählen'
+                          }
                           className="relative aspect-square w-full cursor-pointer overflow-hidden bg-panel"
                         >
                           <Image
                             src={`/api/intern/library?original=${item.id}&width=400&quality=72`}
                             alt=""
                             fill
-                            className="object-cover transition-transform duration-300 group-hover:scale-[1.04]"
+                            className={`object-cover transition-transform duration-300 group-hover:scale-[1.04] ${
+                              selected ? 'scale-[1.02]' : ''
+                            }`}
                             unoptimized
                           />
+                          {selected && <span className="absolute inset-0 bg-signal/15" aria-hidden="true" />}
                         </button>
 
                         <figcaption className="px-3 py-2.5">
