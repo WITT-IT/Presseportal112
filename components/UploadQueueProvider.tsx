@@ -15,10 +15,9 @@ import { useRouter } from 'next/navigation';
 // app/api/intern/library/route.ts führt storage_used_bytes nach dem Muster
 // "lesen -> addieren -> zurückschreiben" nach. Bei zwei gleichzeitigen
 // Requests lesen beide denselben Ausgangswert und der zweite Schreibvorgang
-// überschreibt den ersten -- klassisches Lost Update, der Zähler zählt zu
-// wenig. Solange die Buchhaltung serverseitig nicht atomar ist, darf immer
-// nur ein Upload gleichzeitig laufen. Erst wenn der Zähler transaktions-
-// sicher ist, darf dieser Wert wieder steigen.
+// überschreibt den ersten -- klassisches Lost Update. Solange die
+// Buchhaltung serverseitig nicht atomar ist, darf immer nur ein Upload
+// gleichzeitig laufen.
 const MAX_PARALLEL = 1;
 
 // Mindestabstand zwischen zwei router.refresh()-Aufrufen während eines
@@ -47,10 +46,18 @@ type UploadQueueContextType = {
   isUploading: boolean;
   /**
    * Letzter vom Server gemeldeter Speicherstand. Null, solange die
-   * Upload-Route noch kein usedBytes zurückgibt -- Aufrufer fallen dann
-   * auf den serverseitig gerenderten Wert zurück.
+   * Upload-Route kein usedBytes zurückgibt.
    */
   liveUsedBytes: number | null;
+  /**
+   * Summe der Bytes, die seit dem letzten bekannten Server-Stand
+   * erfolgreich hochgeladen wurden. Aufrufer addieren das auf ihren
+   * serverseitig gerenderten Wert -- damit stimmt die Anzeige sofort,
+   * ohne auf einen Server-Rerender zu warten.
+   */
+  uploadedBytes: number;
+  /** Aufschlag verwerfen, sobald ein frischer Server-Wert vorliegt. */
+  resetUploadedBytes: () => void;
 };
 
 const UploadQueueContext = createContext<UploadQueueContextType | null>(null);
@@ -61,8 +68,7 @@ const UploadQueueContext = createContext<UploadQueueContextType | null>(null);
 // Brauchbares. Nur über webkitGetAsEntry() kommt man an den Verzeichnisbaum.
 //
 // KRITISCH: DataTransferItemList ist nur SYNCHRON im Event-Handler gültig.
-// Nach dem ersten await ist sie leer. Deshalb ist das Auslesen der Entries
-// strikt vom Aufklappen des Baums getrennt.
+// Nach dem ersten await ist sie leer.
 
 export function entriesFromDataTransfer(dt: DataTransfer): FileSystemEntry[] {
   const out: FileSystemEntry[] = [];
@@ -178,10 +184,10 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<UploadItem[]>([]);
   const [collapsed, setCollapsed] = useState(false);
   const [liveUsedBytes, setLiveUsedBytes] = useState<number | null>(null);
+  const [uploadedBytes, setUploadedBytes] = useState(0);
 
   // Dateien bewusst NICHT im State: React würde bei jedem Fortschritts-Tick
-  // ein Array mit hunderten File-Objekten neu aufbauen. Der State hält nur
-  // die anzeigbaren Metadaten, die Blobs liegen in Refs.
+  // ein Array mit hunderten File-Objekten neu aufbauen.
   const fileMapRef = useRef<Map<string, File>>(new Map());
   const folderMapRef = useRef<Map<string, string | null>>(new Map());
   const queueRef = useRef<string[]>([]);
@@ -192,6 +198,10 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
 
   const updateItem = useCallback((id: string, patch: Partial<UploadItem>) => {
     setItems((prev) => prev.map((it) => (it.id === id ? { ...it, ...patch } : it)));
+  }, []);
+
+  const resetUploadedBytes = useCallback(() => {
+    setUploadedBytes(0);
   }, []);
 
   const startNextRef = useRef<() => void>(() => {});
@@ -205,6 +215,7 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
         return;
       }
       const folderId = folderMapRef.current.get(id) ?? null;
+      const fileSize = file.size;
 
       updateItem(id, { status: 'uploading', progress: 0, error: undefined });
 
@@ -225,9 +236,6 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
         const drained = activeRef.current === 0 && queueRef.current.length === 0;
         const now = Date.now();
 
-        // Zwischendurch gedrosselt aktualisieren, damit hochgeladene Bilder
-        // und der Speicherstand schon während eines großen Stapels
-        // nachwachsen statt erst ganz am Ende aufzupoppen.
         if (drained || now - lastRefreshRef.current > REFRESH_THROTTLE_MS) {
           lastRefreshRef.current = now;
           router.refresh();
@@ -240,8 +248,7 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
         if (!e.lengthComputable) return;
         const progress = e.loaded / e.total;
         // Bei 100 % übertragener Bytes ist der Server noch nicht fertig
-        // (Directus schreibt die Datei, erzeugt Vorschauen). Ein Balken, der
-        // bei 100 % scheinbar hängt, wirkt wie ein Absturz.
+        // (Directus schreibt die Datei, erzeugt Vorschauen).
         updateItem(id, { progress, status: progress >= 1 ? 'processing' : 'uploading' });
       };
 
@@ -254,13 +261,15 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
         }
         const ok = xhr.status >= 200 && xhr.status < 300 && !body.errors?.length;
 
-        // Liefert die Route den aktuellen Speicherstand mit, wird er sofort
-        // übernommen -- unabhängig davon, wann router.refresh() durchkommt.
         if (typeof body.usedBytes === 'number') {
           setLiveUsedBytes(body.usedBytes);
         }
 
         if (ok) {
+          // Mitzählen, was tatsächlich in Directus gelandet ist. Directus
+          // speichert genau die übertragene Dateigröße, deshalb ist das
+          // kein Schätzwert, sondern der exakte Zuwachs.
+          setUploadedBytes((prev) => prev + fileSize);
           updateItem(id, { status: 'done', progress: 1, error: undefined });
         } else {
           updateItem(id, {
@@ -293,8 +302,6 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
       if (!id) break;
       if (!fileMapRef.current.has(id)) continue;
       activeRef.current++;
-      // Zielordner liegt in einer Ref, nicht im State -- runJob braucht ihn
-      // sofort und darf nicht auf einen State-Durchlauf warten.
       runJob(id);
     }
   }, [runJob]);
@@ -323,8 +330,6 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
       queueRef.current.push(...newItems.map((it) => it.id));
       setCollapsed(false);
       setItems((prev) => {
-        // Abgeschlossene Einträge eines vorherigen Laufs verwerfen, sobald
-        // ein neuer beginnt -- sonst wächst die Liste endlos an.
         const carry = prev.filter((it) => it.status !== 'done' && it.status !== 'canceled');
         return [...carry, ...newItems];
       });
@@ -403,7 +408,9 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
     : 'Upload abgeschlossen';
 
   return (
-    <UploadQueueContext.Provider value={{ enqueue, items, isUploading, liveUsedBytes }}>
+    <UploadQueueContext.Provider
+      value={{ enqueue, items, isUploading, liveUsedBytes, uploadedBytes, resetUploadedBytes }}
+    >
       {children}
 
       {/* z-[90]: über der Lightbox (z-70), unter dem Dialog (z-120). */}
@@ -510,9 +517,6 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
             </ul>
           )}
 
-          {/* Fehlgeschlagene Dateien liegen nicht mehr im Speicher (der Blob
-              wird nach jedem Versuch freigegeben), ein echter Retry-Knopf
-              wäre also eine Lüge. */}
           {!collapsed && errorCount > 0 && !isUploading && (
             <div className="flex items-center gap-2 border-t border-line/70 bg-signal-deep/[0.04] px-4 py-2.5 text-[11.5px] text-ink-2">
               <IconRetry className="h-[13px] w-[13px] flex-none text-ink-3" />
