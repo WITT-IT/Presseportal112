@@ -5,6 +5,12 @@ import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { useDialog } from './DialogProvider';
+import {
+  useUploadQueue,
+  entriesFromDataTransfer,
+  expandEntries,
+  isImageFile,
+} from './UploadQueueProvider';
 import PostCalendar from './PostCalendar';
 import ShareFolderControl from './ShareFolderControl';
 import MediaLightbox from './MediaLightbox';
@@ -112,7 +118,9 @@ export default function MediaBrowser({
 }) {
   const router = useRouter();
   const { confirm } = useDialog();
+  const { enqueue } = useUploadQueue();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
 
   const [lightboxId, setLightboxId] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<(DragPayload & { value: string }) | null>(null);
@@ -134,34 +142,46 @@ export default function MediaBrowser({
     router.push(id ? `/intern/medien?folder=${id}` : '/intern/medien');
   }
 
-  async function uploadFiles(files: File[], targetFolderId: string | null) {
-    if (files.length === 0) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const formData = new FormData();
-      if (targetFolderId) formData.append('folder', targetFolderId);
-      formData.append('image_count', String(files.length));
-      files.forEach((file, i) => formData.append(`file_${i}`, file, file.name));
-
-      const res = await fetch('/api/intern/library', { method: 'POST', body: formData });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(body.error ?? 'Upload fehlgeschlagen.');
-      }
-      if (body.errors?.length) {
-        setError(`Teilweise fehlgeschlagen: ${body.errors.join(' | ')}`);
-      }
-      router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Upload fehlgeschlagen.');
-    } finally {
-      setBusy(false);
+  // Zentraler Einstieg für ALLE Upload-Wege (Button, Ordnerauswahl,
+  // Drop aufs Raster, Drop auf eine Ordnerkachel, Drop auf Zurück).
+  // Filtert Nicht-Bilder heraus und übergibt an die globale Queue --
+  // der Fortschritt wird ab hier ausschließlich vom UploadQueueProvider
+  // dargestellt, nie mehr lokal.
+  function startUpload(files: File[], targetFolderId: string | null) {
+    if (isAtLimit) {
+      setError('Speicherlimit erreicht — bitte zuerst Speicherplatz freigeben oder Stufe upgraden.');
+      return;
     }
+    const images = files.filter(isImageFile);
+    const skipped = files.length - images.length;
+
+    if (images.length === 0) {
+      setError(
+        files.length > 0
+          ? 'Keine Bilddateien dabei — es lassen sich nur Bilder in die Mediathek laden.'
+          : 'Keine Dateien gefunden.'
+      );
+      return;
+    }
+    setError(skipped > 0 ? `${skipped} Datei${skipped === 1 ? '' : 'en'} übersprungen (keine Bilder).` : null);
+    enqueue(images, targetFolderId);
+  }
+
+  // Drop-Verarbeitung. entriesFromDataTransfer MUSS synchron laufen, bevor
+  // irgendein await passiert -- die DataTransferItemList wird sonst vom
+  // Browser geleert und fallengelassene Ordner gehen verloren.
+  function ingestDrop(dataTransfer: DataTransfer, targetFolderId: string | null) {
+    const entries = entriesFromDataTransfer(dataTransfer);
+    const flatFiles = Array.from(dataTransfer.files ?? []);
+
+    void (async () => {
+      const collected = entries.length > 0 ? await expandEntries(entries) : flatFiles;
+      startUpload(collected, targetFolderId);
+    })();
   }
 
   function handleFileInputChange(e: React.ChangeEvent<HTMLInputElement>) {
-    uploadFiles(Array.from(e.target.files ?? []), currentFolderId);
+    startUpload(Array.from(e.target.files ?? []), currentFolderId);
     e.target.value = '';
   }
 
@@ -179,11 +199,7 @@ export default function MediaBrowser({
     e.preventDefault();
     setIsDraggingFiles(false);
     if (isInternalDrag(e)) return;
-    if (isAtLimit) {
-      setError('Speicherlimit erreicht — bitte zuerst Speicherplatz freigeben oder Stufe upgraden.');
-      return;
-    }
-    if (e.dataTransfer.files?.length) uploadFiles(Array.from(e.dataTransfer.files), currentFolderId);
+    ingestDrop(e.dataTransfer, currentFolderId);
   }
 
   async function submitNewFolder() {
@@ -284,9 +300,7 @@ export default function MediaBrowser({
       moveItem(JSON.parse(raw), targetId);
       return;
     }
-    if (e.dataTransfer.files?.length) {
-      uploadFiles(Array.from(e.dataTransfer.files), targetId);
-    }
+    ingestDrop(e.dataTransfer, targetId);
   }
 
   async function deleteItem(target: DragPayload, name: string) {
@@ -347,7 +361,7 @@ export default function MediaBrowser({
               </span>
             ) : (
               <>
-                Bilder direkt auf einen Ordner ziehen, um sie dort abzulegen.
+                Bilder oder ganze Ordner hierher ziehen — auch auf eine Ordnerkachel.
                 <br className="hidden nav:block" /> Klick auf ein Bild öffnet die Großansicht.
               </>
             )}
@@ -364,8 +378,18 @@ export default function MediaBrowser({
             </button>
             <button
               type="button"
+              onClick={() => folderInputRef.current?.click()}
+              disabled={isAtLimit}
+              title="Einen kompletten Ordner vom Rechner hochladen"
+              className="flex items-center gap-2 rounded-full border border-line-strong bg-white px-4 py-2.5 text-[13px] font-semibold text-ink transition-colors hover:border-ink disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <IconFolder className="h-[15px] w-[15px]" />
+              Ordner
+            </button>
+            <button
+              type="button"
               onClick={() => fileInputRef.current?.click()}
-              disabled={busy || isAtLimit}
+              disabled={isAtLimit}
               title={isAtLimit ? 'Speicherlimit erreicht — bitte zuerst Speicherplatz freigeben oder Stufe upgraden.' : undefined}
               className="flex items-center gap-2 rounded-full bg-signal px-4 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-signal-deep disabled:cursor-not-allowed disabled:opacity-40"
             >
@@ -373,6 +397,17 @@ export default function MediaBrowser({
               {isAtLimit ? 'Speicher voll' : 'Hochladen'}
             </button>
             <input ref={fileInputRef} type="file" multiple accept="image/*" hidden onChange={handleFileInputChange} />
+            {/* webkitdirectory ist kein Standard-Attribut in den React-Typen,
+                funktioniert aber in allen relevanten Browsern. Der Cast ist
+                der übliche Weg, das ohne @ts-ignore sauber zu setzen. */}
+            <input
+              ref={folderInputRef}
+              type="file"
+              multiple
+              hidden
+              onChange={handleFileInputChange}
+              {...({ webkitdirectory: '', directory: '' } as Record<string, string>)}
+            />
           </div>
         </div>
 
@@ -389,14 +424,7 @@ export default function MediaBrowser({
 
             Der Pfad ist bewusst rahmenlos: er ist Orientierung, keine
             Bedienfläche. Nur die Pille bekommt eine sichtbare Kontur, weil
-            sie die einzige echte Aktion in der Zeile ist. Die Trennung
-            zwischen beiden übernimmt ein zarter vertikaler Strich statt
-            eines Abstands, damit die Zeile trotz zweier Funktionen als eine
-            Einheit liest.
-
-            Der letzte Eintrag ist der aktuelle Ordner und deshalb kein
-            Button -- ein Link auf die Seite, auf der man steht, ist eine
-            tote Interaktion. */}
+            sie die einzige echte Aktion in der Zeile ist. */}
         {currentFolderId && (
           <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 pl-2">
             <button
