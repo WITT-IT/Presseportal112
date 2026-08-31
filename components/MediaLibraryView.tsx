@@ -6,26 +6,32 @@ import type { Post } from '@/lib/types';
 
 export default function MediaLibraryView({
   posts,
-  folders,
   mediaShares,
   initialStatus = 'all',
 }: {
   posts: Post[];
-  folders: { id: string; name: string; postIds: string[] }[];
+  // "folders" ist hier ersatzlos entfallen. Der Ordner-Filter arbeitete über
+  // folders.postIds, also über die Zwischentabelle folders_posts -- genau die
+  // Beitrag-zu-Ordner-Zuordnung, die es seit der Umstellung nicht mehr gibt.
+  // Ordner ordnen ausschließlich Bibliotheksbilder (media_library.folder).
+  //
+  // Das Dropdown stehen zu lassen wäre die schlechtere Wahl gewesen: Da keine
+  // neuen folders_posts-Zeilen mehr entstehen, hätte jeder künftige Beitrag
+  // beim Filtern auf einen Ordner ein leeres Ergebnis geliefert -- ein Filter,
+  // der stumm falsche Treffermengen zeigt, ist schädlicher als gar keiner.
+  //
+  // Wer nach Ordnern sucht, tut das unter /intern/medien; das ist dort die
+  // eigentliche Ordnernavigation. Diese Ansicht listet Beiträge, und die
+  // sortieren sich über Status und Suche.
   mediaShares: { id: string; name: string }[];
   initialStatus?: 'all' | 'public' | 'draft';
 }) {
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'public' | 'draft'>(initialStatus);
-  const [folderFilter, setFolderFilter] = useState<string>('all');
-
-  const folderPostIdSet =
-    folderFilter === 'all' ? null : new Set(folders.find((f) => f.id === folderFilter)?.postIds ?? []);
 
   const filtered = posts.filter((post) => {
     if (statusFilter === 'public' && !post.is_public) return false;
     if (statusFilter === 'draft' && post.is_public) return false;
-    if (folderPostIdSet && !folderPostIdSet.has(post.id)) return false;
     if (!query.trim()) return true;
     const q = query.trim().toLowerCase();
     return (
@@ -34,8 +40,6 @@ export default function MediaLibraryView({
       (post.location || '').toLowerCase().includes(q)
     );
   });
-
-  const folderControls = folders.map((f) => ({ id: f.id, name: f.name }));
 
   return (
     <div>
@@ -69,27 +73,13 @@ export default function MediaLibraryView({
             </button>
           ))}
         </div>
-        {folders.length > 0 && (
-          <select
-            value={folderFilter}
-            onChange={(e) => setFolderFilter(e.target.value)}
-            className="rounded-md border border-line-strong px-3 py-2 text-[12px] font-semibold text-ink-2 outline-none focus:border-ink"
-          >
-            <option value="all">Alle Ordner</option>
-            {folders.map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.name}
-              </option>
-            ))}
-          </select>
-        )}
       </div>
 
       <p className="mb-4 text-[12px] text-ink-3">
         {filtered.length} von {posts.length} Beiträgen
       </p>
 
-      <MyImagesList posts={filtered} folders={folderControls} mediaShares={mediaShares} />
+      <MyImagesList posts={filtered} mediaShares={mediaShares} />
     </div>
   );
 }
