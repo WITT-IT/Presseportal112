@@ -39,14 +39,23 @@ export default async function MedienPage({
     getOrgStorageInfo(session.accessToken, user.organization.id),
   ]);
 
-  const breadcrumbItems = [
-    { label: 'Übersicht', href: '/intern' },
-    { label: 'Medien', href: contents.breadcrumb.length ? '/intern/medien' : undefined },
-    ...contents.breadcrumb.map((b, i) => ({
-      label: b.name,
-      href: i === contents.breadcrumb.length - 1 ? undefined : `/intern/medien?folder=${b.id}`,
-    })),
-  ];
+  // Breadcrumbs nur noch, wenn wir tatsächlich in einem Ordner stecken.
+  // Auf der Wurzelebene von /intern/medien war die Zeile reine Deko:
+  // "Übersicht / Medien" sagt dem Nutzer nichts, was die aktive
+  // Navigation oben und die Headline "Alle Medien" nicht schon zeigen.
+  // Sobald es tiefer geht, ist der Pfad dagegen echte Navigation
+  // (Rücksprung in Elternordner), deshalb bleibt er dort erhalten.
+  const isInFolder = contents.breadcrumb.length > 0;
+
+  const breadcrumbItems = isInFolder
+    ? [
+        { label: 'Medien', href: '/intern/medien' },
+        ...contents.breadcrumb.map((b, i) => ({
+          label: b.name,
+          href: i === contents.breadcrumb.length - 1 ? undefined : `/intern/medien?folder=${b.id}`,
+        })),
+      ]
+    : [];
 
   const folderCount = contents.subfolders.length;
   const itemCount = contents.items.length;
@@ -58,9 +67,13 @@ export default async function MedienPage({
           app/bildarchiv/page.tsx, nur mit Ordner/Bilder statt
           Einsätze/Stockfotos als Kennzahlen und Aktionen statt Suche. */}
       <section className="border-b border-line/70 bg-gradient-to-b from-white via-paper to-paper px-6 pb-8 pt-6 nav:px-10 nav:pt-8">
-        <Breadcrumbs items={breadcrumbItems} />
+        {isInFolder && <Breadcrumbs items={breadcrumbItems} />}
 
-        <div className="mt-4 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+        <div
+          className={`flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between ${
+            isInFolder ? 'mt-4' : ''
+          }`}
+        >
           <div className="max-w-2xl">
             <span className="inline-flex items-center rounded-full bg-white/80 px-3 py-1 text-xs font-medium uppercase tracking-[0.16em] text-ink-2 shadow-sm">
               Medienbibliothek
