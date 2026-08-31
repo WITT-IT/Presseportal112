@@ -6,16 +6,20 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { directusAssetUrl } from '@/lib/directus';
 import { primaryImage, type Post } from '@/lib/types';
-import AddToFolderControl from './AddToFolderControl';
 import AddToMediaShareControl from './AddToMediaShareControl';
 
 export default function MyImagesList({
   posts,
-  folders,
   mediaShares,
 }: {
   posts: Post[];
-  folders: { id: string; name: string }[];
+  // "folders" absichtlich NICHT mehr entgegengenommen: Ordner ordnen seit
+  // der Umstellung ausschließlich Bibliotheksbilder über das folder-Feld
+  // in media_library. Beiträge zusätzlich über die Zwischentabelle
+  // folders_posts einem Ordner zuzuordnen war eine zweite, konkurrierende
+  // Wahrheit -- ein Beitrag konnte in Ordner A liegen, während sein
+  // Originalbild in Ordner B lag. Genau solche Doppelzuordnungen sollte
+  // die Umstellung auf eine einzige Quelle beseitigen.
   mediaShares: { id: string; name: string }[];
 }) {
   const router = useRouter();
@@ -134,7 +138,6 @@ export default function MyImagesList({
                   Bearbeiten
                 </Link>
 
-                <AddToFolderControl postId={post.id} folders={folders} />
                 <AddToMediaShareControl postId={post.id} mediaShares={mediaShares} />
 
                 <button
