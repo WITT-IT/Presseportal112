@@ -13,7 +13,7 @@ import { useRouter } from 'next/navigation';
 
 // BEWUSST 1, NICHT MEHR:
 // app/api/intern/library/route.ts führt storage_used_bytes nach dem Muster
-// "lesen -> addieren -> zurückschreiben" nach. Bei zwei gleichzeitigen
+// "lesen -> rechnen -> zurückschreiben" nach. Bei zwei gleichzeitigen
 // Requests lesen beide denselben Ausgangswert und der zweite Schreibvorgang
 // überschreibt den ersten -- klassisches Lost Update. Solange die
 // Buchhaltung serverseitig nicht atomar ist, darf immer nur ein Upload
@@ -45,19 +45,15 @@ type UploadQueueContextType = {
   items: UploadItem[];
   isUploading: boolean;
   /**
-   * Letzter vom Server gemeldeter Speicherstand. Null, solange die
-   * Upload-Route kein usedBytes zurückgibt.
+   * Zuletzt vom Server gemeldeter Speicherstand, oder null. Upload- und
+   * Löschantworten liefern diesen Wert mit; Anzeigen bevorzugen ihn
+   * gegenüber dem serverseitig gerenderten Wert, weil er sofort da ist.
    */
-  liveUsedBytes: number | null;
-  /**
-   * Summe der Bytes, die seit dem letzten bekannten Server-Stand
-   * erfolgreich hochgeladen wurden. Aufrufer addieren das auf ihren
-   * serverseitig gerenderten Wert -- damit stimmt die Anzeige sofort,
-   * ohne auf einen Server-Rerender zu warten.
-   */
-  uploadedBytes: number;
-  /** Aufschlag verwerfen, sobald ein frischer Server-Wert vorliegt. */
-  resetUploadedBytes: () => void;
+  reportedUsedBytes: number | null;
+  /** Neuen Serverstand melden -- aus jeder Antwort, die usedBytes enthält. */
+  reportUsedBytes: (bytes: number) => void;
+  /** Meldung verwerfen, sobald ein frischer gerenderter Wert vorliegt. */
+  clearReportedUsedBytes: () => void;
 };
 
 const UploadQueueContext = createContext<UploadQueueContextType | null>(null);
@@ -183,8 +179,25 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
 
   const [items, setItems] = useState<UploadItem[]>([]);
   const [collapsed, setCollapsed] = useState(false);
-  const [liveUsedBytes, setLiveUsedBytes] = useState<number | null>(null);
-  const [uploadedBytes, setUploadedBytes] = useState(0);
+
+  // EIN gemeldeter Wert statt Server-Wert plus mitgezähltem Aufschlag.
+  //
+  // Die frühere Fassung addierte die im Browser mitgezählten hochgeladenen
+  // Bytes auf den gerenderten Serverwert -- eine Notlösung aus der Zeit, in
+  // der die Upload-Route noch keinen Stand zurückgab. Inzwischen liefern
+  // Upload UND Löschen usedBytes mit, und zwar den serverseitig
+  // BERECHNETEN Wert. Der ist immer genauer als jede Hochrechnung im
+  // Browser, und ein einzelner Wert kann nicht doppelt gezählt werden.
+  const [reportedUsedBytes, setReportedUsedBytes] = useState<number | null>(null);
+
+  const reportUsedBytes = useCallback((bytes: number) => {
+    if (!Number.isFinite(bytes) || bytes < 0) return;
+    setReportedUsedBytes(bytes);
+  }, []);
+
+  const clearReportedUsedBytes = useCallback(() => {
+    setReportedUsedBytes(null);
+  }, []);
 
   // Dateien bewusst NICHT im State: React würde bei jedem Fortschritts-Tick
   // ein Array mit hunderten File-Objekten neu aufbauen.
@@ -200,10 +213,6 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
     setItems((prev) => prev.map((it) => (it.id === id ? { ...it, ...patch } : it)));
   }, []);
 
-  const resetUploadedBytes = useCallback(() => {
-    setUploadedBytes(0);
-  }, []);
-
   const startNextRef = useRef<() => void>(() => {});
 
   const runJob = useCallback(
@@ -215,7 +224,6 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
         return;
       }
       const folderId = folderMapRef.current.get(id) ?? null;
-      const fileSize = file.size;
 
       updateItem(id, { status: 'uploading', progress: 0, error: undefined });
 
@@ -248,7 +256,8 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
         if (!e.lengthComputable) return;
         const progress = e.loaded / e.total;
         // Bei 100 % übertragener Bytes ist der Server noch nicht fertig
-        // (Directus schreibt die Datei, erzeugt Vorschauen).
+        // (Directus schreibt die Datei, erzeugt Vorschauen). Ein Balken, der
+        // bei 100 % scheinbar hängt, wirkt wie ein Absturz.
         updateItem(id, { progress, status: progress >= 1 ? 'processing' : 'uploading' });
       };
 
@@ -261,15 +270,14 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
         }
         const ok = xhr.status >= 200 && xhr.status < 300 && !body.errors?.length;
 
+        // Auch im Fehlerfall auswerten: Die Route liefert usedBytes selbst
+        // dann mit, wenn der Upload am Limit gescheitert ist -- gerade dann
+        // ist ein korrekter Balken wichtig.
         if (typeof body.usedBytes === 'number') {
-          setLiveUsedBytes(body.usedBytes);
+          reportUsedBytes(body.usedBytes);
         }
 
         if (ok) {
-          // Mitzählen, was tatsächlich in Directus gelandet ist. Directus
-          // speichert genau die übertragene Dateigröße, deshalb ist das
-          // kein Schätzwert, sondern der exakte Zuwachs.
-          setUploadedBytes((prev) => prev + fileSize);
           updateItem(id, { status: 'done', progress: 1, error: undefined });
         } else {
           updateItem(id, {
@@ -293,7 +301,7 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
       xhr.open('POST', '/api/intern/library');
       xhr.send(formData);
     },
-    [router, updateItem]
+    [router, updateItem, reportUsedBytes]
   );
 
   const startNext = useCallback(() => {
@@ -409,7 +417,14 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
 
   return (
     <UploadQueueContext.Provider
-      value={{ enqueue, items, isUploading, liveUsedBytes, uploadedBytes, resetUploadedBytes }}
+      value={{
+        enqueue,
+        items,
+        isUploading,
+        reportedUsedBytes,
+        reportUsedBytes,
+        clearReportedUsedBytes,
+      }}
     >
       {children}
 
