@@ -14,8 +14,7 @@ const STRIPE_API = 'https://api.stripe.com/v1';
 // Version angehoben: Managed Payments (das neuere Checkout-Modell, das auf
 // diesem Account aktiv ist) verlangt mindestens 2025-03-31.basil. Eine
 // ältere Version lehnt managed_payments[enabled] als unbekannten Parameter
-// ab -- der eigentliche Grund für den vorherigen Fehler war also nicht nur
-// der fehlende Parameter, sondern auch der zu alte Versions-Header.
+// ab.
 const STRIPE_API_VERSION = '2025-03-31.basil';
 
 function secretKey(): string {
@@ -24,6 +23,8 @@ function secretKey(): string {
   return key;
 }
 
+// Stripe erwartet verschachtelte Werte als eckige-Klammer-Notation, also
+// z.B. metadata[organization_id]=... -- deshalb flach klopfen statt JSON.
 function toFormBody(params: Record<string, unknown>, prefix = ''): string[] {
   const parts: string[] = [];
   for (const [key, value] of Object.entries(params)) {
@@ -60,6 +61,9 @@ async function stripeRequest<T>(
     headers: {
       Authorization: `Bearer ${secretKey()}`,
       'Content-Type': 'application/x-www-form-urlencoded',
+      // Ohne Version antwortet Stripe in der Version des Accounts, die sich
+      // im Dashboard ändern lässt -- eine fixierte Version verhindert, dass
+      // ein Klick dort still die Antwortstruktur verändert.
       'Stripe-Version': STRIPE_API_VERSION,
     },
     body: method === 'POST' ? body : undefined,
@@ -75,9 +79,12 @@ async function stripeRequest<T>(
   return json as T;
 }
 
+// Preis-IDs kommen aus der Umgebung, nicht aus dem Code: Test- und
+// Live-Modus haben unterschiedliche IDs, und Preise werden in Stripe
+// gepflegt, nicht im Repository.
 export function stripePriceIdForPlan(planId: PlanId): string | null {
   const map: Record<PlanId, string | undefined> = {
-    erkundung: undefined,
+    erkundung: undefined, // kostenlos -- kein Stripe-Preis
     staffel: process.env.STRIPE_PRICE_STAFFEL,
     gruppe: process.env.STRIPE_PRICE_GRUPPE,
     zug: process.env.STRIPE_PRICE_ZUG,
@@ -96,15 +103,12 @@ export type StripeSession = { id: string; url: string };
 // Lastschrift aktivieren, sonst sehen die Vereine nur Kartenzahlung).
 //
 // Mit diesem Modell lehnt die API eine ganze Reihe Parameter ab, die im
-// klassischen Checkout normal waren. Bewusst NICHT mehr gesetzt:
+// klassischen Checkout normal waren. Bewusst NICHT gesetzt:
 // payment_method_types, tax_id_collection, automatic_tax,
 // payment_method_options, payment_method_configuration,
 // customer_update[name/address], shipping_*, subscription_data.
 // default_tax_rates/application_fee_percent/on_behalf_of/transfer_data/
-// invoice_settings. Wird künftig einer davon wieder gebraucht (z.B. USt-ID-
-// Erfassung fürs Reverse-Charge-Verfahren), muss das über einen anderen Weg
-// laufen -- laut Stripes eigener Doku entweder ohne Managed Payments oder
-// über die separate Tax-ID-Erfassung im Kundenportal nach dem Kauf.
+// invoice_settings.
 export async function createCheckoutSession(args: {
   planId: PlanId;
   organizationId: string;
@@ -126,24 +130,38 @@ export async function createCheckoutSession(args: {
     success_url: args.successUrl,
     cancel_url: args.cancelUrl,
     locale: 'de',
+    // Rechnungsadresse einsammeln -- ohne sie ist keine ordentliche
+    // Rechnung möglich, und die braucht jeder Verein für die Kassenprüfung.
     billing_address_collection: 'required',
     'managed_payments[enabled]': 'true',
+    // Die Organisations-ID wandert an ZWEI Stellen: einmal an die Sitzung
+    // (für die Rückkehr) und einmal ans Abo selbst. Ohne das zweite wüsste
+    // der Webhook bei späteren Ereignissen wie einer Kündigung nicht mehr,
+    // welche Organisation gemeint ist.
     'metadata[organization_id]': args.organizationId,
     'metadata[plan_id]': args.planId,
     'subscription_data[metadata][organization_id]': args.organizationId,
     'subscription_data[metadata][plan_id]': args.planId,
   };
 
+  // customer_creation ist NUR im mode "payment" gültig -- im
+  // mode "subscription" legt Stripe zwingend und automatisch einen Kunden
+  // an, der Parameter wird dort komplett abgelehnt, unabhängig von
+  // Managed Payments.
+  //
+  // Ohne bestehenden Kunden reicht deshalb allein customer_email: Stripe
+  // legt darüber selbst einen neuen Kunden an.
   if (args.existingCustomerId) {
     params.customer = args.existingCustomerId;
   } else {
     params.customer_email = args.customerEmail;
-    params['customer_creation'] = 'always';
   }
 
   return stripeRequest<StripeSession>('/checkout/sessions', params);
 }
 
+// Gehostetes Kundenportal: Zahlungsart ändern, Rechnungen herunterladen,
+// kündigen. Alles, was du sonst selbst bauen müsstest.
 export async function createBillingPortalSession(
   customerId: string,
   returnUrl: string
@@ -166,6 +184,16 @@ export async function getSubscription(subscriptionId: string): Promise<{
   return stripeRequest(`/subscriptions/${subscriptionId}`, {}, 'GET');
 }
 
+// Prüft die Stripe-Signatur eines Webhooks.
+//
+// Ohne diese Prüfung könnte jeder, der die Adresse kennt, eine erfundene
+// Zahlungsbestätigung schicken und sich selbst ein Terabyte freischalten.
+// Der Endpunkt ist per Definition öffentlich erreichbar -- die Signatur
+// ist die einzige Absicherung, und sie ist Pflicht, nicht optional.
+//
+// Der rohe Text des Bodys wird gebraucht, NICHT das geparste JSON:
+// JSON.stringify(JSON.parse(x)) ist nicht zwingend gleich x, und schon ein
+// abweichendes Leerzeichen macht die Signatur ungültig.
 export function verifyWebhookSignature(
   rawBody: string,
   signatureHeader: string | null,
@@ -178,12 +206,15 @@ export function verifyWebhookSignature(
   }
   if (!signatureHeader) return false;
 
+  // Format: t=1234567890,v1=abc...,v1=def...
   const parts = signatureHeader.split(',').map((p) => p.trim());
   const timestamp = parts.find((p) => p.startsWith('t='))?.slice(2);
   const signatures = parts.filter((p) => p.startsWith('v1=')).map((p) => p.slice(3));
 
   if (!timestamp || signatures.length === 0) return false;
 
+  // Zeitfenster prüfen: Verhindert, dass jemand eine früher mitgeschnittene
+  // gültige Anfrage später erneut abschickt.
   const age = Math.abs(Date.now() / 1000 - Number(timestamp));
   if (!Number.isFinite(age) || age > toleranceSeconds) {
     console.error('verifyWebhookSignature: Zeitstempel außerhalb der Toleranz.');
@@ -194,6 +225,9 @@ export function verifyWebhookSignature(
     .update(`${timestamp}.${rawBody}`, 'utf8')
     .digest('hex');
 
+  // timingSafeEqual statt "===": Ein einfacher Vergleich bricht beim ersten
+  // abweichenden Zeichen ab, wodurch sich aus der Antwortzeit Rückschlüsse
+  // auf die korrekte Signatur ziehen lassen.
   const expectedBuffer = Buffer.from(expected, 'utf8');
   return signatures.some((sig) => {
     const given = Buffer.from(sig, 'utf8');
@@ -201,6 +235,9 @@ export function verifyWebhookSignature(
   });
 }
 
+// Übersetzt einen Stripe-Preis zurück auf unseren Plan -- nötig, wenn ein
+// Kunde im Kundenportal umbucht. Dann erfahren wir die Änderung nur über
+// die Preis-ID im Abo, nicht über unsere eigenen Metadaten.
 export function planIdForStripePrice(priceId: string): PlanId | null {
   const candidates: PlanId[] = ['staffel', 'gruppe', 'zug', 'verband'];
   return candidates.find((id) => stripePriceIdForPlan(id) === priceId) ?? null;
