@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { randomBytes } from 'crypto';
 import { SESSION_COOKIE } from '@/lib/auth';
 import { DIRECTUS_URL } from '@/lib/directus';
+import { isUuid } from '@/lib/validate';
 
 export async function POST(
   request: NextRequest,
@@ -19,8 +20,12 @@ export async function POST(
   }
   const { id } = await params;
 
-  // Gleiche Erzeugung wie beim ursprünglichen Anlegen -- 24 Byte Zufall,
-  // Base64url-kodiert.
+  if (!isUuid(id)) {
+    return NextResponse.json({ error: 'Ungültige ID.' }, { status: 400 });
+  }
+
+  // Bereits sicher: 24 Byte echter Zufall, Base64url-kodiert -- 192 Bit
+  // Entropie, nicht erratbar. Unverändert.
   const newToken = randomBytes(24).toString('base64url');
 
   const res = await fetch(`${DIRECTUS_URL}/items/media_shares/${id}`, {
