@@ -52,6 +52,13 @@ function IconBack({ className }: { className?: string }) {
     </svg>
   );
 }
+function IconChevron({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d="M9 18l6-6-6-6" />
+    </svg>
+  );
+}
 function IconX({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
@@ -81,6 +88,7 @@ function IconPhotoPlus({ className }: { className?: string }) {
 export default function MediaBrowser({
   currentFolderId,
   parentFolderId,
+  breadcrumb = [],
   subfolders,
   items,
   calendarPosts,
@@ -89,6 +97,9 @@ export default function MediaBrowser({
 }: {
   currentFolderId: string | null;
   parentFolderId: string | null;
+  // Pfad von der Wurzel bis zum aktuellen Ordner (Wurzel selbst nicht
+  // enthalten). Leeres Array = wir stehen auf "Alle Medien".
+  breadcrumb?: { id: string; name: string }[];
   subfolders: SubFolder[];
   items: MediaItem[];
   calendarPosts: Post[];
@@ -371,33 +382,76 @@ export default function MediaBrowser({
           </p>
         )}
 
-        {/* Zurück: bewusst KEINE Grid-Kachel mehr. Als vollwertige Kachel im
-            aspect-square-Raster hatte er optisch dasselbe Gewicht wie ein
-            echter Ordner -- also ein "Ort", den man betritt, obwohl es reine
-            Navigation ist. Als kompakte Pille über dem Raster steht er
-            außerhalb der Inhaltsebene und nimmt keinen Rasterplatz weg.
-            Die Drop-Ziel-Logik bleibt vollständig erhalten: Bilder und Ordner
-            lassen sich weiterhin auf ihn ziehen, um sie eine Ebene höher zu
-            verschieben. */}
+        {/* Navigationszeile: Zurück-Pille + Ordnerpfad auf einer Grundlinie,
+            direkt über dem Raster. Beides erscheint nur innerhalb eines
+            Ordners -- auf "Alle Medien" gibt es weder etwas zurückzugehen
+            noch einen Pfad zu zeigen, und die Zeile entfällt komplett.
+
+            Der Pfad ist bewusst rahmenlos: er ist Orientierung, keine
+            Bedienfläche. Nur die Pille bekommt eine sichtbare Kontur, weil
+            sie die einzige echte Aktion in der Zeile ist. Die Trennung
+            zwischen beiden übernimmt ein zarter vertikaler Strich statt
+            eines Abstands, damit die Zeile trotz zweier Funktionen als eine
+            Einheit liest.
+
+            Der letzte Eintrag ist der aktuelle Ordner und deshalb kein
+            Button -- ein Link auf die Seite, auf der man steht, ist eine
+            tote Interaktion. */}
         {currentFolderId && (
-          <button
-            type="button"
-            onClick={() => openFolder(parentFolderId)}
-            onDragOver={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              setDragOverId('ROOT');
-            }}
-            onDragLeave={() => setDragOverId(null)}
-            onDrop={(e) => handleDropOnFolderTile(e, parentFolderId)}
-            title="Eine Ebene höher — Bilder oder Ordner hierher ziehen zum Verschieben"
-            className={`mb-4 ml-2 inline-flex items-center gap-2 rounded-full border border-line-strong bg-white px-3.5 py-2 text-[12.5px] font-semibold text-ink-2 shadow-sm transition-colors hover:border-ink hover:text-ink ${
-              dragOverId === 'ROOT' ? 'border-signal bg-signal/5 text-signal-deep' : ''
-            }`}
-          >
-            <IconBack className="h-[14px] w-[14px]" />
-            Zurück
-          </button>
+          <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 pl-2">
+            <button
+              type="button"
+              onClick={() => openFolder(parentFolderId)}
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setDragOverId('ROOT');
+              }}
+              onDragLeave={() => setDragOverId(null)}
+              onDrop={(e) => handleDropOnFolderTile(e, parentFolderId)}
+              title="Eine Ebene höher — Bilder oder Ordner hierher ziehen zum Verschieben"
+              className={`inline-flex flex-none items-center gap-2 rounded-full border border-line-strong bg-white px-3.5 py-2 text-[12.5px] font-semibold text-ink-2 shadow-sm transition-colors hover:border-ink hover:text-ink ${
+                dragOverId === 'ROOT' ? 'border-signal bg-signal/5 text-signal-deep' : ''
+              }`}
+            >
+              <IconBack className="h-[14px] w-[14px]" />
+              Zurück
+            </button>
+
+            <span className="h-5 w-px flex-none bg-line" aria-hidden="true" />
+
+            <nav
+              aria-label="Ordnerpfad"
+              className="flex min-w-0 flex-wrap items-center gap-1 text-[12.5px]"
+            >
+              <button
+                type="button"
+                onClick={() => openFolder(null)}
+                className="rounded font-medium text-ink-3 transition-colors hover:text-ink"
+              >
+                Alle Medien
+              </button>
+              {breadcrumb.map((crumb, i) => {
+                const isLast = i === breadcrumb.length - 1;
+                return (
+                  <span key={crumb.id} className="flex min-w-0 items-center gap-1">
+                    <IconChevron className="h-[12px] w-[12px] flex-none text-ink-3/60" />
+                    {isLast ? (
+                      <span className="truncate font-semibold text-ink">{crumb.name}</span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => openFolder(crumb.id)}
+                        className="truncate rounded font-medium text-ink-3 transition-colors hover:text-ink"
+                      >
+                        {crumb.name}
+                      </button>
+                    )}
+                  </span>
+                );
+              })}
+            </nav>
+          </div>
         )}
 
         <div
