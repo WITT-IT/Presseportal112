@@ -11,14 +11,21 @@ import {
 } from 'react';
 import { useRouter } from 'next/navigation';
 
-// Zwei parallele Uploads: genug, um die Leitung auszulasten, wenig genug,
-// dass Directus bei einem 200-Bilder-Ordner nicht in die Knie geht und der
-// Fortschritt pro Datei ablesbar bleibt.
-const MAX_PARALLEL = 2;
+// BEWUSST 1, NICHT MEHR:
+// app/api/intern/library/route.ts führt storage_used_bytes nach dem Muster
+// "lesen -> addieren -> zurückschreiben" nach. Bei zwei gleichzeitigen
+// Requests lesen beide denselben Ausgangswert und der zweite Schreibvorgang
+// überschreibt den ersten -- klassisches Lost Update, der Zähler zählt zu
+// wenig. Solange die Buchhaltung serverseitig nicht atomar ist, darf immer
+// nur ein Upload gleichzeitig laufen. Erst wenn der Zähler transaktions-
+// sicher ist, darf dieser Wert wieder steigen.
+const MAX_PARALLEL = 1;
 
-// Wie lange das Panel nach einem komplett fehlerfreien Durchlauf stehen
-// bleibt, bevor es sich selbst schließt. Bei Fehlern bleibt es offen --
-// eine Fehlermeldung, die von allein verschwindet, ist keine.
+// Mindestabstand zwischen zwei router.refresh()-Aufrufen während eines
+// laufenden Stapels. Ohne Drossel würde ein 200-Bilder-Ordner 200 volle
+// Server-Rerenders auslösen.
+const REFRESH_THROTTLE_MS = 1500;
+
 const AUTO_HIDE_MS = 5000;
 
 export type UploadStatus = 'queued' | 'uploading' | 'processing' | 'done' | 'error' | 'canceled';
@@ -35,10 +42,15 @@ export type UploadItem = {
 };
 
 type UploadQueueContextType = {
-  /** Dateien zur Warteschlange hinzufügen. Gibt die Anzahl übernommener Dateien zurück. */
   enqueue: (files: File[], folderId: string | null) => number;
   items: UploadItem[];
   isUploading: boolean;
+  /**
+   * Letzter vom Server gemeldeter Speicherstand. Null, solange die
+   * Upload-Route noch kein usedBytes zurückgibt -- Aufrufer fallen dann
+   * auf den serverseitig gerenderten Wert zurück.
+   */
+  liveUsedBytes: number | null;
 };
 
 const UploadQueueContext = createContext<UploadQueueContextType | null>(null);
@@ -46,14 +58,11 @@ const UploadQueueContext = createContext<UploadQueueContextType | null>(null);
 // ── Hilfsfunktionen für Drag & Drop ──────────────────────────────────────
 //
 // dataTransfer.files enthält bei einem fallengelassenen ORDNER nichts
-// Brauchbares -- Ordner tauchen dort gar nicht erst auf. Nur über
-// webkitGetAsEntry() kommt man an den Verzeichnisbaum.
+// Brauchbares. Nur über webkitGetAsEntry() kommt man an den Verzeichnisbaum.
 //
 // KRITISCH: DataTransferItemList ist nur SYNCHRON im Event-Handler gültig.
 // Nach dem ersten await ist sie leer. Deshalb ist das Auslesen der Entries
-// (synchron) strikt vom Aufklappen des Baums (asynchron) getrennt --
-// entriesFromDataTransfer MUSS als erstes im Drop-Handler laufen, noch vor
-// jedem await.
+// strikt vom Aufklappen des Baums getrennt.
 
 export function entriesFromDataTransfer(dt: DataTransfer): FileSystemEntry[] {
   const out: FileSystemEntry[] = [];
@@ -91,8 +100,7 @@ export async function expandEntries(entries: FileSystemEntry[]): Promise<File[]>
     if (entry.isDirectory) {
       const reader = (entry as FileSystemDirectoryEntry).createReader();
       // readEntries liefert pro Aufruf maximal 100 Einträge -- so lange
-      // nachlesen, bis ein leerer Batch kommt. Wer das vergisst, verliert
-      // ab Datei 101 lautlos alles.
+      // nachlesen, bis ein leerer Batch kommt.
       let batch = await readBatch(reader);
       while (batch.length > 0) {
         for (const child of batch) {
@@ -111,8 +119,6 @@ export async function expandEntries(entries: FileSystemEntry[]): Promise<File[]>
 
 export function isImageFile(file: File): boolean {
   if (file.type.startsWith('image/')) return true;
-  // Fallback über die Endung: Browser liefern für manche Formate (HEIC,
-  // TIFF) einen leeren MIME-Typ, obwohl es Bilder sind.
   return /\.(jpe?g|png|gif|webp|avif|heic|heif|tiff?|bmp)$/i.test(file.name);
 }
 
@@ -171,15 +177,18 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
 
   const [items, setItems] = useState<UploadItem[]>([]);
   const [collapsed, setCollapsed] = useState(false);
+  const [liveUsedBytes, setLiveUsedBytes] = useState<number | null>(null);
 
   // Dateien bewusst NICHT im State: React würde bei jedem Fortschritts-Tick
   // ein Array mit hunderten File-Objekten neu aufbauen. Der State hält nur
   // die anzeigbaren Metadaten, die Blobs liegen in Refs.
   const fileMapRef = useRef<Map<string, File>>(new Map());
+  const folderMapRef = useRef<Map<string, string | null>>(new Map());
   const queueRef = useRef<string[]>([]);
   const activeRef = useRef(0);
   const xhrMapRef = useRef<Map<string, XMLHttpRequest>>(new Map());
   const counterRef = useRef(0);
+  const lastRefreshRef = useRef(0);
 
   const updateItem = useCallback((id: string, patch: Partial<UploadItem>) => {
     setItems((prev) => prev.map((it) => (it.id === id ? { ...it, ...patch } : it)));
@@ -188,13 +197,14 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
   const startNextRef = useRef<() => void>(() => {});
 
   const runJob = useCallback(
-    (id: string, folderId: string | null) => {
+    (id: string) => {
       const file = fileMapRef.current.get(id);
       if (!file) {
         activeRef.current--;
         startNextRef.current();
         return;
       }
+      const folderId = folderMapRef.current.get(id) ?? null;
 
       updateItem(id, { status: 'uploading', progress: 0, error: undefined });
 
@@ -209,13 +219,21 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
       function settle() {
         xhrMapRef.current.delete(id);
         fileMapRef.current.delete(id);
+        folderMapRef.current.delete(id);
         activeRef.current--;
-        // Erst neu nachlegen, dann prüfen, ob wirklich alles durch ist --
-        // sonst würde router.refresh() mitten im Lauf feuern.
-        startNextRef.current();
-        if (activeRef.current === 0 && queueRef.current.length === 0) {
+
+        const drained = activeRef.current === 0 && queueRef.current.length === 0;
+        const now = Date.now();
+
+        // Zwischendurch gedrosselt aktualisieren, damit hochgeladene Bilder
+        // und der Speicherstand schon während eines großen Stapels
+        // nachwachsen statt erst ganz am Ende aufzupoppen.
+        if (drained || now - lastRefreshRef.current > REFRESH_THROTTLE_MS) {
+          lastRefreshRef.current = now;
           router.refresh();
         }
+
+        startNextRef.current();
       }
 
       xhr.upload.onprogress = (e) => {
@@ -223,19 +241,25 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
         const progress = e.loaded / e.total;
         // Bei 100 % übertragener Bytes ist der Server noch nicht fertig
         // (Directus schreibt die Datei, erzeugt Vorschauen). Ein Balken, der
-        // bei 100 % scheinbar hängt, wirkt wie ein Absturz -- deshalb der
-        // eigene Zustand "wird verarbeitet".
+        // bei 100 % scheinbar hängt, wirkt wie ein Absturz.
         updateItem(id, { progress, status: progress >= 1 ? 'processing' : 'uploading' });
       };
 
       xhr.onload = () => {
-        let body: { error?: string; errors?: string[] } = {};
+        let body: { error?: string; errors?: string[]; usedBytes?: number } = {};
         try {
           body = JSON.parse(xhr.responseText);
         } catch {
           body = {};
         }
         const ok = xhr.status >= 200 && xhr.status < 300 && !body.errors?.length;
+
+        // Liefert die Route den aktuellen Speicherstand mit, wird er sofort
+        // übernommen -- unabhängig davon, wann router.refresh() durchkommt.
+        if (typeof body.usedBytes === 'number') {
+          setLiveUsedBytes(body.usedBytes);
+        }
+
         if (ok) {
           updateItem(id, { status: 'done', progress: 1, error: undefined });
         } else {
@@ -267,16 +291,11 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
     while (activeRef.current < MAX_PARALLEL && queueRef.current.length > 0) {
       const id = queueRef.current.shift();
       if (!id) break;
-      const file = fileMapRef.current.get(id);
-      if (!file) continue;
+      if (!fileMapRef.current.has(id)) continue;
       activeRef.current++;
-      // folderId steckt im State-Item; über die Setter-Form lesen, um nicht
-      // von einer veralteten Closure abhängig zu sein.
-      setItems((prev) => {
-        const entry = prev.find((it) => it.id === id);
-        runJob(id, entry?.folderId ?? null);
-        return prev;
-      });
+      // Zielordner liegt in einer Ref, nicht im State -- runJob braucht ihn
+      // sofort und darf nicht auf einen State-Durchlauf warten.
+      runJob(id);
     }
   }, [runJob]);
 
@@ -290,6 +309,7 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
         counterRef.current += 1;
         const id = `up_${Date.now()}_${counterRef.current}`;
         fileMapRef.current.set(id, file);
+        folderMapRef.current.set(id, folderId);
         return {
           id,
           name: file.name,
@@ -304,14 +324,12 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
       setCollapsed(false);
       setItems((prev) => {
         // Abgeschlossene Einträge eines vorherigen Laufs verwerfen, sobald
-        // ein neuer beginnt -- sonst wächst die Liste über die Sitzung
-        // endlos an und der Gesamtfortschritt wird unlesbar.
+        // ein neuer beginnt -- sonst wächst die Liste endlos an.
         const carry = prev.filter((it) => it.status !== 'done' && it.status !== 'canceled');
         return [...carry, ...newItems];
       });
 
-      // Nach dem State-Update anstoßen, damit runJob die folderId findet.
-      queueMicrotask(() => startNext());
+      startNext();
       return newItems.length;
     },
     [startNext]
@@ -325,6 +343,7 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
     }
     queueRef.current = queueRef.current.filter((queuedId) => queuedId !== id);
     fileMapRef.current.delete(id);
+    folderMapRef.current.delete(id);
     updateItem(id, { status: 'canceled' });
   }
 
@@ -336,17 +355,19 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
   function dismiss() {
     cancelAll();
     fileMapRef.current.clear();
+    folderMapRef.current.clear();
     setItems([]);
   }
 
-  const active = items.filter((it) => it.status === 'uploading' || it.status === 'processing' || it.status === 'queued');
+  const active = items.filter(
+    (it) => it.status === 'uploading' || it.status === 'processing' || it.status === 'queued'
+  );
   const doneCount = items.filter((it) => it.status === 'done').length;
   const errorCount = items.filter((it) => it.status === 'error').length;
   const isUploading = active.length > 0;
 
   // Gesamtfortschritt gewichtet nach Dateigröße -- ein Zähler "3 von 12"
-  // springt bei gemischten Größen unbrauchbar, weil ein 12-MB-RAW genauso
-  // zählt wie ein 200-KB-Schnappschuss.
+  // springt bei gemischten Größen unbrauchbar.
   const totalBytes = items.reduce((sum, it) => sum + it.size, 0);
   const doneBytes = items.reduce((sum, it) => {
     if (it.status === 'done') return sum + it.size;
@@ -355,7 +376,6 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
   }, 0);
   const overall = totalBytes > 0 ? Math.min(1, doneBytes / totalBytes) : 0;
 
-  // Panel schließt sich selbst, wenn alles sauber durchgelaufen ist.
   useEffect(() => {
     if (items.length === 0) return;
     const allSettled = items.every(
@@ -366,7 +386,6 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
     return () => clearTimeout(timer);
   }, [items, errorCount]);
 
-  // Schutz vor versehentlichem Verlassen der Seite mitten im Upload.
   useEffect(() => {
     if (!isUploading) return;
     function handleBeforeUnload(e: BeforeUnloadEvent) {
@@ -384,12 +403,10 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
     : 'Upload abgeschlossen';
 
   return (
-    <UploadQueueContext.Provider value={{ enqueue, items, isUploading }}>
+    <UploadQueueContext.Provider value={{ enqueue, items, isUploading, liveUsedBytes }}>
       {children}
 
-      {/* z-[90]: über der Lightbox (z-70), unter dem Dialog (z-120). Der
-          Fortschritt soll auch in der Großansicht sichtbar bleiben, darf
-          aber nie eine Bestätigungsabfrage verdecken. */}
+      {/* z-[90]: über der Lightbox (z-70), unter dem Dialog (z-120). */}
       {items.length > 0 && (
         <div
           role="status"
@@ -400,9 +417,7 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
             <div className="min-w-0 flex-1">
               <p className="truncate text-[13px] font-semibold text-ink">{headline}</p>
               {isUploading && (
-                <p className="mt-0.5 font-mono text-[11px] text-ink-3">
-                  {Math.round(overall * 100)} %
-                </p>
+                <p className="mt-0.5 font-mono text-[11px] text-ink-3">{Math.round(overall * 100)} %</p>
               )}
             </div>
 
@@ -426,8 +441,6 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
             </button>
           </div>
 
-          {/* Gesamtbalken: bleibt auch im eingeklappten Zustand sichtbar,
-              damit das Panel als schmaler Streifen weiterhin informiert. */}
           <div className="h-[3px] w-full bg-panel">
             <div
               className={`h-full transition-[width] duration-200 ${
@@ -479,9 +492,7 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
                         <IconAlert className="h-[14px] w-[14px]" />
                       </span>
                     )}
-                    {item.status === 'canceled' && (
-                      <span className="font-mono text-[10px] text-ink-3">—</span>
-                    )}
+                    {item.status === 'canceled' && <span className="font-mono text-[10px] text-ink-3">—</span>}
                     {(item.status === 'queued' || item.status === 'uploading' || item.status === 'processing') && (
                       <button
                         type="button"
@@ -501,7 +512,7 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
 
           {/* Fehlgeschlagene Dateien liegen nicht mehr im Speicher (der Blob
               wird nach jedem Versuch freigegeben), ein echter Retry-Knopf
-              wäre also eine Lüge. Stattdessen der ehrliche Hinweis. */}
+              wäre also eine Lüge. */}
           {!collapsed && errorCount > 0 && !isUploading && (
             <div className="flex items-center gap-2 border-t border-line/70 bg-signal-deep/[0.04] px-4 py-2.5 text-[11.5px] text-ink-2">
               <IconRetry className="h-[13px] w-[13px] flex-none text-ink-3" />
