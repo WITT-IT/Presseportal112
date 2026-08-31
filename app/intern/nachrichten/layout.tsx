@@ -4,7 +4,6 @@ import type { ReactNode } from 'react';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
 import { DIRECTUS_URL } from '@/lib/directus';
 import { getAllOrganizations } from '@/lib/queries';
-import Breadcrumbs from '@/components/Breadcrumbs';
 import StartConversationForm from '@/components/StartConversationForm';
 import ConversationListItem from '@/components/ConversationListItem';
 
@@ -101,9 +100,15 @@ export default async function MessagesLayout({ children }: { children: ReactNode
 
   return (
     <div>
+      {/* Breadcrumbs entfernt: "Übersicht › Nachrichten" war hier statisch
+          und damit reine Deko -- die aktive Markierung in der TopNav und die
+          Headline sagen dasselbe. Anders als unter /intern/medien gibt es
+          hier keine Verschachtelung, aus der ein Pfad echte Navigation
+          machen würde, deshalb ersatzlos raus statt bedingt gerendert.
+          Das mt-4 am Eyebrow-Label ist mit weggefallen, es war nur der
+          Abstand zur Breadcrumb-Leiste. */}
       <div className="-mx-6 -mt-10 mb-8 border-b border-line/70 px-6 pb-8 pt-6 nav:-mx-10 nav:-mt-12 nav:px-10 nav:pt-8">
-        <Breadcrumbs items={[{ label: 'Übersicht', href: '/intern' }, { label: 'Nachrichten' }]} />
-        <span className="mt-4 inline-flex items-center rounded-full bg-white/80 px-3 py-1 text-xs font-medium uppercase tracking-[0.16em] text-ink-2 shadow-sm">
+        <span className="inline-flex items-center rounded-full bg-white/80 px-3 py-1 text-xs font-medium uppercase tracking-[0.16em] text-ink-2 shadow-sm">
           Nachrichten
         </span>
         <h1 className="mt-4 font-display text-[clamp(28px,4vw,42px)] leading-[0.95] text-ink">
