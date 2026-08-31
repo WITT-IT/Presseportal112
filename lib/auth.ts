@@ -1,3 +1,4 @@
+import { cache } from 'react';
 import { DIRECTUS_URL } from './directus';
 
 export const SESSION_COOKIE = 'pp_session';
@@ -70,11 +71,27 @@ export async function logoutDirectus(refreshToken: string) {
 }
 
 // Holt das eigene Profil inkl. Organisation -- für die Begrüßung im
-// internen Bereich und um zu prüfen, ob der Account wirklich freigeschaltet ist.
-// organization.organization_type ist neu dazugekommen -- ohne dieses Feld
-// lässt sich an keiner Stelle im Code unterscheiden, ob ein Konto zu einer
-// BOS-Organisation oder einer Presse-Redaktion gehört.
-export async function getCurrentUser(accessToken: string) {
+// internen Bereich und um zu prüfen, ob der Account freigeschaltet ist.
+//
+// MIT cache() UMHÜLLT:
+// Diese Funktion wird pro Seitenaufruf mehrfach aufgerufen -- Layout,
+// Seite und jede beteiligte Route fragen unabhängig voneinander dasselbe
+// Profil ab, mit demselben Token und identischem Ergebnis. Jeder Aufruf
+// war bisher ein eigener Directus-Roundtrip.
+//
+// cache() aus React speichert das Ergebnis pro Argumentwert für die Dauer
+// EINES Server-Renders und gibt bei jedem weiteren Aufruf innerhalb
+// desselben Renders dasselbe Promise zurück. Danach ist der Eintrag weg.
+//
+// Warum das sicherheitlich unbedenklich ist: Der Cache lebt nur innerhalb
+// einer einzelnen Anfrage, nicht darüber hinaus -- zwei parallele
+// Anfragen zweier Nutzer teilen ihn nicht. Zusätzlich ist der accessToken
+// selbst der Cache-Schlüssel; ein anderer Nutzer hat zwangsläufig einen
+// anderen Token und damit einen anderen Eintrag. Beides zusammen schließt
+// aus, dass jemand fremde Profildaten zu sehen bekommt.
+//
+// Der Aufruf bleibt unverändert -- keine Aufrufstelle muss angefasst werden.
+export const getCurrentUser = cache(async (accessToken: string) => {
   const res = await fetch(
     `${DIRECTUS_URL}/users/me?fields=id,email,first_name,last_name,status,organization.id,organization.name,organization.gewerk,organization.branding_label,organization.organization_type`,
     {
@@ -85,11 +102,15 @@ export async function getCurrentUser(accessToken: string) {
   if (!res.ok) return null;
   const { data } = await res.json();
   return data;
-}
+});
 
 // Prüft unabhängig vom eigenen Nutzer-Token über den Service-Token, ob ein
 // bestimmter Benutzer die echte Directus-Systemrolle "Administrator" hat.
-export async function isAdministrator(userId: string): Promise<boolean> {
+//
+// Ebenfalls mit cache(): Im Log tauchte diese Prüfung fünfmal pro
+// Seitenaufruf für dieselbe Nutzer-ID auf. Die Rolle eines Nutzers ändert
+// sich innerhalb einer Anfrage nicht, also reicht ein Roundtrip.
+export const isAdministrator = cache(async (userId: string): Promise<boolean> => {
   const serviceToken = process.env.DIRECTUS_SERVICE_TOKEN;
   if (!serviceToken) {
     console.error('isAdministrator: DIRECTUS_SERVICE_TOKEN fehlt.');
@@ -109,13 +130,12 @@ export async function isAdministrator(userId: string): Promise<boolean> {
       return false;
     }
     const { data } = await res.json();
-    console.log(`isAdministrator: Nutzer ${userId} hat Rolle`, JSON.stringify(data?.role));
     return data?.role?.name === 'Administrator';
   } catch (error) {
     console.error('isAdministrator: Anfrage fehlgeschlagen:', error);
     return false;
   }
-}
+});
 
 export function cookieOptions(secure: boolean) {
   return {
