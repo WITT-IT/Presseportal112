@@ -3,7 +3,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
 import { DIRECTUS_URL, directusAssetUrl } from '@/lib/directus';
 import { normalizeTags } from '@/lib/types';
-import { formatBytes, getStorageStatus } from '@/lib/storage';
+import {
+  formatBytes,
+  getStorageStatus,
+  storageLimitForTier,
+  DEFAULT_STORAGE_TIER,
+} from '@/lib/storage';
 import { sendStorageWarningEmail, sendStorageLimitReachedEmail } from '@/lib/email';
 
 function getSession(request: NextRequest): { accessToken: string } | null {
@@ -16,17 +21,10 @@ function getSession(request: NextRequest): { accessToken: string } | null {
   }
 }
 
-// Systemtoken für alle Schreibvorgänge am Speicherzähler.
-//
+// Systemtoken für alle Zugriffe auf den Speicherzähler.
 // storage_used_bytes ist ein Abrechnungswert, den der Server pflegt --
-// kein Nutzerinhalt. Mit dem Nutzertoken hing die Fortschreibung an den
-// Feldberechtigungen der jeweiligen Directus-Rolle, und genau daran ist
-// sie gescheitert: Directus lehnte den PATCH ab, der Fehler wurde nie
-// bemerkt (siehe adjustOrgStorage), und der Zähler blieb auf 0 stehen.
-//
-// Fällt auf das Nutzertoken zurück, falls die Variable in einer Umgebung
-// nicht gesetzt ist -- dann verhält sich alles wie bisher, statt gar
-// nicht zu funktionieren.
+// kein Nutzerinhalt. Fällt auf das Nutzertoken zurück, falls die Variable
+// in einer Umgebung nicht gesetzt ist.
 function storageToken(userToken: string): string {
   return process.env.DIRECTUS_SERVICE_TOKEN || userToken;
 }
@@ -34,7 +32,7 @@ function storageToken(userToken: string): string {
 // used_in_posts kommt manchmal als roher Text statt als echtes JSON-Array
 // zurück (gleiches Problem wie bei "tags" an anderer Stelle im Projekt) --
 // ein String wie "[]" hat eine .length von 2, nicht 0, und würde die
-// Lösch-Sperre unten fälschlich auslösen. Deshalb immer robust normalisieren.
+// Lösch-Sperre unten fälschlich auslösen.
 function normalizeIdArray(raw: unknown): string[] {
   if (!raw) return [];
   if (Array.isArray(raw)) return raw.filter((v): v is string => typeof v === 'string');
@@ -81,20 +79,10 @@ async function uploadBuffer(
 }
 
 // Rechnet den tatsächlichen Verbrauch aus den ECHTEN Dateigrößen aller
-// Originale der Organisation aus -- dieselbe Logik wie in
-// lib/orgStorage.ts, hier für die Limitprüfung.
+// Originale der Organisation aus.
 //
-// WARUM NICHT DER GESPEICHERTE ZÄHLER FÜR DIE PRÜFUNG:
-// Der Zähler ist ein abgeleiteter Wert, der beim Schreiben kaputtgehen
-// kann -- und genau das ist passiert. Eine Limitprüfung gegen einen
-// kaputten Zähler ist schlimmer als keine: Steht dort 0, während real
-// 200 GB belegt sind, lässt der Server jeden Upload durch und die
-// gebuchte Speicherstufe ist wirkungslos. Bei einem Bezahlprodukt mit
-// Kontingenten ist das der teure Fehler.
-//
-// Nur die Originale (media_library.file) zählen. Vorschau- und
-// Wasserzeichen-Varianten werden bewusst nicht mitgezählt -- so war die
-// Kontingentrechnung von Anfang an gedacht.
+// Nur die Originale (media_library.file) zählen -- Vorschau- und
+// Wasserzeichen-Varianten gehen bewusst nicht ins Kontingent.
 async function computeUsedBytes(token: string, organizationId: string): Promise<number | null> {
   const headers = { Authorization: `Bearer ${token}` };
 
@@ -149,41 +137,47 @@ async function computeUsedBytes(token: string, organizationId: string): Promise<
   return results.reduce<number>((total, value) => total + (value ?? 0), 0);
 }
 
-// Lädt Speicherlimit + Verbrauch der Organisation frisch aus Directus.
-// usedBytes ist der BERECHNETE Ist-Wert; storedUsedBytes daneben nur der
-// gespeicherte Zähler, damit adjustOrgStorage weiß, worauf es addiert.
+// Speicherstand + Limit.
+//
+// BEWUSST NUR DIE SPEICHERFELDER:
+// Vorher wurden hier in EINER Abfrage auch contact_email, name und die
+// beiden Benachrichtigungs-Zeitstempel mitgeladen. Directus lehnt aber
+// eine Anfrage KOMPLETT mit 403 ab, sobald darin ein einziges Feld
+// vorkommt, für das die Policy keine Leseberechtigung hat -- es lässt das
+// Feld nicht etwa weg. Genau das ist passiert (Log: "getOrgStorage(...)
+// fehlgeschlagen (Status 403)"), sehr wahrscheinlich wegen contact_email.
+//
+// Die Folge war schlimmer als eine fehlende Anzeige: Bei 403 kam
+// limitBytes: 0 zurück, und "limitBytes > 0" ist die Bedingung der
+// Limitprüfung beim Upload -- das Kontingent war damit stillschweigend
+// außer Kraft. Deshalb sind die Felder jetzt getrennt: Was für Anzeige
+// und Limit gebraucht wird, hängt nicht mehr an Feldern, die nur die
+// Warnmails betreffen.
 async function getOrgStorage(
   token: string,
   organizationId: string
-): Promise<{
-  usedBytes: number;
-  storedUsedBytes: number;
-  limitBytes: number;
-  contactEmail: string | null;
-  organizationName: string;
-  warningSentAt: string | null;
-  limitReachedNotifiedAt: string | null;
-}> {
+): Promise<{ usedBytes: number; storedUsedBytes: number; limitBytes: number }> {
   const sysToken = storageToken(token);
 
   const [res, computed] = await Promise.all([
     fetch(
-      `${DIRECTUS_URL}/items/organizations/${organizationId}?fields=storage_used_bytes,storage_limit_bytes,contact_email,name,storage_warning_sent_at,storage_limit_reached_notified_at`,
+      `${DIRECTUS_URL}/items/organizations/${organizationId}?fields=storage_used_bytes,storage_limit_bytes,storage_tier`,
       { headers: { Authorization: `Bearer ${sysToken}` }, cache: 'no-store' }
     ),
     computeUsedBytes(sysToken, organizationId),
   ]);
 
   if (!res.ok) {
-    console.error(`getOrgStorage(${organizationId}) fehlgeschlagen (Status ${res.status}).`);
+    console.error(
+      `getOrgStorage(${organizationId}): Speicherfelder nicht lesbar (Status ${res.status}). ` +
+        `Es gilt ersatzweise das Limit der Standardstufe.`
+    );
     return {
       usedBytes: computed ?? 0,
       storedUsedBytes: 0,
-      limitBytes: 0,
-      contactEmail: null,
-      organizationName: '',
-      warningSentAt: null,
-      limitReachedNotifiedAt: null,
+      // NIEMALS 0 zurückgeben: 0 schaltet die Limitprüfung ab. Lieber das
+      // Limit der Standardstufe annehmen und im Zweifel zu streng sein.
+      limitBytes: storageLimitForTier(DEFAULT_STORAGE_TIER),
     };
   }
 
@@ -191,12 +185,45 @@ async function getOrgStorage(
   const rawStored = Number(data?.storage_used_bytes);
   const storedUsedBytes = Number.isFinite(rawStored) ? Math.max(0, rawStored) : 0;
 
+  const tier = data?.storage_tier || DEFAULT_STORAGE_TIER;
+  const rawLimit = Number(data?.storage_limit_bytes);
+
   return {
-    // Berechneter Wert gewinnt, der Zähler springt nur ein, wenn die
-    // Berechnung nicht durchlief.
+    // Berechneter Wert gewinnt -- der gespeicherte Zähler springt nur ein,
+    // wenn die Berechnung nicht durchlief.
     usedBytes: computed ?? storedUsedBytes,
     storedUsedBytes,
-    limitBytes: Number(data?.storage_limit_bytes) || 0,
+    limitBytes: Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : storageLimitForTier(tier),
+  };
+}
+
+// Kontakt- und Benachrichtigungsfelder -- ausschließlich für die
+// Warnmails. Getrennt von getOrgStorage, weil ein Rechteproblem an
+// contact_email nur die Mails kosten darf, niemals die Limitprüfung.
+// Liefert null, wenn die Felder nicht lesbar sind; dann entfallen die
+// Mails stillschweigend.
+async function getOrgNotificationInfo(
+  token: string,
+  organizationId: string
+): Promise<{
+  contactEmail: string | null;
+  organizationName: string;
+  warningSentAt: string | null;
+  limitReachedNotifiedAt: string | null;
+} | null> {
+  const res = await fetch(
+    `${DIRECTUS_URL}/items/organizations/${organizationId}?fields=contact_email,name,storage_warning_sent_at,storage_limit_reached_notified_at`,
+    { headers: { Authorization: `Bearer ${storageToken(token)}` }, cache: 'no-store' }
+  );
+  if (!res.ok) {
+    console.warn(
+      `getOrgNotificationInfo(${organizationId}): Kontaktfelder nicht lesbar (Status ${res.status}) — ` +
+        `Speicherwarnungen per E-Mail entfallen. Uploads und Limitprüfung sind davon nicht betroffen.`
+    );
+    return null;
+  }
+  const { data } = await res.json();
+  return {
     contactEmail: data?.contact_email || null,
     organizationName: data?.name || '',
     warningSentAt: data?.storage_warning_sent_at || null,
@@ -205,12 +232,10 @@ async function getOrgStorage(
 }
 
 // Prüft nach einem Upload, ob eine der beiden Schwellen (90%/100%) NEU
-// überschritten wurde, und verschickt in diesem Fall die passende Mail --
-// jeweils nur einmal pro Überschreitung. storage_warning_sent_at /
-// storage_limit_reached_notified_at wirken dabei wie ein Riegel: solange
-// sie gesetzt sind, wird nicht erneut verschickt. Beide werden
-// zurückgesetzt (auf null), sobald der Verbrauch wieder unter die
-// jeweilige Schwelle fällt (siehe adjustOrgStorage).
+// überschritten wurde. storage_warning_sent_at /
+// storage_limit_reached_notified_at wirken wie ein Riegel: solange sie
+// gesetzt sind, wird nicht erneut verschickt. Beide werden zurückgesetzt,
+// sobald der Verbrauch wieder unter die Schwelle fällt (adjustOrgStorage).
 async function maybeSendStorageThresholdEmail(
   token: string,
   organizationId: string,
@@ -257,26 +282,18 @@ async function maybeSendStorageThresholdEmail(
       }).catch(() => {});
     }
   } catch (error) {
-    // Mail-Fehler dürfen den Upload selbst nie beeinträchtigen -- der ist
-    // zu diesem Zeitpunkt schon erfolgreich abgeschlossen.
+    // Mail-Fehler dürfen den Upload selbst nie beeinträchtigen.
     console.error(`Speicherlimit-Benachrichtigung fehlgeschlagen für Organisation ${organizationId}:`, error);
   }
 }
 
 // Schreibt den neuen Verbrauchswert zurück. Gibt den geschriebenen Wert
-// zurück, oder null, wenn der Schreibvorgang fehlschlug.
+// zurück, oder null bei Fehlschlag.
 //
-// ZWEI FEHLER, DIE HIER FRÜHER STECKTEN:
-//
-// 1. Geschrieben wurde mit dem Nutzertoken. Fehlt der Rolle die
-//    Schreibberechtigung auf organizations, lehnt Directus ab -- und
-//    dieser Weg wurde nie bemerkt, siehe Punkt 2. Jetzt Service-Token.
-//
-// 2. Der Statuscode wurde NICHT geprüft. Es stand nur ein .catch() dran,
-//    und fetch wirft bei 403/400 keinen Fehler, sondern resolved ganz
-//    normal. Dieser catch-Block hat also nie ausgelöst: Der Zähler blieb
-//    auf 0 stehen, ohne eine einzige Zeile im Log. Deshalb hier explizit
-//    res.ok prüfen und den Antworttext mitloggen.
+// Der Statuscode wird explizit geprüft. Vorher stand hier nur ein
+// .catch() -- und fetch wirft bei 403/400 keinen Fehler, sondern resolved
+// normal. Dieser catch-Block hat also nie ausgelöst, und ein abgelehnter
+// PATCH verschwand spurlos.
 async function adjustOrgStorage(
   token: string,
   organizationId: string,
@@ -288,8 +305,7 @@ async function adjustOrgStorage(
   const patch: Record<string, unknown> = { storage_used_bytes: newValue };
 
   // Beim Löschen (deltaBytes negativ): sobald der neue Stand wieder unter
-  // eine Schwelle fällt, die zugehörige Sperre aufheben -- sonst würde nach
-  // einem Aufräumen + erneutem Vollmachen nie wieder eine Warnung kommen.
+  // eine Schwelle fällt, die zugehörige Sperre aufheben.
   if (deltaBytes < 0 && limitBytes > 0) {
     const status = getStorageStatus(newValue, limitBytes);
     if (!status.isAtLimit) patch.storage_limit_reached_notified_at = null;
@@ -310,8 +326,7 @@ async function adjustOrgStorage(
       const body = await res.text().catch(() => '');
       console.error(
         `Speicherzähler für Organisation ${organizationId} konnte nicht geschrieben werden ` +
-          `(Status ${res.status}): ${body}. Gewollter Wert: ${newValue} Bytes. ` +
-          `Bei 403 fehlt dem verwendeten Token die Schreibberechtigung auf organizations.storage_used_bytes.`
+          `(Status ${res.status}): ${body}. Gewollter Wert: ${newValue} Bytes.`
       );
       return null;
     }
@@ -324,8 +339,6 @@ async function adjustOrgStorage(
 
 // GET /api/intern/library?q=tag&folder=&limit=48&offset=0
 //     /api/intern/library?original=<mediaId>
-//     /api/intern/library?contents=... (siehe unten -- NICHT hier, das ist
-//     die Ordner-Navigation, die läuft über app/api/intern/folders/route.ts)
 export async function GET(request: NextRequest) {
   const session = getSession(request);
   if (!session) return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
@@ -403,16 +416,14 @@ export async function GET(request: NextRequest) {
   let url = `${DIRECTUS_URL}/items/media_library?filter[organization][_eq]=${user.organization.id}&fields=${fields}&sort=-uploaded_at&limit=${limit}&offset=${offset}`;
 
   if (folder) {
-    // Expliziter Ordner angefragt.
     url += `&filter[folder][_eq]=${folder}`;
   } else if (!q) {
-    // Weder Ordner noch Suchbegriff angegeben -- das ist die Wurzel-
-    // Ansicht. Vorher wurde hier gar kein Filter gesetzt, wodurch Bilder
-    // aus JEDEM Unterordner mit in die Wurzel-Antwort gerutscht sind.
+    // Wurzel-Ansicht: explizit auf "kein Ordner gesetzt" filtern, sonst
+    // rutschen Bilder aus jedem Unterordner mit in die Antwort.
     url += `&filter[folder][_null]=true`;
   }
-  // Bei aktiver Suche (q gesetzt, kein folder) bewusst KEIN Ordner-Filter --
-  // die Suche soll organisationsweit über alle Ordner hinweg laufen.
+  // Bei aktiver Suche bewusst KEIN Ordner-Filter -- die Suche läuft
+  // organisationsweit über alle Ordner hinweg.
 
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${session.accessToken}` },
@@ -441,14 +452,8 @@ export async function GET(request: NextRequest) {
 // POST /api/intern/library — Direkt-Upload in die Bibliothek, KEIN Beitrag.
 // FormData: folder (optional), image_count, file_0..N
 //
-// Speicherlimit: vor JEDER Datei wird geprüft, ob genug Kontingent übrig
-// ist -- bei Erreichen des Limits mittendrin werden die bereits
-// hochgeladenen Dateien behalten (kein Rollback), die verbleibenden
-// brechen mit einer klaren Fehlermeldung ab.
-//
-// Antwort enthält usedBytes: den Stand nach diesem Upload. Der Client
-// zeigt damit den Speicherbalken sofort richtig an, statt auf einen
-// Server-Rerender zu warten.
+// Antwort enthält usedBytes: den Stand nach diesem Upload, damit der
+// Client den Speicherbalken sofort richtig anzeigt.
 export async function POST(request: NextRequest) {
   const session = getSession(request);
   if (!session) return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
@@ -466,7 +471,7 @@ export async function POST(request: NextRequest) {
   const orgStorage = await getOrgStorage(session.accessToken, user.organization.id);
   const limitBytes = orgStorage.limitBytes;
   // Gegen den BERECHNETEN Ist-Wert prüfen und weiterzählen, nicht gegen
-  // den gespeicherten Zähler -- ein kaputter Zähler darf das Kontingent
+  // den gespeicherten Zähler -- ein klemmender Zähler darf das Kontingent
   // nicht aushebeln.
   let usedBytes = orgStorage.usedBytes;
 
@@ -474,9 +479,9 @@ export async function POST(request: NextRequest) {
     const file = formData.get(`file_${i}`) as File | null;
     if (!file) continue;
 
-    // Limit-Check VOR dem eigentlichen Upload -- verhindert, dass wir erst
-    // Bytes zu Directus hochladen und dann feststellen, dass sie nicht
-    // mehr ins Kontingent passen.
+    // Limit-Check VOR dem Upload -- verhindert, dass wir erst Bytes zu
+    // Directus hochladen und dann feststellen, dass sie nicht mehr ins
+    // Kontingent passen.
     if (limitBytes > 0 && usedBytes + file.size > limitBytes) {
       errors.push(
         `${file.name}: Speicherlimit erreicht (${formatBytes(usedBytes)} von ${formatBytes(limitBytes)} belegt).`
@@ -515,10 +520,7 @@ export async function POST(request: NextRequest) {
 
       // Zähler direkt nach diesem einen erfolgreichen Upload nachführen --
       // usedBytes lokal mitziehen, damit der Limit-Check der nächsten
-      // Datei den aktuellen Stand kennt. Schlägt das Schreiben fehl,
-      // steht der Grund jetzt im Log und die Antwort meldet trotzdem den
-      // korrekten Stand: Die Anzeige stimmt also selbst dann, wenn der
-      // gespeicherte Zähler klemmt.
+      // Datei den aktuellen Stand kennt.
       await adjustOrgStorage(session.accessToken, user.organization.id, usedBytes, buffer.length);
       usedBytes += buffer.length;
     } catch (err) {
@@ -531,19 +533,23 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: errors.join(' | '), usedBytes, limitBytes }, { status: 500 });
   }
 
-  // Schwellen-Check EINMAL nach der ganzen Schleife, nicht pro Datei --
-  // usedBytes hat hier bereits den finalen Wert.
+  // Schwellen-Check EINMAL nach der ganzen Schleife, nicht pro Datei.
+  // Die Kontaktdaten werden erst hier geladen -- sind sie nicht lesbar,
+  // entfallen nur die Mails.
   if (created.length > 0) {
-    await maybeSendStorageThresholdEmail(
-      session.accessToken,
-      user.organization.id,
-      orgStorage.organizationName,
-      orgStorage.contactEmail,
-      usedBytes,
-      limitBytes,
-      orgStorage.warningSentAt,
-      orgStorage.limitReachedNotifiedAt
-    );
+    const notify = await getOrgNotificationInfo(session.accessToken, user.organization.id);
+    if (notify) {
+      await maybeSendStorageThresholdEmail(
+        session.accessToken,
+        user.organization.id,
+        notify.organizationName,
+        notify.contactEmail,
+        usedBytes,
+        limitBytes,
+        notify.warningSentAt,
+        notify.limitReachedNotifiedAt
+      );
+    }
   }
 
   return NextResponse.json({
@@ -586,11 +592,10 @@ export async function PATCH(request: NextRequest) {
   return NextResponse.json({ ok: true });
 }
 
-// DELETE /api/intern/library?id=... — nur wenn in einem WIRKLICH noch
-// existierenden Beitrag verwendet. Prüft nicht nur, ob used_in_posts
-// nicht-leer ist, sondern ob die referenzierten Post-IDs überhaupt noch
-// existieren -- verwaiste Referenzen werden automatisch erkannt und
-// aufgeräumt, statt die Löschung für immer zu blockieren.
+// DELETE /api/intern/library?id=... — nur blockiert, wenn das Bild in
+// einem WIRKLICH noch existierenden Beitrag verwendet wird. Verwaiste
+// Referenzen werden erkannt und aufgeräumt, statt die Löschung für immer
+// zu blockieren.
 export async function DELETE(request: NextRequest) {
   const session = getSession(request);
   if (!session) return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
@@ -662,14 +667,14 @@ export async function DELETE(request: NextRequest) {
     data?.file_download_watermarked,
   ].filter((v): v is string => typeof v === 'string' && v.length > 0);
 
-  // Nur die Größe des ORIGINALS zurückrechnen.
+  // Nur die Größe des ORIGINALS gilt als freigegeben.
   //
-  // Vorher wurden hier alle vier Dateivarianten aufsummiert -- also auch
-  // Vorschau und Wasserzeichen-Kopien. Beim Upload zählt aber ausschließlich
-  // das Original ins Kontingent. Das Löschen hat den Zähler damit um mehr
-  // gesenkt, als der Upload ihn erhöht hatte, und der Stand lief mit jedem
-  // Lösch-/Upload-Zyklus weiter nach unten -- bis auf 0, weil
-  // adjustOrgStorage nicht negativ werden lässt.
+  // Vorher wurden alle vier Dateivarianten aufsummiert -- also auch
+  // Vorschau und Wasserzeichen-Kopien. Beim Upload zählt aber nur das
+  // Original ins Kontingent. Das Löschen senkte den Zähler damit um mehr,
+  // als der Upload ihn erhöht hatte, und der Stand lief mit jedem Zyklus
+  // weiter nach unten -- bis auf 0, weil adjustOrgStorage nicht negativ
+  // werden lässt.
   let freedBytes = 0;
   if (originalFileId) {
     try {
@@ -695,9 +700,9 @@ export async function DELETE(request: NextRequest) {
 
   await fetch(`${DIRECTUS_URL}/items/media_library/${id}`, { method: 'DELETE', headers }).catch(() => {});
 
-  // Neu berechnen statt vom alten Stand abzuziehen: Der Datensatz ist zu
-  // diesem Zeitpunkt weg, der berechnete Wert ist also bereits der korrekte
-  // Endstand. Das ist genauer als jede Differenzrechnung.
+  // Neu berechnen statt vom alten Stand abzuziehen: Der Datensatz ist jetzt
+  // weg, der berechnete Wert ist bereits der korrekte Endstand -- genauer
+  // als jede Differenzrechnung.
   const after = await getOrgStorage(session.accessToken, user.organization.id);
   await adjustOrgStorage(session.accessToken, user.organization.id, after.usedBytes, 0, after.limitBytes);
 
