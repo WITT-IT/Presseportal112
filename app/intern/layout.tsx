@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { getCurrentUser, isAdministrator, SESSION_COOKIE } from '@/lib/auth';
 import { DIRECTUS_URL } from '@/lib/directus';
 import InternTopNav from '@/components/InternTopNav';
+import { UploadQueueProvider } from '@/components/UploadQueueProvider';
 
 export const dynamic = 'force-dynamic';
 
@@ -74,7 +75,15 @@ export default async function InternLayout({ children }: { children: ReactNode }
         isPress={isPress}
         unreadCount={unreadCount}
       />
-      <main className="mx-auto max-w-[1400px] px-6 py-10 nav:px-10 nav:py-12">{children}</main>
+      {/* Upload-Queue bewusst auf Layout-Ebene statt in einer einzelnen
+          Seite: Der Fortschritt überlebt damit jede Navigation innerhalb
+          von /intern. Wer einen 200-Bilder-Ordner ablegt und währenddessen
+          in die Nachrichten wechselt, sieht das Panel weiterlaufen, statt
+          den Upload beim Seitenwechsel zu verlieren. Jeder künftige
+          Upload-Einstieg hängt sich über useUploadQueue() einfach dran. */}
+      <UploadQueueProvider>
+        <main className="mx-auto max-w-[1400px] px-6 py-10 nav:px-10 nav:py-12">{children}</main>
+      </UploadQueueProvider>
     </div>
   );
 }
