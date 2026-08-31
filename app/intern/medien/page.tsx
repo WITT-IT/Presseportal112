@@ -3,7 +3,6 @@ import { redirect } from 'next/navigation';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
 import { getFolderContents, getMyOrganizationImages, getMyMediaShares } from '@/lib/queries';
 import { getOrgStorageInfo } from '@/lib/orgStorage';
-import Breadcrumbs from '@/components/Breadcrumbs';
 import MediaBrowser from '@/components/MediaBrowser';
 import StorageUsageBar from '@/components/StorageUsageBar';
 
@@ -39,24 +38,6 @@ export default async function MedienPage({
     getOrgStorageInfo(session.accessToken, user.organization.id),
   ]);
 
-  // Breadcrumbs nur noch, wenn wir tatsächlich in einem Ordner stecken.
-  // Auf der Wurzelebene von /intern/medien war die Zeile reine Deko:
-  // "Übersicht / Medien" sagt dem Nutzer nichts, was die aktive
-  // Navigation oben und die Headline "Alle Medien" nicht schon zeigen.
-  // Sobald es tiefer geht, ist der Pfad dagegen echte Navigation
-  // (Rücksprung in Elternordner), deshalb bleibt er dort erhalten.
-  const isInFolder = contents.breadcrumb.length > 0;
-
-  const breadcrumbItems = isInFolder
-    ? [
-        { label: 'Medien', href: '/intern/medien' },
-        ...contents.breadcrumb.map((b, i) => ({
-          label: b.name,
-          href: i === contents.breadcrumb.length - 1 ? undefined : `/intern/medien?folder=${b.id}`,
-        })),
-      ]
-    : [];
-
   const folderCount = contents.subfolders.length;
   const itemCount = contents.items.length;
 
@@ -65,15 +46,17 @@ export default async function MedienPage({
       {/* Hero-Header im Bildarchiv-Stil: heller Verlauf, Glas-Kacheln für
           die Kennzahlen -- übernimmt bewusst dieselbe Sprache wie
           app/bildarchiv/page.tsx, nur mit Ordner/Bilder statt
-          Einsätze/Stockfotos als Kennzahlen und Aktionen statt Suche. */}
-      <section className="border-b border-line/70 bg-gradient-to-b from-white via-paper to-paper px-6 pb-8 pt-6 nav:px-10 nav:pt-8">
-        {isInFolder && <Breadcrumbs items={breadcrumbItems} />}
+          Einsätze/Stockfotos als Kennzahlen und Aktionen statt Suche.
 
-        <div
-          className={`flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between ${
-            isInFolder ? 'mt-4' : ''
-          }`}
-        >
+          Der Ordnerpfad wird hier NICHT mehr gerendert. Er lebt jetzt in
+          MediaBrowser, direkt über dem Raster auf einer Zeile mit dem
+          Zurück-Button -- dort, wo auch navigiert wird. Im Hero war er
+          eine eigene weiße Leiste und damit ein optisch schweres Element
+          für eine reine Ortsangabe, die die Headline darunter ohnehin
+          schon nennt. contents.breadcrumb wird stattdessen als Prop
+          durchgereicht. */}
+      <section className="border-b border-line/70 bg-gradient-to-b from-white via-paper to-paper px-6 pb-8 pt-6 nav:px-10 nav:pt-8">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-2xl">
             <span className="inline-flex items-center rounded-full bg-white/80 px-3 py-1 text-xs font-medium uppercase tracking-[0.16em] text-ink-2 shadow-sm">
               Medienbibliothek
@@ -112,6 +95,7 @@ export default async function MedienPage({
         <MediaBrowser
           currentFolderId={folder ?? null}
           parentFolderId={contents.folder?.parent_folder ?? null}
+          breadcrumb={contents.breadcrumb}
           subfolders={contents.subfolders}
           items={contents.items}
           calendarPosts={calendarPosts}
