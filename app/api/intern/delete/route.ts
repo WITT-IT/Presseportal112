@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { SESSION_COOKIE } from '@/lib/auth';
 import { DIRECTUS_URL } from '@/lib/directus';
+import { isUuid } from '@/lib/validate';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -35,6 +36,15 @@ export async function POST(request: NextRequest) {
   const { id } = await request.json().catch(() => ({}));
   if (!id) {
     return NextResponse.json({ error: 'Ungültige Anfrage.' }, { status: 400 });
+  }
+
+  // ECHTE INJECTION-FLÄCHE: id landet direkt als Pfadsegment in der ersten
+  // Directus-Anfrage unten. Diese eine Prüfung schützt die gesamte
+  // nachfolgende Kette, weil jede weitere ID (img.id, fileId, mediaId) aus
+  // Directus' eigener Antwort auf DIESEN Aufruf stammt, nicht mehr vom
+  // Client.
+  if (!isUuid(id)) {
+    return NextResponse.json({ error: 'Ungültige ID.' }, { status: 400 });
   }
 
   const headers = {
@@ -74,12 +84,6 @@ export async function POST(request: NextRequest) {
       file_download_watermarked: string | null;
     }[] = Array.isArray(data.images) ? data.images : [];
 
-    // Physische Dateien NUR für Bilder löschen, die direkt hochgeladen
-    // wurden (kein source_media_id). Bilder, die über die Medienbibliothek
-    // veröffentlicht wurden, gehören der Bibliothek -- ihre Dateien bleiben
-    // unangetastet, egal was hier im Post noch referenziert ist. Gleicher
-    // Schutz wie in app/api/admin/moderation/[postId]/route.ts, hier hat er
-    // bisher komplett gefehlt.
     const fileIds = Array.from(
       new Set(
         imageRows
@@ -95,7 +99,6 @@ export async function POST(request: NextRequest) {
       )
     ) as string[];
 
-    // Erst Bilddatensätze löschen
     for (const img of imageRows) {
       const deleteImageRes = await fetch(`${DIRECTUS_URL}/items/images/${img.id}`, {
         method: 'DELETE',
@@ -118,7 +121,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Dann Post löschen
     const deletePostRes = await fetch(`${DIRECTUS_URL}/items/posts/${id}`, {
       method: 'DELETE',
       headers,
@@ -138,7 +140,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Nur direkt hochgeladene Dateien physisch löschen (siehe Filter oben).
     const fileDeleteResults = await Promise.allSettled(
       fileIds.map(async (fileId) => {
         const res = await fetch(`${DIRECTUS_URL}/files/${fileId}`, {
@@ -169,8 +170,6 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Bibliotheks-Items nachführen: postId aus used_in_posts entfernen, damit
-    // die Bibliothek nicht auf einen inzwischen gelöschten Beitrag verweist.
     const mediaLibraryIds = Array.from(
       new Set(
         imageRows
