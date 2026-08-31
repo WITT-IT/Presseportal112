@@ -30,17 +30,18 @@ export default function PricingPlans({
 }) {
   const router = useRouter();
   const [busyPlan, setBusyPlan] = useState<PlanId | null>(null);
+  const [portalBusy, setPortalBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const freePlan = PLANS[0];
   const paidPlans = PLANS.slice(1);
+  const anyBusy = busyPlan !== null || portalBusy;
 
   async function startCheckout(planId: PlanId) {
     if (!isLoggedIn) {
       router.push(`/registrieren?plan=${planId}`);
       return;
     }
-
     setBusyPlan(planId);
     setError(null);
     try {
@@ -61,7 +62,7 @@ export default function PricingPlans({
   }
 
   async function openPortal() {
-    setBusyPlan(null);
+    setPortalBusy(true);
     setError(null);
     try {
       const res = await fetch(PORTAL_ENDPOINT, { method: 'POST' });
@@ -72,14 +73,31 @@ export default function PricingPlans({
       window.location.href = body.url;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Kundenportal konnte nicht geöffnet werden.');
+      setPortalBusy(false);
     }
   }
 
+  // Wer bereits ein laufendes Abo hat, geht für JEDEN Plan-Knopf ins
+  // Kundenportal -- auch für einen anderen als den aktuellen. Ein zweiter
+  // Checkout würde bei Stripe ein zweites, paralleles Abo anlegen statt
+  // das bestehende zu wechseln. Im Portal lässt sich der Plan wechseln,
+  // sofern "Update subscriptions" in den Stripe-Portal-Einstellungen
+  // aktiviert ist.
+  function handlePlanClick(planId: PlanId) {
+    if (hasSubscription) {
+      openPortal();
+      return;
+    }
+    startCheckout(planId);
+  }
+
   function buttonLabel(plan: Plan): string {
-    if (currentPlanId === plan.id) return 'Aktueller Plan';
+    if (hasSubscription) {
+      return currentPlanId === plan.id ? 'Abo verwalten' : 'Im Kundenportal wechseln';
+    }
     if (busyPlan === plan.id) return 'Wird geöffnet …';
     if (!isLoggedIn) return 'Jetzt starten';
-    return hasSubscription ? 'Wechseln' : 'Buchen';
+    return 'Buchen';
   }
 
   return (
@@ -160,8 +178,8 @@ export default function PricingPlans({
 
               <button
                 type="button"
-                onClick={() => (isCurrent && hasSubscription ? openPortal() : startCheckout(plan.id))}
-                disabled={busyPlan !== null || (isCurrent && !hasSubscription)}
+                onClick={() => handlePlanClick(plan.id)}
+                disabled={anyBusy}
                 className={`mt-6 w-full rounded-full px-5 py-3 text-[13px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                   isCurrent
                     ? 'border border-line-strong bg-white text-ink hover:border-ink'
@@ -170,7 +188,7 @@ export default function PricingPlans({
                     : 'bg-ink text-white hover:bg-black'
                 }`}
               >
-                {isCurrent && hasSubscription ? 'Abo verwalten' : buttonLabel(plan)}
+                {buttonLabel(plan)}
               </button>
             </div>
           );
