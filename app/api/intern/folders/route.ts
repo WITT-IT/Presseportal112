@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
 import { DIRECTUS_URL } from '@/lib/directus';
+import { isUuid, isUuidOrNull } from '@/lib/validate';
 
 function getSession(request: NextRequest): { accessToken: string } | null {
   const raw = request.cookies.get(SESSION_COOKIE)?.value;
@@ -13,8 +14,6 @@ function getSession(request: NextRequest): { accessToken: string } | null {
   }
 }
 
-// used_in_posts kommt manchmal als roher Text statt als echtes JSON-Array
-// zurück -- gleiches Problem wie an anderen Stellen im Projekt.
 function normalizeIdArray(raw: unknown): string[] {
   if (!raw) return [];
   if (Array.isArray(raw)) return raw.filter((v): v is string => typeof v === 'string');
@@ -30,11 +29,6 @@ function normalizeIdArray(raw: unknown): string[] {
 }
 
 // GET /api/intern/folders?contents=1&folder=<id oder leer für Wurzel>
-// Liefert Breadcrumb, Unterordner und Bibliotheks-Items für die
-// Ordner-Navigation im Freigabe-Picker -- bewusst in diese bestehende
-// Route gehängt statt eine neue Datei anzulegen (Next.js-Standalone-
-// Build-Routing-Bug, siehe Projektnotizen: neue route.ts-Dateien landen
-// manchmal nicht im routes-manifest.json -> 404/405).
 export async function GET(request: NextRequest) {
   const session = getSession(request);
   if (!session) return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
@@ -50,9 +44,22 @@ export async function GET(request: NextRequest) {
   }
 
   const folderId = searchParams.get('folder') || null;
+
+  // ECHTE INJECTION-FLÄCHE: folderId landet unten direkt in
+  // parentFilter, per Template-String in die Directus-Filter-URL
+  // verkettet ("filter[parent_folder][_eq]=${folderId}"). Ein Wert mit
+  // "&"-Zeichen könnte dort zusätzliche Filter-Parameter einschmuggeln.
+  if (folderId && !isUuid(folderId)) {
+    return NextResponse.json({ error: 'Ungültige Ordner-ID.' }, { status: 400 });
+  }
+
   const headers = { Authorization: `Bearer ${session.accessToken}` };
 
   const breadcrumb: { id: string; name: string }[] = [];
+  // currentId startet mit dem bereits geprüften folderId. Alle weiteren
+  // Werte in dieser Schleife kommen aus Directus' eigener Antwort
+  // (data.parent_folder), nicht mehr direkt vom Client -- dort ist keine
+  // erneute Prüfung nötig.
   let currentId = folderId;
   let guard = 0;
   while (currentId && guard < 8) {
@@ -79,7 +86,6 @@ export async function GET(request: NextRequest) {
 }
 
 // POST /api/intern/folders — neuen Ordner anlegen
-// Body: { name, parent_folder? }  (parent_folder: null/undefined = Wurzel)
 export async function POST(request: NextRequest) {
   const session = getSession(request);
   if (!session) return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
@@ -92,6 +98,14 @@ export async function POST(request: NextRequest) {
   const { name, parent_folder } = await request.json().catch(() => ({}));
   if (!name || !String(name).trim()) {
     return NextResponse.json({ error: 'Bitte einen Namen angeben.' }, { status: 400 });
+  }
+
+  // EINGABEHYGIENE: parent_folder wandert unten in einen JSON-Body, keine
+  // URL-Injection-Fläche. Die Prüfung sorgt trotzdem für eine klare
+  // Fehlermeldung statt eines rohen Directus-Fehlers bei einem
+  // manipulierten Wert.
+  if (!isUuidOrNull(parent_folder)) {
+    return NextResponse.json({ error: 'Ungültige übergeordnete Ordner-ID.' }, { status: 400 });
   }
 
   const id = randomUUID();
@@ -119,13 +133,22 @@ export async function POST(request: NextRequest) {
 }
 
 // PATCH /api/intern/folders — umbenennen oder verschieben
-// Body: { id, name?, parent_folder? }  (parent_folder: null = Wurzel)
 export async function PATCH(request: NextRequest) {
   const session = getSession(request);
   if (!session) return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
 
   const { id, name, parent_folder } = await request.json().catch(() => ({}));
   if (!id) return NextResponse.json({ error: 'Keine ID.' }, { status: 400 });
+
+  // ECHTE INJECTION-FLÄCHE: id landet unten als Pfadsegment in der
+  // Directus-URL.
+  if (!isUuid(id)) {
+    return NextResponse.json({ error: 'Ungültige ID.' }, { status: 400 });
+  }
+  // EINGABEHYGIENE: parent_folder wandert in den JSON-Body.
+  if (!isUuidOrNull(parent_folder)) {
+    return NextResponse.json({ error: 'Ungültige übergeordnete Ordner-ID.' }, { status: 400 });
+  }
   if (parent_folder === id) {
     return NextResponse.json(
       { error: 'Ein Ordner kann nicht in sich selbst verschoben werden.' },
@@ -164,9 +187,11 @@ type MediaLeaf = {
   file_download_watermarked: string | null;
 };
 
-// Sammelt den kompletten Unterbaum (Unterordner + Medienbibliothek-Items)
-// ab folderId -- rekursiv, weil Ordner beliebig tief verschachtelt sein
-// können (siehe /intern/medien).
+// Sammelt den kompletten Unterbaum ab folderId -- rekursiv. WICHTIG: Der
+// Aufrufer (DELETE unten) validiert folderId, BEVOR diese Funktion
+// aufgerufen wird. Innerhalb der Schleife stammen alle weiteren IDs
+// (queue-Einträge) aus Directus' eigener Antwort (f.id), nicht mehr vom
+// Client -- dort ist keine erneute Prüfung nötig.
 async function collectSubtree(
   folderId: string,
   accessToken: string
@@ -204,25 +229,21 @@ async function collectSubtree(
   return { folderIds, mediaItems };
 }
 
-// DELETE /api/intern/folders?id=... — Ordner löschen, inklusive allem
-// darin: Unterordner, Medienbibliothek-Items und deren physische Dateien.
-//
-// Prüft nicht blind auf used_in_posts, sondern ob die referenzierten
-// Post-IDs überhaupt noch existieren -- eine tote Referenz aus einer
-// älteren Löschung soll die Ordner-Löschung nicht grundlos blockieren.
-//
-// Wird IRGENDEIN Medienbibliothek-Item im ganzen Unterbaum noch in einem
-// WIRKLICH existierenden Beitrag verwendet, bricht die komplette Löschung
-// ab, bevor irgendwas angefasst wird.
-//
-// Läuft der Check durch: erst alle Dateien in Directus löschen, dann die
-// media_library-Datensätze, dann die Ordner selbst -- tiefste zuerst.
+// DELETE /api/intern/folders?id=... — Ordner löschen, inklusive allem darin.
 export async function DELETE(request: NextRequest) {
   const session = getSession(request);
   if (!session) return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
 
   const folderId = request.nextUrl.searchParams.get('id');
   if (!folderId) return NextResponse.json({ error: 'Keine ID.' }, { status: 400 });
+
+  // ECHTE INJECTION-FLÄCHE: folderId geht unten sowohl als Pfadsegment als
+  // auch (in collectSubtree) als Filter-Wert in mehrere Directus-URLs.
+  // Diese eine Prüfung schützt die gesamte nachfolgende Kaskade, weil
+  // jeder weitere ID-Wert darin aus Directus' eigenen Antworten stammt.
+  if (!isUuid(folderId)) {
+    return NextResponse.json({ error: 'Ungültige ID.' }, { status: 400 });
+  }
 
   const headers = { Authorization: `Bearer ${session.accessToken}` };
   const jsonHeaders = { ...headers, 'Content-Type': 'application/json' };
