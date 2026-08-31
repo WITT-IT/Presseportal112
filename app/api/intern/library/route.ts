@@ -5,6 +5,7 @@ import { DIRECTUS_URL, directusAssetUrl } from '@/lib/directus';
 import { normalizeTags } from '@/lib/types';
 import { formatBytes, getStorageStatus } from '@/lib/storage';
 import { resolvePlan, FAILSAFE_LIMIT_BYTES } from '@/lib/plans';
+import { isUuid, isUuidOrNull } from '@/lib/validate';
 import { sendStorageWarningEmail, sendStorageLimitReachedEmail } from '@/lib/email';
 
 function getSession(request: NextRequest): { accessToken: string } | null {
@@ -113,15 +114,6 @@ async function computeUsedBytes(token: string, organizationId: string): Promise<
   return results.reduce<number>((total, value) => total + (value ?? 0), 0);
 }
 
-// Speicherstand + Limit.
-//
-// limitBytes kommt jetzt aus dem PLAN (resolvePlan), nicht mehr aus einem
-// gespeicherten storage_limit_bytes-Feld -- der Plan ist die einzige
-// Quelle für die Speichergrenze, gepflegt vom Stripe-Webhook.
-//
-// Schlagen die Felder fehl (403/Netzwerk), gilt FAILSAFE_LIMIT_BYTES --
-// das großzügigste Limit, nicht das kostenlose. Ein zahlender Kunde darf
-// wegen eines vorübergehenden Lesefehlers nie fälschlich gesperrt werden.
 async function getOrgStorage(
   token: string,
   organizationId: string
@@ -283,6 +275,13 @@ export async function GET(request: NextRequest) {
 
   const originalOf = searchParams.get('original');
   if (originalOf) {
+    // VALIDIERUNG: originalOf landet direkt als Pfadsegment in der
+    // Directus-URL. Ohne diese Prüfung könnte ein manipulierter Wert hier
+    // theoretisch die Filter-Logik der nachfolgenden Anfrage verändern.
+    if (!isUuid(originalOf)) {
+      return NextResponse.json({ error: 'Ungültige Bild-ID.' }, { status: 400 });
+    }
+
     const itemRes = await fetch(`${DIRECTUS_URL}/items/media_library/${originalOf}?fields=id,organization,file`, {
       headers: { Authorization: `Bearer ${session.accessToken}` },
     });
@@ -330,6 +329,12 @@ export async function GET(request: NextRequest) {
   const folder = searchParams.get('folder');
   const limit = Math.min(Number(searchParams.get('limit') || 48), 100);
   const offset = Number(searchParams.get('offset') || 0);
+
+  // VALIDIERUNG: "folder" ist optional (kein Ordner = Wurzel), aber wenn
+  // gesetzt, muss es ein echtes UUID sein.
+  if (folder && !isUuid(folder)) {
+    return NextResponse.json({ error: 'Ungültige Ordner-ID.' }, { status: 400 });
+  }
 
   const fields = [
     'id',
@@ -384,6 +389,14 @@ export async function POST(request: NextRequest) {
 
   const formData = await request.formData();
   const folderId = (formData.get('folder') as string) || null;
+
+  // VALIDIERUNG: folderId landet direkt als Filter-Wert in Directus-Calls
+  // weiter unten (media_library POST-Body) und wurde bisher ungeprüft
+  // übernommen.
+  if (folderId && !isUuid(folderId)) {
+    return NextResponse.json({ error: 'Ungültige Ordner-ID.' }, { status: 400 });
+  }
+
   const imageCount = Number(formData.get('image_count') || 0);
   const headers = { Authorization: `Bearer ${session.accessToken}`, 'Content-Type': 'application/json' };
   const created: string[] = [];
@@ -468,7 +481,17 @@ export async function PATCH(request: NextRequest) {
   if (!session) return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
 
   const { id, display_name, folder } = await request.json().catch(() => ({}));
-  if (!id) return NextResponse.json({ error: 'Keine ID.' }, { status: 400 });
+
+  // VALIDIERUNG: "id" bestimmt DIREKT, welcher Datensatz verändert wird --
+  // ohne Prüfung landet ein beliebiger Wert unkontrolliert in der URL.
+  if (!isUuid(id)) {
+    return NextResponse.json({ error: 'Ungültige ID.' }, { status: 400 });
+  }
+  // "folder" darf null sein (= zurück in die Wurzel), sonst muss es ein
+  // echtes UUID sein.
+  if (folder !== undefined && !isUuidOrNull(folder)) {
+    return NextResponse.json({ error: 'Ungültige Ordner-ID.' }, { status: 400 });
+  }
 
   const patch: Record<string, unknown> = {};
   if (typeof display_name === 'string') patch.display_name = display_name.trim();
@@ -476,7 +499,10 @@ export async function PATCH(request: NextRequest) {
 
   const res = await fetch(`${DIRECTUS_URL}/items/media_library/${id}`, {
     method: 'PATCH',
-    headers: { Authorization: `Bearer ${session.accessToken}`, 'Content-Type': 'application/json' },
+    headers: {
+      Authorization: `Bearer ${session.accessToken}`,
+      'Content-Type': 'application/json',
+    },
     body: JSON.stringify(patch),
   });
   if (!res.ok) {
@@ -492,7 +518,12 @@ export async function DELETE(request: NextRequest) {
   if (!session) return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
 
   const id = request.nextUrl.searchParams.get('id');
-  if (!id) return NextResponse.json({ error: 'Keine ID.' }, { status: 400 });
+
+  // VALIDIERUNG: "id" kommt aus dem Query-String und landet direkt als
+  // Pfadsegment in mehreren nachfolgenden Directus-Aufrufen.
+  if (!isUuid(id)) {
+    return NextResponse.json({ error: 'Ungültige ID.' }, { status: 400 });
+  }
 
   const headers = { Authorization: `Bearer ${session.accessToken}` };
   const jsonHeaders = { ...headers, 'Content-Type': 'application/json' };
