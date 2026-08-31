@@ -24,7 +24,6 @@ export default function PricingPlans({
   isLoggedIn = false,
   hasSubscription = false,
 }: {
-  /** Plan der angemeldeten Organisation, oder null für Besucher. */
   currentPlanId?: PlanId | null;
   isLoggedIn?: boolean;
   hasSubscription?: boolean;
@@ -37,9 +36,6 @@ export default function PricingPlans({
   const paidPlans = PLANS.slice(1);
 
   async function startCheckout(planId: PlanId) {
-    // Wer nicht angemeldet ist, kann kein Abo für eine Organisation
-    // abschließen -- es gäbe keine, der man es zuordnen könnte. Deshalb
-    // erst registrieren, dann buchen.
     if (!isLoggedIn) {
       router.push(`/registrieren?plan=${planId}`);
       return;
@@ -57,8 +53,6 @@ export default function PricingPlans({
       if (!res.ok || !body.url) {
         throw new Error(body.error ?? 'Bezahlvorgang konnte nicht gestartet werden.');
       }
-      // Vollständiger Seitenwechsel, kein router.push: Die Bezahlseite
-      // liegt auf einer fremden Domain.
       window.location.href = body.url;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Bezahlvorgang konnte nicht gestartet werden.');
@@ -96,14 +90,6 @@ export default function PricingPlans({
         </p>
       )}
 
-      {/* Der kostenlose Plan steht als breites Band ÜBER den Bezahlplänen,
-          nicht als fünfte Spalte daneben.
-          Zwei Gründe: Fünf gleich breite Spalten quetschen jede einzelne so
-          schmal, dass die Leistungslisten unlesbar werden. Und der freie
-          Plan konkurriert inhaltlich gar nicht mit den anderen -- er ist der
-          Einstieg, nicht die günstigste Option. Diese Rolle bildet ein
-          eigenes Band ehrlicher ab als eine Spalte, die preislich einfach
-          nur bei null anfängt. */}
       <div className="mb-8 flex flex-col gap-4 rounded-[20px] border border-line bg-white p-6 shadow-card sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -124,10 +110,7 @@ export default function PricingPlans({
         </div>
 
         {!isLoggedIn && (
-          
-            href="/registrieren"
-            className="flex-none rounded-full border border-line-strong bg-white px-5 py-2.5 text-center text-[13px] font-semibold text-ink transition-colors hover:border-ink"
-          >
+          <a href="/registrieren" className="flex-none rounded-full border border-line-strong bg-white px-5 py-2.5 text-center text-[13px] font-semibold text-ink transition-colors hover:border-ink">
             Kostenlos registrieren
           </a>
         )}
@@ -194,9 +177,6 @@ export default function PricingPlans({
         })}
       </div>
 
-      {/* Für kommunale Käufer die wichtigste Information auf der ganzen
-          Seite -- viele dürfen nicht per Karte zahlen. Steht deshalb
-          unmittelbar unter den Plänen und nicht im Impressum. */}
       <div className="mt-8 rounded-[16px] border border-line bg-panel/60 p-5">
         <h3 className="text-[13px] font-semibold text-ink">Zahlung und Rechnung</h3>
         <p className="mt-2 max-w-[720px] text-[12.5px] leading-[1.7] text-ink-2">
