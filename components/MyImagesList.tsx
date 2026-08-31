@@ -97,7 +97,7 @@ export default function MyImagesList({
                   post.is_public ? 'bg-ink text-white' : 'bg-white text-ink-2'
                 }`}
               >
-                {post.is_public ? 'Öffentlich' : 'Entwurf'}
+                {post.is_public ? 'Öffentlich' : 'Privat'}
               </span>
               {imageCount > 1 && (
                 <span className="absolute bottom-2 left-2 rounded-[4px] bg-ink/80 px-1.5 py-0.5 font-mono text-[10px] text-white">
