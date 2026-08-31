@@ -11,6 +11,13 @@ import { getPlan, type PlanId } from './plans';
 
 const STRIPE_API = 'https://api.stripe.com/v1';
 
+// Version angehoben: Managed Payments (das neuere Checkout-Modell, das auf
+// diesem Account aktiv ist) verlangt mindestens 2025-03-31.basil. Eine
+// ältere Version lehnt managed_payments[enabled] als unbekannten Parameter
+// ab -- der eigentliche Grund für den vorherigen Fehler war also nicht nur
+// der fehlende Parameter, sondern auch der zu alte Versions-Header.
+const STRIPE_API_VERSION = '2025-03-31.basil';
+
 function secretKey(): string {
   const key = process.env.STRIPE_SECRET_KEY;
   if (!key) throw new Error('STRIPE_SECRET_KEY fehlt.');
@@ -53,7 +60,7 @@ async function stripeRequest<T>(
     headers: {
       Authorization: `Bearer ${secretKey()}`,
       'Content-Type': 'application/x-www-form-urlencoded',
-      'Stripe-Version': '2024-06-20',
+      'Stripe-Version': STRIPE_API_VERSION,
     },
     body: method === 'POST' ? body : undefined,
     cache: 'no-store',
@@ -83,19 +90,21 @@ export type StripeSession = { id: string; url: string };
 
 // Legt eine gehostete Bezahlseite an.
 //
-// KEIN payment_method_types-Parameter mehr.
+// MANAGED PAYMENTS (auf diesem Account aktiv): Stripe übernimmt Auswahl
+// und Anzeige der Zahlungsarten selbst -- basierend auf den in
+// Einstellungen -> Zahlungsmethoden aktivierten Wegen (dort SEPA-
+// Lastschrift aktivieren, sonst sehen die Vereine nur Kartenzahlung).
 //
-// Der Account hat "Managed Payments" aktiv (Stripes neueres Modell): Damit
-// entscheidet Stripe selbst, welche Zahlungsarten je nach Kunden-Land,
-// Währung und den Einstellungen im Dashboard angezeigt werden. Der manuelle
-// Parameter kollidiert damit und wird von der API mit einem Fehler
-// abgelehnt ("Unsupported parameter: payment_method_types").
-//
-// SEPA-Lastschrift -- für Vereine und kommunale Einrichtungen der
-// wichtigste Zahlweg neben der Karte -- wird dadurch NICHT automatisch
-// verschwinden, muss aber im Dashboard aktiviert sein:
-// Einstellungen -> Zahlungsmethoden -> SEPA-Lastschrift einschalten.
-// Ohne das zeigt Managed Payments den Kunden ggf. nur Kartenzahlung an.
+// Mit diesem Modell lehnt die API eine ganze Reihe Parameter ab, die im
+// klassischen Checkout normal waren. Bewusst NICHT mehr gesetzt:
+// payment_method_types, tax_id_collection, automatic_tax,
+// payment_method_options, payment_method_configuration,
+// customer_update[name/address], shipping_*, subscription_data.
+// default_tax_rates/application_fee_percent/on_behalf_of/transfer_data/
+// invoice_settings. Wird künftig einer davon wieder gebraucht (z.B. USt-ID-
+// Erfassung fürs Reverse-Charge-Verfahren), muss das über einen anderen Weg
+// laufen -- laut Stripes eigener Doku entweder ohne Managed Payments oder
+// über die separate Tax-ID-Erfassung im Kundenportal nach dem Kauf.
 export async function createCheckoutSession(args: {
   planId: PlanId;
   organizationId: string;
@@ -118,7 +127,7 @@ export async function createCheckoutSession(args: {
     cancel_url: args.cancelUrl,
     locale: 'de',
     billing_address_collection: 'required',
-    'tax_id_collection[enabled]': 'true',
+    'managed_payments[enabled]': 'true',
     'metadata[organization_id]': args.organizationId,
     'metadata[plan_id]': args.planId,
     'subscription_data[metadata][organization_id]': args.organizationId,
