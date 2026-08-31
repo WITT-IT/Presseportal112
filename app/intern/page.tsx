@@ -2,11 +2,7 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { getCurrentUser, isAdministrator, SESSION_COOKIE } from '@/lib/auth';
-import {
-  getMyOrganizationImages,
-  getMyFoldersWithPostIds,
-  getMyMediaShares,
-} from '@/lib/queries';
+import { getMyOrganizationImages, getMyMediaShares } from '@/lib/queries';
 import MediaLibraryView from '@/components/MediaLibraryView';
 
 export const dynamic = 'force-dynamic';
@@ -63,9 +59,15 @@ export default async function InternPage() {
     );
   }
 
-  const [posts, foldersWithPostIds, mediaShares] = await Promise.all([
+  // getMyFoldersWithPostIds ist hier entfallen: Die Funktion lieferte pro
+  // Ordner die Liste zugeordneter Beitrags-IDs aus der Zwischentabelle
+  // folders_posts -- also die Beitrag-zu-Ordner-Zuordnung, die es seit der
+  // Umstellung nicht mehr gibt. Ordner ordnen ausschließlich
+  // Bibliotheksbilder über media_library.folder. Damit ist auch die
+  // Abfrage überflüssig und spart bei jedem Aufruf dieses Dashboards
+  // einen Directus-Roundtrip.
+  const [posts, mediaShares] = await Promise.all([
     getMyOrganizationImages(session.accessToken, user.organization.id),
-    getMyFoldersWithPostIds(session.accessToken, user.organization.id),
     getMyMediaShares(session.accessToken, user.organization.id),
   ]);
 
@@ -113,7 +115,7 @@ export default async function InternPage() {
       </section>
 
       <div className="px-6 pt-6 nav:px-10">
-        <MediaLibraryView posts={posts} folders={foldersWithPostIds} mediaShares={mediaSharesForPicker} />
+        <MediaLibraryView posts={posts} mediaShares={mediaSharesForPicker} />
       </div>
     </div>
   );
