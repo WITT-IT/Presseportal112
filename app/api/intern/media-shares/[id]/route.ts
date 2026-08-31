@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { SESSION_COOKIE } from '@/lib/auth';
 import { DIRECTUS_URL } from '@/lib/directus';
+import { isUuid } from '@/lib/validate';
 
 function getSession(request: NextRequest) {
   const raw = request.cookies.get(SESSION_COOKIE)?.value;
@@ -21,6 +22,16 @@ export async function PATCH(
     return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
   }
   const { id } = await params;
+
+  // VALIDIERUNG: "id" kommt aus dem URL-Pfad. Als Pfadsegment ist eine
+  // Injection über Query-Parameter zwar nicht direkt möglich, aber die
+  // Prüfung ist die gleiche billige Versicherung wie überall sonst -- und
+  // sorgt für ein sauberes 400 statt eines rohen Directus-Fehlers, falls
+  // hier je ein falscher Wert ankommt.
+  if (!isUuid(id)) {
+    return NextResponse.json({ error: 'Ungültige ID.' }, { status: 400 });
+  }
+
   const body = await request.json().catch(() => ({}));
 
   const patch: Record<string, unknown> = {};
@@ -69,6 +80,10 @@ export async function DELETE(
     return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
   }
   const { id } = await params;
+
+  if (!isUuid(id)) {
+    return NextResponse.json({ error: 'Ungültige ID.' }, { status: 400 });
+  }
 
   const res = await fetch(`${DIRECTUS_URL}/items/media_shares/${id}`, {
     method: 'DELETE',
