@@ -4,7 +4,6 @@ import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
 import { getFolderContents, getMyOrganizationImages, getMyMediaShares } from '@/lib/queries';
 import { getOrgStorageInfo } from '@/lib/orgStorage';
 import MediaBrowser from '@/components/MediaBrowser';
-import StorageUsageBar from '@/components/StorageUsageBar';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,71 +37,26 @@ export default async function MedienPage({
     getOrgStorageInfo(session.accessToken, user.organization.id),
   ]);
 
-  const folderCount = contents.subfolders.length;
-  const itemCount = contents.items.length;
-
+  // Die Seite hält bewusst KEINE eigene Kopfzeile mehr. Vorher lag der Hero
+  // (Eyebrow, Titel, Kennzahlen, Speicherkarte) hier und die Aktionsleiste
+  // in MediaBrowser -- zwei Kopfzonen aus zwei Dateien, die zusammen
+  // gestapelt wurden und optisch nie zusammengehörten. Jetzt rendert
+  // MediaBrowser Kopf UND Inhalt als eine Einheit; die Seite lädt nur noch
+  // Daten. Der negative Rand zieht das Layout bündig unter die TopNav,
+  // identisch zu app/intern/page.tsx.
   return (
-    <div className="-mx-6 -mt-6 nav:-mx-10">
-      {/* Hero-Header im Bildarchiv-Stil: heller Verlauf, Glas-Kacheln für
-          die Kennzahlen -- übernimmt bewusst dieselbe Sprache wie
-          app/bildarchiv/page.tsx, nur mit Ordner/Bilder statt
-          Einsätze/Stockfotos als Kennzahlen und Aktionen statt Suche.
-
-          Der Ordnerpfad wird hier NICHT mehr gerendert. Er lebt jetzt in
-          MediaBrowser, direkt über dem Raster auf einer Zeile mit dem
-          Zurück-Button -- dort, wo auch navigiert wird. Im Hero war er
-          eine eigene weiße Leiste und damit ein optisch schweres Element
-          für eine reine Ortsangabe, die die Headline darunter ohnehin
-          schon nennt. contents.breadcrumb wird stattdessen als Prop
-          durchgereicht. */}
-      <section className="border-b border-line/70 bg-gradient-to-b from-white via-paper to-paper px-6 pb-8 pt-6 nav:px-10 nav:pt-8">
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-          <div className="max-w-2xl">
-            <span className="inline-flex items-center rounded-full bg-white/80 px-3 py-1 text-xs font-medium uppercase tracking-[0.16em] text-ink-2 shadow-sm">
-              Medienbibliothek
-            </span>
-            <h1 className="mt-4 font-display text-[clamp(28px,4vw,42px)] leading-[0.95] text-ink">
-              {contents.folder?.name ?? 'Alle Medien'}
-            </h1>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3 sm:min-w-[260px]">
-            <div className="rounded-2xl bg-white/90 px-4 py-3 shadow-card">
-              <div className="text-xs uppercase tracking-[0.14em] text-ink-3">Ordner</div>
-              <div className="mt-1 font-mono text-xl font-semibold text-ink">{folderCount}</div>
-            </div>
-            <div className="rounded-2xl bg-white/90 px-4 py-3 shadow-card">
-              <div className="text-xs uppercase tracking-[0.14em] text-ink-3">Bilder hier</div>
-              <div className="mt-1 font-mono text-xl font-semibold text-ink">{itemCount}</div>
-            </div>
-          </div>
-        </div>
-
-        {/* Speicherverbrauch -- eigene volle Zeile statt einer dritten
-            Kennzahlen-Kachel, weil der Balken mehr Breite braucht als eine
-            reine Zahl. Zeigt organisationsweiten Gesamtverbrauch (nicht nur
-            den aktuellen Ordner), deshalb bewusst als Fußzeile der ganzen
-            Hero-Sektion statt neben "Bilder hier". */}
-        <div className="mt-5 max-w-md rounded-2xl bg-white/90 px-4 py-3 shadow-card">
-          <div className="mb-1.5 text-[11px] uppercase tracking-[0.14em] text-ink-3">
-            Speicherplatz (gesamte Organisation)
-          </div>
-          <StorageUsageBar usedBytes={storage.usedBytes} limitBytes={storage.limitBytes} />
-        </div>
-      </section>
-
-      <div className="px-6 pt-6 nav:px-10">
-        <MediaBrowser
-          currentFolderId={folder ?? null}
-          parentFolderId={contents.folder?.parent_folder ?? null}
-          breadcrumb={contents.breadcrumb}
-          subfolders={contents.subfolders}
-          items={contents.items}
-          calendarPosts={calendarPosts}
-          mediaShares={mediaShares.map((s) => ({ id: s.id, name: s.name }))}
-          storageStatus={{ usedBytes: storage.usedBytes, limitBytes: storage.limitBytes }}
-        />
-      </div>
+    <div className="-mx-6 -mt-10 nav:-mx-10 nav:-mt-12">
+      <MediaBrowser
+        currentFolderId={folder ?? null}
+        parentFolderId={contents.folder?.parent_folder ?? null}
+        folderName={contents.folder?.name ?? null}
+        breadcrumb={contents.breadcrumb}
+        subfolders={contents.subfolders}
+        items={contents.items}
+        calendarPosts={calendarPosts}
+        mediaShares={mediaShares.map((s) => ({ id: s.id, name: s.name }))}
+        storageStatus={{ usedBytes: storage.usedBytes, limitBytes: storage.limitBytes }}
+      />
     </div>
   );
 }
