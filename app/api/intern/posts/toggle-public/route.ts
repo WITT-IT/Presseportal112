@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
 import { DIRECTUS_URL } from '@/lib/directus';
+import { isUuid } from '@/lib/validate';
 
 function getSession(request: NextRequest): { accessToken: string } | null {
   const raw = request.cookies.get(SESSION_COOKIE)?.value;
@@ -14,12 +15,6 @@ function getSession(request: NextRequest): { accessToken: string } | null {
 
 // POST /api/intern/posts/toggle-public
 // Body: { postId: string, makePublic: boolean }
-//
-// Schaltet öffentlich/privat um. is_public ist die einzige Quelle der
-// Wahrheit -- keine Ordner-Verschieberei mehr. Die watermarked
-// Datei-Kopien liegen seit der Veröffentlichung (/api/intern/upload)
-// bereits im richtigen Directus-Datei-Ordner für die Public-Policy; hier
-// wird nur noch umgeschaltet, welche image-Felder öffentlich zeigen.
 export async function POST(request: NextRequest) {
   const session = getSession(request);
   if (!session) return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
@@ -32,6 +27,14 @@ export async function POST(request: NextRequest) {
   const { postId, makePublic } = await request.json().catch(() => ({}));
   if (!postId || typeof makePublic !== 'boolean') {
     return NextResponse.json({ error: 'Ungültige Parameter.' }, { status: 400 });
+  }
+
+  // ECHTE INJECTION-FLÄCHE: postId landet unten zweimal als Pfadsegment in
+  // Directus-URLs (posts/${postId} und indirekt über die Bild-IDs, die
+  // aber aus Directus' eigener Antwort stammen und daher schon vertrauens-
+  // würdig sind).
+  if (!isUuid(postId)) {
+    return NextResponse.json({ error: 'Ungültige ID.' }, { status: 400 });
   }
 
   const headers = {
@@ -67,8 +70,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Beitrag konnte nicht aktualisiert werden.' }, { status: 500 });
   }
 
-  // Sichtbare Feldwerte an allen Bildern nachziehen: öffentlich → zeigen auf
-  // die schon vorhandenen watermarked Varianten, privat → auf null.
   const images = (post?.images ?? []) as {
     id: string;
     file_public_preview_watermarked: string | null;
