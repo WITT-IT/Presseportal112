@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
 import { DIRECTUS_URL } from '@/lib/directus';
 import { serviceHeaders } from '@/lib/messaging';
+import { isUuid } from '@/lib/validate';
 
 export async function DELETE(
   request: NextRequest,
@@ -27,6 +28,12 @@ export async function DELETE(
   }
 
   const { id } = await params;
+
+  // ECHTE INJECTION-FLÄCHE: id landet unten zweimal als Pfadsegment, mit
+  // dem Service-Token.
+  if (!isUuid(id)) {
+    return NextResponse.json({ error: 'Ungültige ID.' }, { status: 400 });
+  }
 
   let headers;
   try {
