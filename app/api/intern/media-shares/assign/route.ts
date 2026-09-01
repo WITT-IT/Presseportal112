@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { SESSION_COOKIE } from '@/lib/auth';
 import { DIRECTUS_URL } from '@/lib/directus';
+import { isUuid } from '@/lib/validate';
 
 function getSession(request: NextRequest): { accessToken: string } | null {
   const raw = request.cookies.get(SESSION_COOKIE)?.value;
@@ -13,8 +14,10 @@ function getSession(request: NextRequest): { accessToken: string } | null {
 }
 
 // Sammelt alle media_library-IDs im Ordner UND rekursiv in allen
-// Unterordnern, egal wie tief verschachtelt (Ordner in Ordner in Ordner …).
-// Gleiches Muster wie collectSubtree beim Ordner-Löschen.
+// Unterordnern. WICHTIG: folderId wird vom Aufrufer (POST unten) bereits
+// validiert, bevor diese Funktion aufgerufen wird. Innerhalb der Schleife
+// stammen alle weiteren IDs aus Directus' eigener Antwort, nicht mehr vom
+// Client -- dort ist keine erneute Prüfung nötig.
 async function collectMediaIdsRecursive(folderId: string, accessToken: string): Promise<string[]> {
   const headers = { Authorization: `Bearer ${accessToken}` };
   const mediaIds: string[] = [];
@@ -53,14 +56,30 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'postId, mediaId oder folderId erforderlich.' }, { status: 400 });
   }
 
+  // ECHTE INJECTION-FLÄCHE: alle vier IDs landen unten mehrfach als
+  // Pfadsegment bzw. Filter-Wert in Directus-URLs. Nur die tatsächlich
+  // übergebenen Felder werden geprüft -- ansonsten würde z.B. "postId"
+  // fälschlich als Pflichtfeld verlangt, obwohl gerade ein Ordner oder
+  // ein Bibliotheksbild gemeint ist.
+  if (!isUuid(shareId)) {
+    return NextResponse.json({ error: 'Ungültige Freigabe-ID.' }, { status: 400 });
+  }
+  if (postId !== undefined && postId !== null && !isUuid(postId)) {
+    return NextResponse.json({ error: 'Ungültige Beitrags-ID.' }, { status: 400 });
+  }
+  if (mediaId !== undefined && mediaId !== null && !isUuid(mediaId)) {
+    return NextResponse.json({ error: 'Ungültige Bild-ID.' }, { status: 400 });
+  }
+  if (folderId !== undefined && folderId !== null && !isUuid(folderId)) {
+    return NextResponse.json({ error: 'Ungültige Ordner-ID.' }, { status: 400 });
+  }
+
   const headers = {
     Authorization: `Bearer ${session.accessToken}`,
     'Content-Type': 'application/json',
   };
 
-  // Kompletten Ordner (inkl. aller Unterordner-Ebenen) freigeben -- sammelt
-  // erst alle Bild-IDs rekursiv ein, hängt dann jedes einzeln an, ohne
-  // schon vorhandene Bilder doppelt einzutragen.
+  // Kompletten Ordner (inkl. aller Unterordner-Ebenen) freigeben.
   if (folderId) {
     let mediaIds: string[];
     try {
@@ -98,9 +117,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, added, total: mediaIds.length });
   }
 
-  // Einzelnes Bibliotheks-Bild -- gleiche Route wie Beiträge, um die
-  // Next.js-Standalone-Build-Route-Problematik zu umgehen (neue route.ts-
-  // Dateien landen manchmal nicht im routes-manifest.json -> 405).
+  // Einzelnes Bibliotheks-Bild.
   if (mediaId) {
     if (action === 'add') {
       const res = await fetch(`${DIRECTUS_URL}/items/media_shares_media`, {
@@ -131,7 +148,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
-  // Beitrags-Zuordnung -- unverändert wie bisher.
+  // Beitrags-Zuordnung.
   if (action === 'add') {
     const res = await fetch(`${DIRECTUS_URL}/items/media_shares_posts`, {
       method: 'POST',
