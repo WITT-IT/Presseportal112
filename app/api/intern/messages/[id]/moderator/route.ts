@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
 import { DIRECTUS_URL } from '@/lib/directus';
 import { getActiveParticipant, serviceHeaders } from '@/lib/messaging';
+import { isUuid } from '@/lib/validate';
 
 export async function POST(
   request: NextRequest,
@@ -34,6 +35,12 @@ export async function POST(
       { error: 'Bitte eine neue Moderationsorganisation auswählen.' },
       { status: 400 }
     );
+  }
+
+  // ECHTE INJECTION-FLÄCHE: beide IDs landen unten mehrfach als
+  // Pfadsegment, mit dem Service-Token.
+  if (!isUuid(conversationId) || !isUuid(newModeratorOrganizationId)) {
+    return NextResponse.json({ error: 'Ungültige ID.' }, { status: 400 });
   }
 
   let headers;
