@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { DIRECTUS_URL } from '@/lib/directus';
 import { sendContactEmail } from '@/lib/email';
+import { isUuidOrNull } from '@/lib/validate';
 
 // Nutzt einen Dienst-Token (voller Zugriff), NICHT die öffentliche Directus-
 // Anbindung -- contact_email ist absichtlich für niemanden sonst lesbar,
@@ -60,6 +61,13 @@ export async function POST(request: NextRequest) {
 
   if (!vorname || !nachname || !subject || !message) {
     return NextResponse.json({ error: 'Bitte alle Pflichtfelder ausfüllen.' }, { status: 400 });
+  }
+
+  // ECHTE INJECTION-FLÄCHE: recipient_organization landet weiter unten
+  // als Pfadsegment in getOrganizationContact(), mit dem Service-Token --
+  // und dieser gesamte Endpunkt ist öffentlich, ohne Anmeldung erreichbar.
+  if (!isUuidOrNull(recipient_organization)) {
+    return NextResponse.json({ error: 'Ungültige Empfänger-Organisation.' }, { status: 400 });
   }
 
   if (process.env.TURNSTILE_SECRET_KEY) {
