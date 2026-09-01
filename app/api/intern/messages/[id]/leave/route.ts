@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
 import { DIRECTUS_URL } from '@/lib/directus';
 import { getActiveParticipant, serviceHeaders } from '@/lib/messaging';
+import { isUuid } from '@/lib/validate';
 
 export async function POST(
   request: NextRequest,
@@ -29,6 +30,12 @@ export async function POST(
 
   const { id: conversationId } = await params;
 
+  // ECHTE INJECTION-FLÄCHE: conversationId landet unten mehrfach als
+  // Pfadsegment bzw. Filter-Wert, mit dem Service-Token.
+  if (!isUuid(conversationId)) {
+    return NextResponse.json({ error: 'Ungültige ID.' }, { status: 400 });
+  }
+
   let headers;
   try {
     headers = serviceHeaders();
@@ -42,8 +49,6 @@ export async function POST(
   }
 
   try {
-    // Ist die eigene Organisation Moderation UND gibt es noch andere aktive
-    // Teilnehmer -- dann muss zuerst übertragen werden.
     if (caller.is_moderator) {
       const othersRes = await fetch(
         `${DIRECTUS_URL}/items/conversation_participants?filter[conversation][_eq]=${conversationId}&filter[left_at][_null]=true&filter[organization][_neq]=${user.organization.id}&fields=id&limit=1`,
