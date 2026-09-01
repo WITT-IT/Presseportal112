@@ -3,15 +3,8 @@ import { cookies } from 'next/headers';
 import { getCurrentUser, isAdministrator, SESSION_COOKIE } from '@/lib/auth';
 import { DIRECTUS_URL } from '@/lib/directus';
 import { recalculateOrgStorage } from '@/lib/storageRecalc';
+import { isUuid } from '@/lib/validate';
 
-// POST /api/admin/organizations/recalculate-storage
-// Body: { organizationId }
-//
-// Sofort-Reparaturknopf für einen einzelnen Fall (z.B. "Kunde ruft gerade
-// an und beschwert sich"). Für den Regelfall läuft die gleiche Logik
-// automatisch als wöchentlicher Job über alle Organisationen -- siehe
-// app/api/cron/recalculate-storage/route.ts. Beide nutzen dieselbe
-// Kernfunktion aus lib/storageRecalc.ts.
 export async function POST(request: NextRequest) {
   const cookieStore = await cookies();
   const raw = cookieStore.get(SESSION_COOKIE)?.value;
@@ -37,6 +30,11 @@ export async function POST(request: NextRequest) {
   const { organizationId } = await request.json().catch(() => ({}));
   if (!organizationId) {
     return NextResponse.json({ error: 'organizationId ist erforderlich.' }, { status: 400 });
+  }
+  // ECHTE INJECTION-FLÄCHE: organizationId landet als Pfadsegment, mit dem
+  // Service-Token.
+  if (!isUuid(organizationId)) {
+    return NextResponse.json({ error: 'Ungültige Organisations-ID.' }, { status: 400 });
   }
 
   const serviceToken = process.env.DIRECTUS_SERVICE_TOKEN;
