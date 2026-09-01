@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
 import { DIRECTUS_URL } from '@/lib/directus';
 import { getActiveParticipant, serviceHeaders } from '@/lib/messaging';
+import { isUuid } from '@/lib/validate';
 
 export async function POST(
   request: NextRequest,
@@ -30,6 +31,18 @@ export async function POST(
     [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email || null;
 
   const { id: conversationId } = await params;
+
+  // ECHTE INJECTION-FLÄCHE: conversationId landet unten mehrfach als
+  // Pfadsegment in Directus-URLs (conversations/${conversationId} beim
+  // PATCH), mit dem Service-Token. getActiveParticipant() prüft zwar
+  // vorher die Berechtigung, aber diese Prüfung selbst könnte bei einem
+  // manipulierten Wert ins Leere laufen statt sauber "keine Berechtigung"
+  // zu liefern -- die Validierung gehört an den Anfang, nicht erst
+  // implizit über eine andere Funktion.
+  if (!isUuid(conversationId)) {
+    return NextResponse.json({ error: 'Ungültige ID.' }, { status: 400 });
+  }
+
   const { message } = await request.json().catch(() => ({}));
   const messageTrimmed = String(message || '').trim();
   if (!messageTrimmed) {
