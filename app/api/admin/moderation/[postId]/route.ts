@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser, isAdministrator, SESSION_COOKIE } from '@/lib/auth';
 import { DIRECTUS_URL } from '@/lib/directus';
+import { isUuid } from '@/lib/validate';
 
 function normalizeIdArray(raw: unknown): string[] {
   if (!raw) return [];
@@ -37,6 +38,14 @@ export async function DELETE(
   }
 
   const { postId } = await params;
+
+  // ECHTE INJECTION-FLÄCHE: postId landet als Pfadsegment UND als
+  // Filter-Wert (filter[posts_id][_eq]=${postId}) weiter unten, mit dem
+  // Service-Token -- portalweiter Löschzugriff.
+  if (!isUuid(postId)) {
+    return NextResponse.json({ error: 'Ungültige ID.' }, { status: 400 });
+  }
+
   const serviceToken = process.env.DIRECTUS_SERVICE_TOKEN;
   if (!serviceToken) {
     console.error('Beitrag löschen (Moderation): DIRECTUS_SERVICE_TOKEN fehlt.');
@@ -64,12 +73,6 @@ export async function DELETE(
     }
     const { data: post } = await postRes.json();
 
-    // Physische Dateien NUR für direkt hochgeladene Bilder löschen --
-    // Bibliotheks-Bilder (source_media_id gesetzt) gehören der Bibliothek
-    // und werden hier nicht angefasst, nur ihre used_in_posts-Liste
-    // nachgeführt (siehe unten). Genau diese Nachführung hat vorher
-    // gefehlt und exakt die Geister-Referenzen erzeugt, die wir gerade
-    // manuell in Directus gefunden haben.
     for (const img of post.images || []) {
       if (img.source_media_id) continue;
       const fileIds = [img.file_original, img.file_public_preview, img.file_download].filter(
@@ -91,7 +94,6 @@ export async function DELETE(
       }).catch(() => {});
     }
 
-    // Zugehörige Ordner- UND Freigabe-Zuordnungen mit aufräumen.
     for (const junction of ['folders_posts', 'media_shares_posts']) {
       await fetch(`${DIRECTUS_URL}/items/${junction}?filter[posts_id][_eq]=${postId}&fields=id`, {
         headers: adminHeaders,
@@ -116,8 +118,6 @@ export async function DELETE(
       throw new Error(`Beitrag konnte nicht gelöscht werden (Status ${deletePostRes.status})`);
     }
 
-    // Bibliotheks-Items nachführen: postId aus used_in_posts entfernen --
-    // das ist der Teil, der vorher komplett fehlte.
     const mediaLibraryIds = Array.from(
       new Set(
         (post.images || [])
