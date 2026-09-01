@@ -3,17 +3,9 @@ import { cookies } from 'next/headers';
 import { getCurrentUser, isAdministrator, SESSION_COOKIE } from '@/lib/auth';
 import { DIRECTUS_URL } from '@/lib/directus';
 import { STORAGE_TIERS, storageLimitForTier } from '@/lib/storage';
+import { isUuid } from '@/lib/validate';
 import type { StorageTier } from '@/lib/types';
 
-// POST /api/admin/organizations/storage-tier
-// Body: { organizationId, tier }
-//
-// Patcht storage_tier UND storage_limit_bytes immer gemeinsam in einer
-// einzigen Anfrage -- nie getrennt, damit die beiden Felder nie
-// auseinanderlaufen können (Label sagt "Stufe 2", tatsächliches Limit
-// steht aber noch auf Stufe 1 o.ä.). storage_used_bytes wird hier bewusst
-// nicht angefasst -- ein Tier-Wechsel ändert nichts am tatsächlichen
-// Verbrauch, nur am Limit.
 export async function POST(request: NextRequest) {
   const cookieStore = await cookies();
   const raw = cookieStore.get(SESSION_COOKIE)?.value;
@@ -39,6 +31,12 @@ export async function POST(request: NextRequest) {
   const { organizationId, tier } = await request.json().catch(() => ({}));
   if (!organizationId || !tier) {
     return NextResponse.json({ error: 'organizationId und tier sind erforderlich.' }, { status: 400 });
+  }
+  // ECHTE INJECTION-FLÄCHE: organizationId landet als Pfadsegment in einem
+  // PATCH mit dem Service-Token -- voller Schreibzugriff auf JEDE
+  // Organisation.
+  if (!isUuid(organizationId)) {
+    return NextResponse.json({ error: 'Ungültige Organisations-ID.' }, { status: 400 });
   }
   if (!(tier in STORAGE_TIERS)) {
     return NextResponse.json({ error: 'Ungültige Speicherstufe.' }, { status: 400 });
