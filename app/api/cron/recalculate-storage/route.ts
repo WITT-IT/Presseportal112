@@ -1,27 +1,23 @@
+import { timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { DIRECTUS_URL } from '@/lib/directus';
 import { recalculateOrgStorage } from '@/lib/storageRecalc';
 
 export const dynamic = 'force-dynamic';
-// Kann bei vielen Organisationen ein paar Minuten dauern (pro Organisation
-// mehrere Directus-Requests) -- sicherheitshalber explizit hochgesetzt.
 export const maxDuration = 300;
 
-// GET /api/cron/recalculate-storage?secret=...
-//
-// Wöchentlicher automatischer Lauf: geht ALLE Organisationen durch und
-// berechnet ihren Speicherverbrauch aus den echten Directus-Dateigrößen
-// neu -- korrigiert stillschweigende Drift im additiv geführten Zähler
-// (siehe app/api/intern/library/route.ts), ohne dass ein Admin manuell
-// eingreifen muss. Genau die Automatisierung, die ein produktiv
-// verkauftes Speicherlimit-Feature braucht statt eines reinen "hoffentlich
-// klickt das mal jemand"-Buttons.
-//
-// KEIN Session-Cookie-Schutz wie bei den Admin-Routen -- hier ruft kein
-// eingeloggter Mensch auf, sondern Coolifys Scheduler. Schutz stattdessen
-// über ein Secret in der URL, das nur im Coolify-Scheduler hinterlegt ist.
-// Läuft bewusst über GET (nicht POST), weil die meisten Cron-Scheduler
-// (inkl. Coolify) primär einfache GET-Requests gegen eine URL feuern.
+// Zeitkonstanter Vergleich statt "!==": Ein einfacher Vergleich bricht
+// beim ersten abweichenden Zeichen ab, wodurch sich über die Antwortzeit
+// theoretisch Rückschlüsse auf das korrekte Secret ziehen ließen. Bei
+// einem langen Zufalls-Secret ist das Risiko in der Praxis gering, aber
+// die Absicherung ist eine Zeile und kostenlos.
+function secretsMatch(provided: string, expected: string): boolean {
+  const providedBuf = Buffer.from(provided, 'utf8');
+  const expectedBuf = Buffer.from(expected, 'utf8');
+  if (providedBuf.length !== expectedBuf.length) return false;
+  return timingSafeEqual(providedBuf, expectedBuf);
+}
+
 export async function GET(request: NextRequest) {
   const secret = request.nextUrl.searchParams.get('secret');
   const expectedSecret = process.env.CRON_SECRET;
@@ -30,7 +26,7 @@ export async function GET(request: NextRequest) {
     console.error('Cron-Speicher-Neuberechnung: CRON_SECRET ist nicht konfiguriert.');
     return NextResponse.json({ error: 'Nicht konfiguriert.' }, { status: 500 });
   }
-  if (secret !== expectedSecret) {
+  if (!secret || !secretsMatch(secret, expectedSecret)) {
     return NextResponse.json({ error: 'Ungültiges Secret.' }, { status: 401 });
   }
 
@@ -52,12 +48,6 @@ export async function GET(request: NextRequest) {
   const results: { organizationName: string; difference: number; ok: boolean }[] = [];
   let errorCount = 0;
 
-  // Nacheinander statt Promise.all über alle Organisationen -- Directus
-  // bekommt sonst bei vielen Organisationen gleichzeitig sehr viele
-  // parallele Einzel-Datei-Requests (jede Organisation fragt selbst schon
-  // pro Bild einzeln ab) und könnte überlastet werden. Sequentiell dauert
-  // länger, ist aber verlässlicher für einen Hintergrund-Job ohne Nutzer,
-  // der ungeduldig auf eine Antwort wartet.
   for (const org of organizations as { id: string; name: string }[]) {
     try {
       const result = await recalculateOrgStorage(serviceToken, org.id, org.name);
