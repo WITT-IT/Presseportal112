@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser, isAdministrator, SESSION_COOKIE } from '@/lib/auth';
 import { DIRECTUS_URL } from '@/lib/directus';
 import { sendRegistrationApprovedEmail } from '@/lib/email';
+import { isUuid } from '@/lib/validate';
 
 async function requireAdmin(request: NextRequest) {
   const raw = request.cookies.get(SESSION_COOKIE)?.value;
@@ -28,8 +29,22 @@ export async function POST(
     return NextResponse.json({ error: 'Keine Berechtigung.' }, { status: 403 });
   }
   const { id } = await params;
+
+  // ECHTE INJECTION-FLÄCHE: id landet als Pfadsegment in /users/${id},
+  // mehrfach, mit dem Service-Token -- vollem Zugriff. Diese Route setzt
+  // außerdem status="active" auf beliebige Konten.
+  if (!isUuid(id)) {
+    return NextResponse.json({ error: 'Ungültige ID.' }, { status: 400 });
+  }
+
   const { organizationId, organizationName, newOrganizationName, newOrganizationGewerk } =
     await request.json().catch(() => ({}));
+
+  // EINGABEHYGIENE: organizationId landet unten ebenfalls als Pfadsegment
+  // bzw. als zu setzender Wert.
+  if (organizationId !== undefined && organizationId !== null && !isUuid(organizationId)) {
+    return NextResponse.json({ error: 'Ungültige Organisations-ID.' }, { status: 400 });
+  }
 
   const serviceToken = process.env.DIRECTUS_SERVICE_TOKEN;
   if (!serviceToken) {
@@ -45,10 +60,6 @@ export async function POST(
   let finalOrganizationName: string;
 
   if (newOrganizationName) {
-    // Neue Organisation direkt hier anlegen -- kein Umweg über Directus
-    // mehr nötig. Ob es eine BOS-Organisation oder eine Presse-Redaktion
-    // wird, entscheidet der ursprüngliche Registrierungstyp -- frisch aus
-    // Directus nachgeladen, nicht dem Client vertraut.
     const regRes = await fetch(`${DIRECTUS_URL}/users/${id}?fields=requested_account_type`, {
       headers: adminHeaders,
     });
@@ -103,10 +114,6 @@ export async function POST(
     return NextResponse.json({ error: 'Freigabe fehlgeschlagen.' }, { status: 500 });
   }
 
-  // Best-effort Benachrichtigung -- die Freigabe selbst ist zu diesem
-  // Zeitpunkt schon passiert und wird bei einem Mail-Fehler nicht
-  // rückgängig gemacht. Bewusst frisch von Directus nachgeladen statt dem
-  // Nutzer zu vertrauen, was der Browser mitschickt.
   try {
     const userRes = await fetch(`${DIRECTUS_URL}/users/${id}?fields=email,first_name`, {
       headers: adminHeaders,
@@ -137,6 +144,10 @@ export async function DELETE(
     return NextResponse.json({ error: 'Keine Berechtigung.' }, { status: 403 });
   }
   const { id } = await params;
+
+  if (!isUuid(id)) {
+    return NextResponse.json({ error: 'Ungültige ID.' }, { status: 400 });
+  }
 
   const serviceToken = process.env.DIRECTUS_SERVICE_TOKEN;
   if (!serviceToken) {
