@@ -1,6 +1,7 @@
 import JSZip from 'jszip';
 import { NextRequest, NextResponse } from 'next/server';
 import { DIRECTUS_URL, directusAssetUrl } from '@/lib/directus';
+import { isUuid } from '@/lib/validate';
 
 function sanitizeFilename(input: string): string {
   return (
@@ -12,9 +13,6 @@ function sanitizeFilename(input: string): string {
   );
 }
 
-// file_original ist -- anders als die frühere watermarkte Variante -- nicht
-// zwingend JPEG (Upload erlaubt auch PNG/WebP/GIF unverändert). Endung
-// darum aus dem tatsächlichen Content-Type ableiten statt .jpg zu erzwingen.
 function extensionFromContentType(contentType: string | null): string {
   switch (contentType) {
     case 'image/png':
@@ -29,12 +27,10 @@ function extensionFromContentType(contentType: string | null): string {
 }
 
 // Läuft komplett über den Service-Token statt der anonymen Public-Policy --
-// file_original ist bewusst NIE über die Public-Policy lesbar (Schutz vor
-// unautorisiertem Zugriff auf unwatermarkte Originale), wird hier also
+// file_original ist bewusst NIE über die Public-Policy lesbar, wird hier
 // server-seitig geladen und weitergereicht. Die is_public-Prüfung bleibt
-// unverändert bestehen: nur was ohnehin veröffentlicht ist, wird
-// ausgeliefert -- der Service-Token hebt nur die Feld-Beschränkung auf,
-// nicht die Sichtbarkeits-Prüfung selbst, die machen wir weiterhin explizit.
+// im Filter unverändert bestehen: der Service-Token hebt nur die
+// Feld-Beschränkung auf, nicht die Sichtbarkeits-Prüfung.
 export async function GET(request: NextRequest) {
   const serviceToken = process.env.DIRECTUS_SERVICE_TOKEN;
   if (!serviceToken) {
@@ -45,6 +41,18 @@ export async function GET(request: NextRequest) {
 
   const imageId = request.nextUrl.searchParams.get('imageId');
   const postId = request.nextUrl.searchParams.get('id');
+
+  // ECHTE INJECTION-FLÄCHE: beide IDs landen unten als Pfadsegment in
+  // Directus-URLs, mit dem Service-Token -- diese Route ist zudem
+  // öffentlich erreichbar, ohne Sitzungsprüfung. Nur die tatsächlich
+  // übergebene ID wird geprüft (die Route unterstützt zwei sich
+  // ausschließende Modi).
+  if (imageId && !isUuid(imageId)) {
+    return NextResponse.json({ error: 'Ungültige Bild-ID.' }, { status: 400 });
+  }
+  if (postId && !isUuid(postId)) {
+    return NextResponse.json({ error: 'Ungültige Beitrags-ID.' }, { status: 400 });
+  }
 
   // Zwei Modi:
   //   ?imageId=... -> genau dieses eine Foto (aus der Lightbox heraus)
