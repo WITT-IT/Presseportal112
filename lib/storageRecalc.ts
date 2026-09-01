@@ -1,4 +1,5 @@
 import { DIRECTUS_URL } from './directus';
+import { isUuid } from './validate';
 
 export type RecalcResult = {
   organizationId: string;
@@ -16,11 +17,24 @@ export type RecalcResult = {
 // vom automatischen wöchentlichen Job (app/api/cron/recalculate-storage)
 // genutzt -- eine einzige Quelle der Wahrheit statt zweier Implementierungen,
 // die mit der Zeit auseinanderlaufen könnten.
+//
+// VALIDIERUNG HIER, NICHT NUR BEIM AUFRUFER: organizationId landet unten
+// zweimal roh verkettet in Directus-URLs (Pfadsegment und Filter-Wert), mit
+// dem Service-Token -- vollem Schreibzugriff. Beide aktuellen Aufrufer
+// prüfen organizationId bereits selbst, bevor sie diese Funktion aufrufen
+// -- die Prüfung gehört trotzdem zusätzlich hierher, an die Stelle, die
+// den eigentlichen Directus-Zugriff durchführt. Sonst müsste jede künftige
+// neue Aufrufstelle dieselbe Prüfung erneut korrekt wiederholen, um sicher
+// zu sein.
 export async function recalculateOrgStorage(
   serviceToken: string,
   organizationId: string,
   organizationName: string
 ): Promise<RecalcResult> {
+  if (!isUuid(organizationId)) {
+    throw new Error(`recalculateOrgStorage: ungültige organizationId "${organizationId}".`);
+  }
+
   const headers = { Authorization: `Bearer ${serviceToken}` };
 
   const itemsRes = await fetch(
