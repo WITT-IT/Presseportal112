@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
 import { DIRECTUS_URL } from '@/lib/directus';
+import { isUuid } from '@/lib/validate';
 import sanitizeHtml from 'sanitize-html';
 
 const ARTICLE_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
@@ -64,24 +65,19 @@ async function createPost(
   headers: Record<string, string>,
   postBody: Record<string, unknown>
 ): Promise<{ ok: boolean; status: number; errorText: string | null }> {
-  console.log('[createPost] Sende POST /items/posts …');
   let res = await fetch(`${DIRECTUS_URL}/items/posts`, {
     method: 'POST',
     headers,
     body: JSON.stringify(postBody),
   });
-  console.log('[createPost] Erste Antwort erhalten, Status:', res.status);
 
   if (res.ok) {
-    console.log('[createPost] Erfolgreich beim ersten Versuch.');
     return { ok: true, status: res.status, errorText: null };
   }
 
   const firstErrorText = await res.text();
-  console.log('[createPost] Erster Versuch fehlgeschlagen. Body:', firstErrorText);
 
   if (res.status === 403 && firstErrorText.includes('post_type')) {
-    console.log('[createPost] post_type-Fallback wird versucht …');
     const retryBody = { ...postBody };
     delete retryBody.post_type;
     res = await fetch(`${DIRECTUS_URL}/items/posts`, {
@@ -89,17 +85,13 @@ async function createPost(
       headers,
       body: JSON.stringify(retryBody),
     });
-    console.log('[createPost] Fallback-Antwort, Status:', res.status);
     if (res.ok) {
-      console.log('[createPost] Fallback erfolgreich.');
       return { ok: true, status: res.status, errorText: null };
     }
     const retryErrorText = await res.text();
-    console.log('[createPost] Fallback ebenfalls fehlgeschlagen. Body:', retryErrorText);
     return { ok: false, status: res.status, errorText: retryErrorText };
   }
 
-  console.log('[createPost] Kein post_type-Fallback anwendbar, gebe ersten Fehler zurück.');
   return { ok: false, status: res.status, errorText: firstErrorText };
 }
 
@@ -118,6 +110,11 @@ export async function POST(request: NextRequest) {
   const sourceMediaId = (formData.get('source_media_id') as string) || '';
   if (!sourceMediaId) {
     return NextResponse.json({ error: 'source_media_id fehlt.' }, { status: 400 });
+  }
+  // ECHTE INJECTION-FLÄCHE: sourceMediaId landet unten dreimal als
+  // Pfadsegment in Directus-URLs (media_library/${sourceMediaId}).
+  if (!isUuid(sourceMediaId)) {
+    return NextResponse.json({ error: 'Ungültige Bild-ID.' }, { status: 400 });
   }
 
   const postTypeRaw = (formData.get('post_type') as string) || 'einsatz';
@@ -207,15 +204,12 @@ export async function POST(request: NextRequest) {
       published_at: makePublic ? now : null,
     };
 
-    console.log('[upload] Rufe createPost auf, postId:', postId);
     const postResult = await createPost(headers, postBody);
-    console.log('[upload] createPost zurückgekehrt:', postResult.ok ? 'OK' : `FEHLER Status ${postResult.status}: ${postResult.errorText}`);
 
     if (!postResult.ok) {
       throw new Error(`Beitrag anlegen fehlgeschlagen (Status ${postResult.status}): ${postResult.errorText}`);
     }
 
-    console.log('[upload] Post erfolgreich angelegt, lege jetzt Bild-Datensatz an …');
     const imageRes = await fetch(`${DIRECTUS_URL}/items/images`, {
       method: 'POST',
       headers,
@@ -233,10 +227,8 @@ export async function POST(request: NextRequest) {
         sort: 0,
       }),
     });
-    console.log('[upload] Bild-Datensatz-Antwort, Status:', imageRes.status);
     if (!imageRes.ok) {
       const imgErr = await imageRes.text();
-      console.log('[upload] Bild-Datensatz fehlgeschlagen. Body:', imgErr);
       throw new Error(`Bilddatensatz anlegen fehlgeschlagen: ${imgErr}`);
     }
 
@@ -263,7 +255,6 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify({ used_in_posts: [...new Set([...usedInPosts, postId])] }),
     }).catch(() => {});
 
-    console.log('[upload] Komplett erfolgreich, postId:', postId);
     return NextResponse.json({ ok: true, id: postId });
   } catch (error) {
     console.error('[upload] Veröffentlichen fehlgeschlagen:', error);
