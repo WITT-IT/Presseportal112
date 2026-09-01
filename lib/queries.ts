@@ -1,5 +1,6 @@
 import { readItem, readItems, readSingleton } from '@directus/sdk';
 import { directus, DIRECTUS_URL } from './directus';
+import { isUuid } from './validate';
 import type {
   Alarmcode,
   Gewerk,
@@ -131,7 +132,13 @@ export async function getMyOrganizationImages(
   return data;
 }
 
+// VALIDIERUNG ergänzt: "id" kommt hier über die SDK-Funktion readItem(),
+// die selbst nicht per roher Template-String-Verkettung angreifbar ist --
+// die Prüfung dient hier vor allem sauberen Fehlern statt eines
+// Directus-Fehlers, falls id (typischerweise aus einem dynamischen
+// Routensegment auf einer öffentlichen Seite) kein echtes UUID ist.
 export async function getPublicImageById(id: string): Promise<Post | null> {
+  if (!isUuid(id)) return null;
   try {
     const result = await directus.request(
       readItem('posts', id, { fields: PUBLIC_POST_FIELDS as unknown as string[] })
@@ -152,7 +159,11 @@ export async function getAllOrganizations(): Promise<Organization[]> {
   ) as Promise<Organization[]>;
 }
 
+// VALIDIERUNG ergänzt: gleiche Begründung wie bei getPublicImageById --
+// SDK-Aufruf, aber id kommt typischerweise direkt aus einem dynamischen
+// Routensegment (Organisationsprofil-Seite).
 export async function getOrganizationById(id: string): Promise<Organization | null> {
+  if (!isUuid(id)) return null;
   try {
     const result = await directus.request(
       readItem('organizations', id, {
@@ -167,10 +178,14 @@ export async function getOrganizationById(id: string): Promise<Organization | nu
   }
 }
 
+// VALIDIERUNG ergänzt: SDK-Aufruf mit Filter-Objekt statt roher
+// String-Verkettung, aber organizationId kommt direkt aus einem
+// öffentlichen, dynamischen Routensegment.
 export async function getPublicImagesByOrganization(
   organizationId: string,
   { page = 1, pageSize = 24 }: { page?: number; pageSize?: number } = {}
 ): Promise<{ images: Post[]; hasNextPage: boolean }> {
+  if (!isUuid(organizationId)) return { images: [], hasNextPage: false };
   const rows = (await directus.request(
     readItems('posts', {
       filter: { is_public: { _eq: true }, organization: { _eq: organizationId } },
@@ -186,7 +201,12 @@ export async function getPublicImagesByOrganization(
   };
 }
 
+// ECHTE INJECTION-FLÄCHE: id landet als Pfadsegment in einer roh
+// verketteten Directus-URL. Wird typischerweise mit searchParams.get(...)
+// von der internen Bearbeiten-Seite aufgerufen -- direkt vom Nutzer
+// beeinflussbar.
 export async function getPostForEdit(accessToken: string, id: string): Promise<Post | null> {
+  if (!isUuid(id)) return null;
   const fields = [
     'id', 'post_type', 'title', 'article_body', 'event_date', 'alarm_code', 'location', 'tags', 'is_public',
     'organization.id', 'organization.name', 'organization.gewerk',
@@ -355,10 +375,15 @@ export async function getMyFolders(
   });
 }
 
+// ECHTE INJECTION-FLÄCHE: folderId landet als Pfadsegment, roh verkettet.
+// Kommt typischerweise über ein dynamisches Routensegment oder
+// searchParams von einer internen Ordner-Seite -- direkt vom Nutzer
+// beeinflussbar.
 export async function getFolderWithPosts(
   accessToken: string,
   folderId: string
 ): Promise<{ id: string; name: string; posts: Post[] } | null> {
+  if (!isUuid(folderId)) return null;
   const fields = [
     'id', 'name',
     'posts.posts_id.id', 'posts.posts_id.title', 'posts.posts_id.alarm_code',
@@ -432,10 +457,15 @@ export type MediaShareLibraryImage = {
   fileOriginal: string;
 };
 
+// ECHTE INJECTION-FLÄCHE: shareId landet ZWEIMAL roh verkettet -- einmal
+// als Pfadsegment, einmal als Filter-Wert. Kommt direkt aus dem
+// dynamischen Routensegment der internen Freigabe-Detailseite.
 export async function getMediaShareWithPosts(
   accessToken: string,
   shareId: string
 ): Promise<(MediaShareDetail & { libraryImages: MediaShareLibraryImage[] }) | null> {
+  if (!isUuid(shareId)) return null;
+
   const fields = [
     'id',
     'name',
@@ -539,15 +569,11 @@ export async function getReceivedMediaShares(organizationId: string): Promise<{
 // Prüft dabei gleich mit, ob die Freigabe noch gültig ist, und räumt
 // abgelaufene Freigaben mit aktivierter Auto-Löschung im Vorbeigehen auf.
 //
-// FIX: lädt jetzt zusätzlich media_shares_media (direkt angehängte
-// Bibliotheksbilder, ohne Umweg über einen Beitrag). Vorher wurde
-// ausschließlich posts.posts_id.* geladen -- einzeln über
-// MediaShareLibraryPicker hinzugefügte Bilder landeten zwar korrekt in
-// media_shares_media (siehe /api/intern/media-shares/assign), waren aber
-// auf dieser Seite unsichtbar, weil die Abfrage hier nie danach gefragt
-// hat. Gleiche Relation wie in getMediaShareWithPosts oben, hier eben über
-// den Service-Token statt dem Nutzer-Token, weil der Zugriff öffentlich
-// bzw. anonym passiert.
+// "token" braucht hier KEINE isUuid()-Prüfung: Freigabe-Tokens sind kein
+// UUID, sondern 24 Byte echter Zufall als Base64url (randomBytes(24)) --
+// das wäre also eine falsche Prüfung. Der bestehende
+// encodeURIComponent(token) reicht hier bereits aus, weil der Token als
+// hochentropischer Geheimwert fungiert, nicht als vorhersagbare ID.
 export async function getMediaShareByToken(token: string): Promise<PublicMediaShare | null> {
   const serviceToken = process.env.DIRECTUS_SERVICE_TOKEN;
   if (!serviceToken) { console.error('getMediaShareByToken: DIRECTUS_SERVICE_TOKEN fehlt.'); return null; }
@@ -580,7 +606,8 @@ export async function getMediaShareByToken(token: string): Promise<PublicMediaSh
     const posts = ((row.posts || []) as { posts_id: Post | null }[])
       .map((r) => r.posts_id).filter((p): p is Post => !!p);
 
-    // NEU: direkt angehängte Bibliotheksbilder laden.
+    // row.id kommt aus Directus' eigener Antwort, nicht mehr vom Client --
+    // hier ist keine erneute Prüfung nötig.
     const mediaRes = await fetch(
       `${DIRECTUS_URL}/items/media_shares_media?filter[media_shares_id][_eq]=${row.id}&fields=media_library_id.id,media_library_id.display_name,media_library_id.file`,
       { headers: { Authorization: `Bearer ${serviceToken}` }, cache: 'no-store' }
@@ -618,6 +645,13 @@ export async function getMediaShareByToken(token: string): Promise<PublicMediaSh
 
 // Ordnerinhalt (Unterordner + Medien) + Breadcrumb-Pfad für die Kachel-
 // Ansicht unter /intern/medien. folderId = null → Wurzel der Organisation.
+//
+// ECHTE INJECTION-FLÄCHE, UND DIE DEUTLICHSTE IN DER GANZEN DATEI:
+// folderId landet nicht nur einmal, sondern läuft in der
+// Breadcrumb-Schleife wiederholt als Pfadsegment durch (currentId startet
+// direkt mit dem übergebenen folderId), zusätzlich zweimal als Filter-Wert
+// weiter unten. Kommt aus searchParams.folder auf /intern/medien --
+// direkt und unmittelbar vom Nutzer über die URL steuerbar.
 export async function getFolderContents(
   accessToken: string,
   organizationId: string,
@@ -633,6 +667,11 @@ export async function getFolderContents(
     file_preview: string | null;
   }[];
 }> {
+  if (folderId !== null && !isUuid(folderId)) {
+    console.error(`getFolderContents: ungültige folderId "${folderId}" -- breche ab.`);
+    return { folder: null, breadcrumb: [], subfolders: [], items: [] };
+  }
+
   const headers = { Authorization: `Bearer ${accessToken}` };
 
   const breadcrumb: { id: string; name: string }[] = [];
@@ -641,6 +680,10 @@ export async function getFolderContents(
   let guard = 0;
   while (currentId && guard < 8) {
     guard++;
+    // currentId ist beim ersten Schleifendurchlauf das bereits geprüfte
+    // folderId; ab dem zweiten Durchlauf stammt es aus Directus' eigener
+    // Antwort (data.parent_folder), nicht mehr vom Client -- dort ist
+    // keine erneute Prüfung nötig.
     const res = await fetch(`${DIRECTUS_URL}/items/folders/${currentId}?fields=id,name,parent_folder`, {
       headers,
       cache: 'no-store',
@@ -676,6 +719,9 @@ export async function getFolderContents(
 // /intern/upload?mediaId=... -- inkl. gecachter Wasserzeichen-Varianten,
 // damit UploadStudio weiß, ob es die Wasserzeichen-Erzeugung überspringen
 // kann (Bild wurde schon einmal veröffentlicht).
+//
+// ECHTE INJECTION-FLÄCHE: id landet als Pfadsegment, roh verkettet, kommt
+// direkt aus searchParams.mediaId.
 export async function getMediaLibraryItem(
   accessToken: string,
   id: string
@@ -689,6 +735,7 @@ export async function getMediaLibraryItem(
   display_name: string | null;
   tags: string[] | null;
 } | null> {
+  if (!isUuid(id)) return null;
   const fields = [
     'id', 'organization', 'file', 'file_preview',
     'file_preview_watermarked', 'file_download_watermarked',
