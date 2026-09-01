@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
 import { DIRECTUS_URL } from '@/lib/directus';
 import { getActiveParticipant, serviceHeaders } from '@/lib/messaging';
+import { isUuid } from '@/lib/validate';
 
 export async function DELETE(
   request: NextRequest,
@@ -29,6 +30,12 @@ export async function DELETE(
 
   const { id: conversationId, orgId: targetOrgId } = await params;
 
+  // ECHTE INJECTION-FLÄCHE: beide IDs landen unten mehrfach als
+  // Pfadsegment, mit dem Service-Token.
+  if (!isUuid(conversationId) || !isUuid(targetOrgId)) {
+    return NextResponse.json({ error: 'Ungültige ID.' }, { status: 400 });
+  }
+
   let headers;
   try {
     headers = serviceHeaders();
@@ -36,8 +43,6 @@ export async function DELETE(
     return NextResponse.json({ error: 'Nicht verfügbar.' }, { status: 500 });
   }
 
-  // Nur die Moderation darf Teilnehmer entfernen -- und nicht sich selbst
-  // auf diesem Weg (dafür gibt's "Verlassen", mit eigener Prüfung).
   const caller = await getActiveParticipant(conversationId, user.organization.id);
   if (!caller || !caller.is_moderator) {
     return NextResponse.json(
