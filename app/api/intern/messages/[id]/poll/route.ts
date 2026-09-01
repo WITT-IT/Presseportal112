@@ -2,13 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser, SESSION_COOKIE } from '@/lib/auth';
 import { DIRECTUS_URL } from '@/lib/directus';
 import { getActiveParticipant, serviceHeaders } from '@/lib/messaging';
+import { isUuid } from '@/lib/validate';
 
 // GET /api/intern/messages/[id]/poll?since=<ISO-Zeitstempel>
-//
-// Bewusst eine eigene, sehr schlanke Route statt den ganzen Thread über
-// loadConversation() (in der Seite) neu zu laden -- Polling läuft alle
-// paar Sekunden, da soll nur das Nötigste (neue Nachrichten seit "since")
-// über den Draht gehen, nicht Teilnehmerliste, Betreff etc. erneut.
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -33,6 +29,15 @@ export async function GET(
   }
 
   const { id: conversationId } = await params;
+
+  // ECHTE INJECTION-FLÄCHE: conversationId landet unten direkt als
+  // Filter-Wert in der Directus-Filter-URL (filter[conversation][_eq]=...),
+  // mit dem Service-Token. Läuft alle paar Sekunden per Polling -- ein
+  // Angriffsversuch würde hier besonders oft ausgeführt.
+  if (!isUuid(conversationId)) {
+    return NextResponse.json({ error: 'Ungültige ID.' }, { status: 400 });
+  }
+
   const since = request.nextUrl.searchParams.get('since');
   if (!since) {
     return NextResponse.json({ error: 'Parameter "since" fehlt.' }, { status: 400 });
@@ -45,8 +50,6 @@ export async function GET(
     return NextResponse.json({ error: 'Nicht verfügbar.' }, { status: 500 });
   }
 
-  // Gleiche Zugriffsprüfung wie bei jeder anderen Nachrichten-Route --
-  // Polling ist kein Sonderfall, braucht dieselbe Berechtigung wie Senden.
   const participant = await getActiveParticipant(conversationId, user.organization.id);
   if (!participant) {
     return NextResponse.json({ error: 'Keine Berechtigung für diese Unterhaltung.' }, { status: 403 });
@@ -90,8 +93,6 @@ export async function GET(
       senderUserName: m.sender_user_name ?? null,
     }));
 
-    // Als gelesen markieren, wenn tatsächlich neue Nachrichten da sind --
-    // best-effort, blockiert die Antwort nicht.
     if (messages.length > 0) {
       fetch(`${DIRECTUS_URL}/items/conversation_participants/${participant.id}`, {
         method: 'PATCH',
