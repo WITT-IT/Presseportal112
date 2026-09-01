@@ -29,12 +29,24 @@ function siteUrl(): string {
 
 // Kleines HTML-Escaping für Werte, die in die Mail eingesetzt werden (Namen
 // etc.) -- verhindert, dass z.B. ein "<" im Namen das Layout zerschießt.
+//
+// ERGÄNZT UM '&#39;: Vorher fehlte das Escaping des einfachen
+// Anführungszeichens. Aktuell nirgends in dieser Datei ausnutzbar, weil
+// kein escapeter Wert innerhalb eines einfach gequoteten HTML-Attributs
+// (z.B. href='...') landet -- alle Attribute in renderEmailLayout/
+// renderChatBubble verwenden doppelte Anführungszeichen, und alle
+// Nutzereingaben landen ausschließlich als Text-Inhalt, nie als Attribut-
+// Wert. Die Ergänzung ist trotzdem die korrekte, vollständige
+// HTML-Escaping-Funktion -- sie schützt automatisch auch dann noch, wenn
+// ein künftiger Aufruf einen Wert einmal in ein einfach gequotetes
+// Attribut einsetzt, ohne dass an dieser Stelle nachgedacht werden muss.
 function escHtml(value: string): string {
   return value
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 // Baut eine einzelne Chat-Bubble im Stil der internen Unterhaltungsansicht
