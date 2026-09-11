@@ -41,14 +41,9 @@ function uniqueTags(tags: string[]): string[] {
   return Array.from(new Set(tags.map((t) => t.trim()).filter(Boolean)));
 }
 
-function folderTagToken(userToken: string): string {
-  return process.env.DIRECTUS_SERVICE_TOKEN || userToken;
-}
-
 async function supportsFolderTags(accessToken: string): Promise<boolean> {
-  const token = folderTagToken(accessToken);
   const res = await fetch(`${DIRECTUS_URL}/items/folders?fields=tags&limit=1`, {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${accessToken}` },
     cache: 'no-store',
   });
   return res.ok;
@@ -59,10 +54,9 @@ async function getFolderById(
   folderId: string,
   includeTags: boolean
 ): Promise<{ id: string; parent_folder: string | null; tags: unknown } | null> {
-  const token = includeTags ? folderTagToken(accessToken) : accessToken;
   const fields = includeTags ? 'id,parent_folder,tags' : 'id,parent_folder';
   const res = await fetch(`${DIRECTUS_URL}/items/folders/${folderId}?fields=${fields}`, {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${accessToken}` },
     cache: 'no-store',
   });
   if (!res.ok) return null;
