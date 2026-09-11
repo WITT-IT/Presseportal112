@@ -6,6 +6,7 @@ import { normalizeTags } from '@/lib/types';
 import { formatBytes, getStorageStatus } from '@/lib/storage';
 import { resolvePlan, FAILSAFE_LIMIT_BYTES } from '@/lib/plans';
 import { isUuid, isUuidOrNull } from '@/lib/validate';
+import { sniffImage, MAX_FILE_SIZE_BYTES } from '@/lib/imageFormat';
 import { sendStorageWarningEmail, sendStorageLimitReachedEmail } from '@/lib/email';
 
 function getSession(request: NextRequest): { accessToken: string } | null {
@@ -262,6 +263,66 @@ async function writeOrgStorage(
   }
 }
 
+// Holt ein Asset aus Directus -- MIT FALLBACK-KETTE.
+//
+// DAS EIGENTLICHE PROBLEM, DAS HIER GELÖST WIRD:
+// Bisher wurde genau eine Anfrage an Directus gestellt (mit
+// Verkleinerungs-Parametern), und bei Fehlschlag eine JSON-Fehlermeldung
+// zurückgegeben. Eine JSON-Antwort an einer Stelle, an der der Browser ein
+// Bild erwartet, ergibt im Frontend ein kaputtes Bild-Symbol -- ohne
+// jeden Hinweis, was los ist.
+//
+// Genau das passiert bei sehr großen Bildern zuverlässig: Directus lehnt
+// Transformationen oberhalb einer konfigurierten Maximalgröße ab
+// (ASSETS_TRANSFORM_IMAGE_MAX_DIMENSION, Standard 6000 Pixel Kantenlänge).
+// Ein 15-MB-Foto aus einer Spiegelreflexkamera liegt regelmäßig darüber.
+// Die Datei ist dann einwandfrei gespeichert -- nur die verkleinerte
+// Vorschau lässt sich nicht erzeugen.
+//
+// Die Kette versucht deshalb der Reihe nach:
+//   1. die angeforderte Verkleinerung
+//   2. eine einfachere Verkleinerung (nur Breite, ohne Qualitätsangabe)
+//   3. die Originaldatei, unverändert
+//
+// Erst wenn auch das Original nicht lieferbar ist, liegt ein echtes
+// Problem vor. Ein größeres Bild auszuliefern kostet Bandbreite, ist aber
+// in jedem Fall besser als ein kaputtes Bild -- und tritt nur bei den
+// wenigen Dateien auf, die oberhalb der Directus-Grenze liegen.
+async function fetchAssetWithFallback(
+  fileId: string,
+  token: string,
+  width: string | null,
+  quality: string | null
+): Promise<{ response: Response; usedFallback: boolean } | null> {
+  const headers = { Authorization: `Bearer ${token}` };
+
+  const attempts: (string | undefined)[] = [];
+  const primary = [width ? `width=${width}` : null, quality ? `quality=${quality}` : null]
+    .filter(Boolean)
+    .join('&');
+  if (primary) attempts.push(primary);
+  if (width && quality) attempts.push(`width=${width}`);
+  attempts.push(undefined); // Original, ohne jede Transformation
+
+  for (let i = 0; i < attempts.length; i++) {
+    const transform = attempts[i];
+    try {
+      const res = await fetch(directusAssetUrl(fileId, transform), { headers });
+      if (res.ok) {
+        return { response: res, usedFallback: i > 0 };
+      }
+      console.warn(
+        `Asset ${fileId}: Versuch ${i + 1}/${attempts.length} fehlgeschlagen (Status ${res.status}, transform="${transform ?? 'original'}").`
+      );
+    } catch (error) {
+      console.warn(`Asset ${fileId}: Versuch ${i + 1} mit Netzwerkfehler:`, error);
+    }
+  }
+  return null;
+}
+
+// GET /api/intern/library?q=tag&folder=&limit=48&offset=0
+//     /api/intern/library?original=<mediaId>&width=&quality=
 export async function GET(request: NextRequest) {
   const session = getSession(request);
   if (!session) return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
@@ -275,9 +336,6 @@ export async function GET(request: NextRequest) {
 
   const originalOf = searchParams.get('original');
   if (originalOf) {
-    // VALIDIERUNG: originalOf landet direkt als Pfadsegment in der
-    // Directus-URL. Ohne diese Prüfung könnte ein manipulierter Wert hier
-    // theoretisch die Filter-Logik der nachfolgenden Anfrage verändern.
     if (!isUuid(originalOf)) {
       return NextResponse.json({ error: 'Ungültige Bild-ID.' }, { status: 400 });
     }
@@ -296,31 +354,47 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Diesem Eintrag ist keine Datei zugeordnet.' }, { status: 404 });
     }
 
-    const width = searchParams.get('width');
-    const quality = searchParams.get('quality');
-    const transform = [width ? `width=${width}` : null, quality ? `quality=${quality}` : null]
-      .filter(Boolean)
-      .join('&');
+    // VALIDIERUNG: width und quality wurden bisher ungeprüft aus dem
+    // Query-String in die Directus-Asset-URL verkettet -- dieselbe
+    // Injection-Fläche wie bei den IDs. Beide dürfen ausschließlich
+    // Zahlen in sinnvollen Grenzen sein; alles andere wird verworfen
+    // (nicht abgelehnt, sondern ignoriert -- ein unsinniger
+    // Breitenparameter soll kein kaputtes Bild erzeugen, sondern
+    // schlicht das Original liefern).
+    const rawWidth = Number(searchParams.get('width'));
+    const rawQuality = Number(searchParams.get('quality'));
+    const width =
+      Number.isInteger(rawWidth) && rawWidth > 0 && rawWidth <= 4000 ? String(rawWidth) : null;
+    const quality =
+      Number.isInteger(rawQuality) && rawQuality >= 1 && rawQuality <= 100 ? String(rawQuality) : null;
 
-    const assetRes = await fetch(directusAssetUrl(item.file, transform || undefined), {
-      headers: { Authorization: `Bearer ${session.accessToken}` },
-    });
-    if (!assetRes.ok) {
-      const body = await assetRes.text().catch(() => '');
+    const result = await fetchAssetWithFallback(item.file, session.accessToken, width, quality);
+
+    if (!result) {
       console.error(
-        `Asset-Proxy fehlgeschlagen (${assetRes.status}) für media_library/${originalOf} (file=${item.file}):`,
-        body
+        `Asset-Proxy endgültig fehlgeschlagen für media_library/${originalOf} (file=${item.file}) -- ` +
+          `auch das unveränderte Original war nicht abrufbar.`
       );
-      return NextResponse.json(
-        { error: `Datei konnte nicht geladen werden (Status ${assetRes.status}).` },
-        { status: 502 }
+      return NextResponse.json({ error: 'Datei konnte nicht geladen werden.' }, { status: 502 });
+    }
+
+    if (result.usedFallback) {
+      console.warn(
+        `Asset ${item.file}: Verkleinerung nicht möglich, Original wird ausgeliefert. ` +
+          `Typische Ursache: Bild überschreitet ASSETS_TRANSFORM_IMAGE_MAX_DIMENSION in Directus.`
       );
     }
-    const buffer = await assetRes.arrayBuffer();
+
+    const buffer = await result.response.arrayBuffer();
     return new NextResponse(buffer, {
       headers: {
-        'Content-Type': assetRes.headers.get('content-type') || 'application/octet-stream',
-        'Cache-Control': 'private, no-store',
+        'Content-Type': result.response.headers.get('content-type') || 'image/jpeg',
+        // Kurzes privates Caching statt no-store: Die Bilder ändern sich
+        // nicht, und gerade im Fallback-Fall (Originalgröße) spart das
+        // spürbar Bandbreite, wenn dasselbe Bild beim Scrollen mehrfach
+        // angefragt wird. "private" stellt sicher, dass nur der Browser
+        // des jeweiligen Nutzers zwischenspeichert, kein geteilter Proxy.
+        'Cache-Control': 'private, max-age=300',
       },
     });
   }
@@ -330,8 +404,6 @@ export async function GET(request: NextRequest) {
   const limit = Math.min(Number(searchParams.get('limit') || 48), 100);
   const offset = Number(searchParams.get('offset') || 0);
 
-  // VALIDIERUNG: "folder" ist optional (kein Ordner = Wurzel), aber wenn
-  // gesetzt, muss es ein echtes UUID sein.
   if (folder && !isUuid(folder)) {
     return NextResponse.json({ error: 'Ungültige Ordner-ID.' }, { status: 400 });
   }
@@ -380,6 +452,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ items: filtered, total: filtered.length });
 }
 
+// POST /api/intern/library — Direkt-Upload in die Bibliothek, KEIN Beitrag.
 export async function POST(request: NextRequest) {
   const session = getSession(request);
   if (!session) return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
@@ -390,9 +463,6 @@ export async function POST(request: NextRequest) {
   const formData = await request.formData();
   const folderId = (formData.get('folder') as string) || null;
 
-  // VALIDIERUNG: folderId landet direkt als Filter-Wert in Directus-Calls
-  // weiter unten (media_library POST-Body) und wurde bisher ungeprüft
-  // übernommen.
   if (folderId && !isUuid(folderId)) {
     return NextResponse.json({ error: 'Ungültige Ordner-ID.' }, { status: 400 });
   }
@@ -410,6 +480,13 @@ export async function POST(request: NextRequest) {
     const file = formData.get(`file_${i}`) as File | null;
     if (!file) continue;
 
+    if (file.size > MAX_FILE_SIZE_BYTES) {
+      errors.push(
+        `${file.name}: Datei ist zu groß (${formatBytes(file.size)}). Maximal ${formatBytes(MAX_FILE_SIZE_BYTES)} pro Bild.`
+      );
+      continue;
+    }
+
     if (limitBytes > 0 && usedBytes + file.size > limitBytes) {
       errors.push(
         `${file.name}: Speicherlimit erreicht (${formatBytes(usedBytes)} von ${formatBytes(limitBytes)} belegt).`
@@ -419,7 +496,27 @@ export async function POST(request: NextRequest) {
 
     try {
       const buffer = Buffer.from(await file.arrayBuffer());
-      const fileId = await uploadBuffer(session.accessToken, buffer, file.type || 'application/octet-stream', file.name);
+
+      // SERVERSEITIGE FORMATPRÜFUNG an den echten Dateibytes.
+      //
+      // Der vom Browser gemeldete file.type wird bewusst NICHT mehr
+      // verwendet -- er ist weder verlässlich (leer/falsch bei manchen
+      // Quellen, was in Directus zu einer Datei ohne verwertbaren
+      // Bildtyp führte und damit zu dauerhaft kaputten Vorschauen) noch
+      // vertrauenswürdig (frei vom Client wählbar).
+      const sniffed = sniffImage(buffer);
+      if (!sniffed.ok) {
+        if (sniffed.reason === 'unsupported') {
+          errors.push(
+            `${file.name}: ${sniffed.formatLabel} wird nicht unterstützt. Bitte als JPEG oder PNG exportieren und erneut hochladen.`
+          );
+        } else {
+          errors.push(`${file.name}: Das ist keine gültige Bilddatei.`);
+        }
+        continue;
+      }
+
+      const fileId = await uploadBuffer(session.accessToken, buffer, sniffed.image.mime, file.name);
 
       const itemId = randomUUID();
       const itemRes = await fetch(`${DIRECTUS_URL}/items/media_library`, {
@@ -454,7 +551,7 @@ export async function POST(request: NextRequest) {
   }
 
   if (created.length === 0 && errors.length > 0) {
-    return NextResponse.json({ error: errors.join(' | '), usedBytes, limitBytes }, { status: 500 });
+    return NextResponse.json({ error: errors.join(' | '), usedBytes, limitBytes }, { status: 400 });
   }
 
   if (created.length > 0) {
@@ -482,13 +579,9 @@ export async function PATCH(request: NextRequest) {
 
   const { id, display_name, folder } = await request.json().catch(() => ({}));
 
-  // VALIDIERUNG: "id" bestimmt DIREKT, welcher Datensatz verändert wird --
-  // ohne Prüfung landet ein beliebiger Wert unkontrolliert in der URL.
   if (!isUuid(id)) {
     return NextResponse.json({ error: 'Ungültige ID.' }, { status: 400 });
   }
-  // "folder" darf null sein (= zurück in die Wurzel), sonst muss es ein
-  // echtes UUID sein.
   if (folder !== undefined && !isUuidOrNull(folder)) {
     return NextResponse.json({ error: 'Ungültige Ordner-ID.' }, { status: 400 });
   }
@@ -519,8 +612,6 @@ export async function DELETE(request: NextRequest) {
 
   const id = request.nextUrl.searchParams.get('id');
 
-  // VALIDIERUNG: "id" kommt aus dem Query-String und landet direkt als
-  // Pfadsegment in mehreren nachfolgenden Directus-Aufrufen.
   if (!isUuid(id)) {
     return NextResponse.json({ error: 'Ungültige ID.' }, { status: 400 });
   }
