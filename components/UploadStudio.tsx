@@ -329,14 +329,18 @@ export default function UploadStudio({
           value={tagInput}
           onChange={(e) => setTagInput(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ',') {
+            const shouldAdd =
+              e.key === 'Enter' ||
+              e.key === ',' ||
+              (e.key === 'Tab' && tagInput.trim().length > 0);
+            if (shouldAdd) {
               e.preventDefault();
               addTag(tagInput);
             }
           }}
           onBlur={() => addTag(tagInput)}
           list="tag-suggestions"
-          placeholder="Tag eingeben, Enter zum Hinzufügen"
+          placeholder="Tag eingeben, Enter/Tab zum Hinzufügen"
           className={inp}
         />
         <datalist id="tag-suggestions">

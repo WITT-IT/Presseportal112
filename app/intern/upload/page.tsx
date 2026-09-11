@@ -12,9 +12,9 @@ export const dynamic = 'force-dynamic';
 export default async function UploadPage({
   searchParams,
 }: {
-  searchParams: Promise<{ mediaId?: string; postId?: string }>;
+  searchParams: Promise<{ mediaId?: string; postId?: string; prefillTags?: string }>;
 }) {
-  const { mediaId, postId } = await searchParams;
+  const { mediaId, postId, prefillTags } = await searchParams;
 
   const cookieStore = await cookies();
   const raw = cookieStore.get(SESSION_COOKIE)?.value;
@@ -101,6 +101,13 @@ export default async function UploadPage({
     redirect('/intern/medien');
   }
 
+  const mergedSourceTags = Array.from(
+    new Set([
+      ...normalizeTags(sourceMedia.tags),
+      ...normalizeTags(prefillTags || ''),
+    ])
+  );
+
   return (
     <div>
       <Breadcrumbs
@@ -121,7 +128,7 @@ export default async function UploadPage({
           file_preview_watermarked: sourceMedia.file_preview_watermarked,
           file_download_watermarked: sourceMedia.file_download_watermarked,
           display_name: sourceMedia.display_name,
-          tags: sourceMedia.tags,
+          tags: mergedSourceTags,
         }}
       />
     </div>
