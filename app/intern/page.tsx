@@ -23,19 +23,6 @@ export default async function InternPage() {
   const user = await getCurrentUser(session.accessToken);
   if (!user) redirect('/login');
 
-  // BUG-FIX: Vorher stand hier `if (!user.organization?.id) redirect('/intern')`
-  // -- ein Redirect von /intern zurück auf /intern. Für jedes Konto ohne
-  // zugewiesene Organisation (z. B. ein reiner Administrator-Account ohne
-  // BOS-/Presse-Organisation) hat das eine sofortige Endlosschleife erzeugt
-  // ("ERR_TOO_MANY_REDIRECTS" im Browser). Admin-Rechte und
-  // Organisationszugehörigkeit sind zwei unabhängige Dinge -- ein Admin
-  // ohne Organisation ist ein gültiger, normaler Zustand, kein Fehlerfall,
-  // der einen Redirect verdient.
-  //
-  // Statt zu redirecten: eigener, einfacher Hinweis für genau diesen Fall.
-  // Admin-Werkzeuge bleiben über die Nav trotzdem erreichbar, weil die
-  // Admin-Prüfung in app/intern/admin/page.tsx unabhängig von
-  // organization?.id läuft.
   if (!user.organization?.id) {
     const admin = await isAdministrator(user.id);
     return (
@@ -60,49 +47,60 @@ export default async function InternPage() {
     );
   }
 
-  // getMyFoldersWithPostIds ist hier entfallen: Die Funktion lieferte pro
-  // Ordner die Liste zugeordneter Beitrags-IDs aus der Zwischentabelle
-  // folders_posts -- also die Beitrag-zu-Ordner-Zuordnung, die es seit der
-  // Umstellung nicht mehr gibt. Ordner ordnen ausschließlich
-  // Bibliotheksbilder über media_library.folder. Damit ist auch die
-  // Abfrage überflüssig und spart bei jedem Aufruf dieses Dashboards
-  // einen Directus-Roundtrip.
   const [posts, mediaShares] = await Promise.all([
     getMyOrganizationImages(session.accessToken, user.organization.id),
     getMyMediaShares(session.accessToken, user.organization.id),
   ]);
 
-  // Count total number of pictures (images) instead of posts
-  // Query ALL posts without pagination to get the true total count
-  const allPostsRes = await fetch(
-    `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${user.organization.id}&fields=id,is_public,images.id&limit=-1`,
-    { 
-      headers: { Authorization: `Bearer ${session.accessToken}` },
-      cache: 'no-store'
-    }
-  );
-  
+  // Fetch ALL posts without pagination to count total images accurately
+  // Directus uses a very large limit number instead of -1
   let totalPictureCount = 0;
-  let allPostsCount = 0;
   let publicPostCount = 0;
-  
-  if (allPostsRes.ok) {
-    const allPostsData = await allPostsRes.json();
-    const allPosts = allPostsData.data || [];
+  let privatePostCount = 0;
+
+  try {
+    const allPostsRes = await fetch(
+      `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${user.organization.id}&fields=id,is_public,images.id&limit=99999`,
+      { 
+        headers: { Authorization: `Bearer ${session.accessToken}` },
+        cache: 'no-store'
+      }
+    );
     
-    allPostsCount = allPosts.length;
-    publicPostCount = allPosts.filter((p: any) => p.is_public).length;
-    
-    // Sum all images from all posts
-    totalPictureCount = allPosts.reduce((sum: number, post: any) => {
+    if (allPostsRes.ok) {
+      const allPostsData = await allPostsRes.json();
+      const allPosts = allPostsData.data || [];
+      
+      publicPostCount = allPosts.filter((p: any) => p.is_public).length;
+      privatePostCount = allPosts.length - publicPostCount;
+      
+      // Sum all images from all posts
+      totalPictureCount = allPosts.reduce((sum: number, post: any) => {
+        const imageCount = Array.isArray(post.images) ? post.images.length : 0;
+        return sum + imageCount;
+      }, 0);
+    } else {
+      console.error('[InternPage] Fehler beim Laden aller Posts:', allPostsRes.status);
+      // Fallback: count from posts array
+      publicPostCount = posts.filter((p) => p.is_public).length;
+      privatePostCount = posts.length - publicPostCount;
+      totalPictureCount = posts.reduce((sum, post) => {
+        const imageCount = Array.isArray(post.images) ? post.images.length : 0;
+        return sum + imageCount;
+      }, 0);
+    }
+  } catch (error) {
+    console.error('[InternPage] Exception beim Laden aller Posts:', error);
+    // Fallback: count from posts array
+    publicPostCount = posts.filter((p) => p.is_public).length;
+    privatePostCount = posts.length - publicPostCount;
+    totalPictureCount = posts.reduce((sum, post) => {
       const imageCount = Array.isArray(post.images) ? post.images.length : 0;
       return sum + imageCount;
     }, 0);
   }
 
-  const privatePostCount = allPostsCount - publicPostCount;
   const activeShareCount = mediaShares.filter((s) => s.active).length;
-
   const mediaSharesForPicker = mediaShares.map((s) => ({ id: s.id, name: s.name }));
 
   const tiles = [
@@ -116,8 +114,6 @@ export default async function InternPage() {
 
   return (
     <div className="-mx-6 -mt-10 nav:-mx-10 nav:-mt-12">
-      {/* Hero-Header im Bildarchiv-Stil: Eyebrow, große Headline, vier
-          Kennzahlen-Kacheln rechts statt der schlichten 4er-Grid-Reihe. */}
       <section className="border-b border-line/70 px-6 pb-8 pt-6 nav:px-10 nav:pt-8">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-2xl">
