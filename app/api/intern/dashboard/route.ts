@@ -27,6 +27,53 @@ async function fetchJSON(label: string, url: string, token: string) {
   }
 }
 
+function readAggregateCount(payload: any): number | null {
+  const raw = payload?.meta?.aggregate?.[0]?.count?.id;
+  const count = typeof raw === "number" ? raw : Number(raw);
+  return Number.isFinite(count) ? count : null;
+}
+
+async function countAllOrganizationImages(token: string, organizationId: string): Promise<number> {
+  try {
+    const aggregateRes = await fetch(
+      `${DIRECTUS_URL}/items/images?filter[post][organization][_eq]=${organizationId}&aggregate[count]=id&meta=*`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (aggregateRes.ok) {
+      const aggregateBody = await aggregateRes.json().catch(() => ({}));
+      const aggregateCount = readAggregateCount(aggregateBody);
+      if (aggregateCount !== null) return aggregateCount;
+    }
+  } catch (error) {
+    console.error("[dashboard] image-aggregate fehlgeschlagen:", { organizationId, error });
+  }
+
+  let total = 0;
+  const pageSize = 500;
+  const maxPages = 2000;
+
+  for (let page = 1; page <= maxPages; page += 1) {
+    const pageRes = await fetch(
+      `${DIRECTUS_URL}/items/images?filter[post][organization][_eq]=${organizationId}&fields=id&limit=${pageSize}&page=${page}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (!pageRes.ok) {
+      console.error("[dashboard] image-pagination fehlgeschlagen:", {
+        organizationId,
+        page,
+        status: pageRes.status,
+      });
+      break;
+    }
+    const pageBody = await pageRes.json().catch(() => ({}));
+    const rows = Array.isArray(pageBody?.data) ? pageBody.data : [];
+    total += rows.length;
+    if (rows.length < pageSize) break;
+  }
+
+  return total;
+}
+
 export async function GET(request: NextRequest) {
   const raw = request.cookies.get(SESSION_COOKIE)?.value;
   if (!raw) {
@@ -75,7 +122,7 @@ export async function GET(request: NextRequest) {
   ].join(",");
 
   try {
-    const [statsPublic, statsPrivate, statsShares, publicPosts, privatePosts, allPosts] =
+    const [statsPublic, statsPrivate, statsShares, publicPosts, privatePosts, totalUploads] =
       await Promise.all([
         fetchJSON(
           "statsPublic",
@@ -106,23 +153,12 @@ export async function GET(request: NextRequest) {
           `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${organizationId}&filter[is_public][_eq]=false&limit=${pageSize}&page=${privatePage}&sort=-event_date&meta=filter_count&fields=${postFields}`,
           token
         ),
-        // Alle Beiträge OHNE Pagination für korrekte Bilderzählung
-        fetchJSON(
-          "allPosts",
-          `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${organizationId}&fields=id,is_public,images.id&limit=-1`,
-          token
-        ),
+        countAllOrganizationImages(token, organizationId),
       ]);
 
-    const publicCount = statsPublic?.meta?.aggregate?.[0]?.count?.id || 0;
-    const privateCount = statsPrivate?.meta?.aggregate?.[0]?.count?.id || 0;
-    const activeShares = statsShares?.meta?.aggregate?.[0]?.count?.id || 0;
-
-    // Count total pictures (images) from ALL posts, not just paginated results
-    const totalUploads = (allPosts?.data || []).reduce((sum: number, post: any) => {
-      const imageCount = Array.isArray(post.images) ? post.images.length : 0;
-      return sum + imageCount;
-    }, 0);
+    const publicCount = readAggregateCount(statsPublic) ?? 0;
+    const privateCount = readAggregateCount(statsPrivate) ?? 0;
+    const activeShares = readAggregateCount(statsShares) ?? 0;
 
     const mapPosts = (collection: any) => {
       const items = collection?.data || [];
