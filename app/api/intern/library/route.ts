@@ -45,36 +45,11 @@ function uniqueTags(tags: string[]): string[] {
   return Array.from(new Set(tags.map((t) => t.trim()).filter(Boolean)));
 }
 
-async function supportsFolderTags(accessToken: string): Promise<boolean> {
-  const res = await fetch(`${DIRECTUS_URL}/items/folders?fields=tags&limit=1`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-    cache: 'no-store',
-  });
-  return res.ok;
-}
-
-async function resolveFolderTagReaderToken(
-  userToken: string
-): Promise<{ token: string; viaFallback: boolean } | null> {
-  if (await supportsFolderTags(userToken)) {
-    return { token: userToken, viaFallback: false };
-  }
-
-  const fallback = folderTagToken(userToken);
-  if (fallback !== userToken && (await supportsFolderTags(fallback))) {
-    return { token: fallback, viaFallback: true };
-  }
-
-  return null;
-}
-
 async function getFolderById(
   accessToken: string,
-  folderId: string,
-  includeTags: boolean
+  folderId: string
 ): Promise<{ id: string; parent_folder: string | null; tags: unknown } | null> {
-  const fields = includeTags ? 'id,parent_folder,tags' : 'id,parent_folder';
-  const res = await fetch(`${DIRECTUS_URL}/items/folders/${folderId}?fields=${fields}`, {
+  const res = await fetch(`${DIRECTUS_URL}/items/folders/${folderId}?fields=id,parent_folder,tags`, {
     headers: { Authorization: `Bearer ${accessToken}` },
     cache: 'no-store',
   });
@@ -91,23 +66,35 @@ async function canAccessFolder(accessToken: string, folderId: string): Promise<b
   return res.ok;
 }
 
+async function readFolderForTagInheritance(
+  userToken: string,
+  folderId: string
+): Promise<{ id: string; parent_folder: string | null; tags: unknown } | null> {
+  const direct = await getFolderById(userToken, folderId);
+  if (direct) return direct;
+
+  const fallbackToken = folderTagToken(userToken);
+  if (fallbackToken === userToken) return null;
+
+  if (!(await canAccessFolder(userToken, folderId))) {
+    return null;
+  }
+
+  return getFolderById(fallbackToken, folderId);
+}
+
 async function getEffectiveFolderTags(
   accessToken: string,
   folderId: string | null
 ): Promise<string[]> {
   if (!folderId) return [];
-  const reader = await resolveFolderTagReaderToken(accessToken);
-  if (!reader) return [];
   const tags: string[] = [];
   let currentId: string | null = folderId;
   let guard = 0;
 
   while (currentId && guard < 32) {
     guard++;
-    if (reader.viaFallback && !(await canAccessFolder(accessToken, currentId))) {
-      return [];
-    }
-    const folder = await getFolderById(reader.token, currentId, true);
+    const folder = await readFolderForTagInheritance(accessToken, currentId);
     if (!folder) break;
     tags.unshift(...normalizeTags(folder.tags));
     currentId = folder.parent_folder;
