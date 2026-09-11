@@ -72,33 +72,28 @@ async function getFolderById(
   accessToken: string,
   folderId: string,
   includeTags: boolean
-): Promise<{ id: string; parent_folder: string | null; tags: unknown; organization: string | null } | null> {
-  const fields = includeTags ? 'id,parent_folder,tags,organization' : 'id,parent_folder,organization';
+): Promise<{ id: string; parent_folder: string | null; tags: unknown } | null> {
+  const fields = includeTags ? 'id,parent_folder,tags' : 'id,parent_folder';
   const res = await fetch(`${DIRECTUS_URL}/items/folders/${folderId}?fields=${fields}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
     cache: 'no-store',
   });
   if (!res.ok) return null;
   const { data } = await res.json();
-  return data
-    ? {
-        id: data.id,
-        parent_folder: data.parent_folder ?? null,
-        tags: data.tags ?? null,
-        organization:
-          typeof data.organization === 'string'
-            ? data.organization
-            : typeof data.organization?.id === 'string'
-            ? data.organization.id
-            : null,
-      }
-    : null;
+  return data ? { id: data.id, parent_folder: data.parent_folder ?? null, tags: data.tags ?? null } : null;
+}
+
+async function canAccessFolder(accessToken: string, folderId: string): Promise<boolean> {
+  const res = await fetch(`${DIRECTUS_URL}/items/folders/${folderId}?fields=id`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    cache: 'no-store',
+  });
+  return res.ok;
 }
 
 async function getEffectiveFolderTags(
   accessToken: string,
-  folderId: string | null,
-  organizationId: string
+  folderId: string | null
 ): Promise<string[]> {
   if (!folderId) return [];
   const reader = await resolveFolderTagReaderToken(accessToken);
@@ -109,11 +104,11 @@ async function getEffectiveFolderTags(
 
   while (currentId && guard < 32) {
     guard++;
-    const folder = await getFolderById(reader.token, currentId, true);
-    if (!folder) break;
-    if (reader.viaFallback && folder.organization !== organizationId) {
+    if (reader.viaFallback && !(await canAccessFolder(accessToken, currentId))) {
       return [];
     }
+    const folder = await getFolderById(reader.token, currentId, true);
+    if (!folder) break;
     tags.unshift(...normalizeTags(folder.tags));
     currentId = folder.parent_folder;
   }
@@ -552,7 +547,7 @@ export async function POST(request: NextRequest) {
   }
 
   const inheritedFolderTags = folderId
-    ? await getEffectiveFolderTags(session.accessToken, folderId, user.organization.id)
+    ? await getEffectiveFolderTags(session.accessToken, folderId)
     : [];
 
   const imageCount = Number(formData.get('image_count') || 0);
@@ -686,7 +681,7 @@ export async function PATCH(request: NextRequest) {
     }
     patch.tags = uniqueTags(normalizeTags(tags));
   } else if (folder !== undefined) {
-    const inheritedTags = await getEffectiveFolderTags(session.accessToken, folder || null, user.organization.id);
+    const inheritedTags = await getEffectiveFolderTags(session.accessToken, folder || null);
     const checkRes = await fetch(`${DIRECTUS_URL}/items/media_library/${id}?fields=tags`, {
       headers: { Authorization: `Bearer ${session.accessToken}` },
       cache: 'no-store',
