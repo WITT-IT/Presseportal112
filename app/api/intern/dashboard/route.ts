@@ -112,8 +112,14 @@ export async function GET(request: NextRequest) {
     const privateCount = statsPrivate?.meta?.aggregate?.[0]?.count?.id || 0;
     const activeShares = statsShares?.meta?.aggregate?.[0]?.count?.id || 0;
 
-    // totalUploads vorläufig als Summe der Beiträge
-    const totalUploads = publicCount + privateCount;
+    // Count total pictures (images) instead of posts
+    const totalUploads = (publicPosts?.data || []).reduce((sum: number, post: any) => {
+      const imageCount = Array.isArray(post.images) ? post.images.length : 0;
+      return sum + imageCount;
+    }, 0) + (privatePosts?.data || []).reduce((sum: number, post: any) => {
+      const imageCount = Array.isArray(post.images) ? post.images.length : 0;
+      return sum + imageCount;
+    }, 0);
 
     const mapPosts = (collection: any) => {
       const items = collection?.data || [];

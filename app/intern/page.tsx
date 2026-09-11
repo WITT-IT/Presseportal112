@@ -71,6 +71,12 @@ export default async function InternPage() {
     getMyMediaShares(session.accessToken, user.organization.id),
   ]);
 
+  // Count total number of pictures (images) instead of posts
+  const totalPictureCount = posts.reduce((sum, post) => {
+    const imageCount = Array.isArray(post.images) ? post.images.length : 0;
+    return sum + imageCount;
+  }, 0);
+
   const publicCount = posts.filter((p) => p.is_public).length;
   const privateCount = posts.length - publicCount;
   const activeShareCount = mediaShares.filter((s) => s.active).length;
@@ -78,7 +84,7 @@ export default async function InternPage() {
   const mediaSharesForPicker = mediaShares.map((s) => ({ id: s.id, name: s.name }));
 
   const tiles = [
-    { label: 'Uploads gesamt', value: posts.length },
+    { label: 'Uploads gesamt', value: totalPictureCount },
     { label: 'Öffentlich', value: publicCount },
     { label: 'Privat', value: privateCount },
     { label: 'Aktive Freigaben', value: activeShareCount },
