@@ -53,10 +53,9 @@ export default async function InternPage() {
   ]);
 
   // Fetch ALL posts without pagination to count total images accurately
-  // Directus uses a very large limit number instead of -1
   let totalPictureCount = 0;
-  let publicPostCount = 0;
-  let privatePostCount = 0;
+  let publicPostCount = posts.filter((p) => p.is_public).length;
+  let privatePostCount = posts.length - publicPostCount;
 
   try {
     const allPostsRes = await fetch(
@@ -74,26 +73,20 @@ export default async function InternPage() {
       publicPostCount = allPosts.filter((p: any) => p.is_public).length;
       privatePostCount = allPosts.length - publicPostCount;
       
-      // Sum all images from all posts
+      // Sum all images from all posts - this is the key fix
       totalPictureCount = allPosts.reduce((sum: number, post: any) => {
         const imageCount = Array.isArray(post.images) ? post.images.length : 0;
         return sum + imageCount;
       }, 0);
     } else {
-      console.error('[InternPage] Fehler beim Laden aller Posts:', allPostsRes.status);
-      // Fallback: count from posts array
-      publicPostCount = posts.filter((p) => p.is_public).length;
-      privatePostCount = posts.length - publicPostCount;
+      // Fallback if the full query fails
       totalPictureCount = posts.reduce((sum, post) => {
         const imageCount = Array.isArray(post.images) ? post.images.length : 0;
         return sum + imageCount;
       }, 0);
     }
   } catch (error) {
-    console.error('[InternPage] Exception beim Laden aller Posts:', error);
-    // Fallback: count from posts array
-    publicPostCount = posts.filter((p) => p.is_public).length;
-    privatePostCount = posts.length - publicPostCount;
+    // Fallback if there's an error
     totalPictureCount = posts.reduce((sum, post) => {
       const imageCount = Array.isArray(post.images) ? post.images.length : 0;
       return sum + imageCount;
