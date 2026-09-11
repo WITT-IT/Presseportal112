@@ -33,17 +33,37 @@ function uniqueTags(tags: string[]): string[] {
   return Array.from(new Set(tags.map((t) => t.trim()).filter(Boolean)));
 }
 
-async function getFolderById(accessToken: string, folderId: string): Promise<{ id: string; parent_folder: string | null; tags: unknown } | null> {
-  const res = await fetch(`${DIRECTUS_URL}/items/folders/${folderId}?fields=id,parent_folder,tags`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
+function folderTagToken(userToken: string): string {
+  return process.env.DIRECTUS_SERVICE_TOKEN || userToken;
+}
+
+async function supportsFolderTags(accessToken: string): Promise<boolean> {
+  const token = folderTagToken(accessToken);
+  const res = await fetch(`${DIRECTUS_URL}/items/folders?fields=tags&limit=1`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: 'no-store',
+  });
+  return res.ok;
+}
+
+async function getFolderById(
+  accessToken: string,
+  folderId: string,
+  includeTags: boolean
+): Promise<{ id: string; parent_folder: string | null; tags: unknown } | null> {
+  const token = includeTags ? folderTagToken(accessToken) : accessToken;
+  const fields = includeTags ? 'id,parent_folder,tags' : 'id,parent_folder';
+  const res = await fetch(`${DIRECTUS_URL}/items/folders/${folderId}?fields=${fields}`, {
+    headers: { Authorization: `Bearer ${token}` },
     cache: 'no-store',
   });
   if (!res.ok) return null;
   const { data } = await res.json();
-  return data ?? null;
+  return data ? { id: data.id, parent_folder: data.parent_folder ?? null, tags: data.tags ?? null } : null;
 }
 
-async function getEffectiveFolderTags(accessToken: string, folderId: string | null): Promise<string[]> {
+async function getEffectiveFolderTags(accessToken: string, folderId: string | null, includeTags: boolean): Promise<string[]> {
+  if (!includeTags) return [];
   if (!folderId) return [];
   const tags: string[] = [];
   let currentId: string | null = folderId;
@@ -51,7 +71,7 @@ async function getEffectiveFolderTags(accessToken: string, folderId: string | nu
 
   while (currentId && guard < 32) {
     guard++;
-    const folder = await getFolderById(accessToken, currentId);
+    const folder = await getFolderById(accessToken, currentId, true);
     if (!folder) break;
     tags.unshift(...normalizeTags(folder.tags));
     currentId = folder.parent_folder;
@@ -65,35 +85,39 @@ type TagMediaTarget = { id: string; tags: unknown };
 
 async function collectSubtreeTagTargets(
   accessToken: string,
-  rootFolderId: string
+  rootFolderId: string,
+  includeFolderTags: boolean
 ): Promise<{ folders: TagFolderTarget[]; mediaItems: TagMediaTarget[] }> {
-  const headers = { Authorization: `Bearer ${accessToken}` };
+  const folderToken = includeFolderTags ? folderTagToken(accessToken) : accessToken;
+  const folderHeaders = { Authorization: `Bearer ${folderToken}` };
+  const mediaHeaders = { Authorization: `Bearer ${accessToken}` };
   const folders: TagFolderTarget[] = [];
   const mediaItems: TagMediaTarget[] = [];
 
-  const rootFolder = await getFolderById(accessToken, rootFolderId);
+  const rootFolder = await getFolderById(accessToken, rootFolderId, includeFolderTags);
   if (!rootFolder) return { folders, mediaItems };
   folders.push({ id: rootFolder.id, tags: rootFolder.tags });
 
   const queue = [rootFolderId];
   while (queue.length > 0) {
     const current = queue.shift()!;
+    const folderFields = includeFolderTags ? 'id,tags' : 'id';
 
     const [subfoldersRes, mediaRes] = await Promise.all([
       fetch(
-        `${DIRECTUS_URL}/items/folders?filter[parent_folder][_eq]=${current}&fields=id,tags&limit=200`,
-        { headers, cache: 'no-store' }
+        `${DIRECTUS_URL}/items/folders?filter[parent_folder][_eq]=${current}&fields=${folderFields}&limit=200`,
+        { headers: folderHeaders, cache: 'no-store' }
       ),
       fetch(
         `${DIRECTUS_URL}/items/media_library?filter[folder][_eq]=${current}&fields=id,tags&limit=500`,
-        { headers, cache: 'no-store' }
+        { headers: mediaHeaders, cache: 'no-store' }
       ),
     ]);
 
     if (subfoldersRes.ok) {
       const { data } = await subfoldersRes.json();
-      for (const folder of data as { id: string; tags: unknown }[]) {
-        folders.push({ id: folder.id, tags: folder.tags });
+      for (const folder of data as { id: string; tags?: unknown }[]) {
+        folders.push({ id: folder.id, tags: folder.tags ?? null });
         queue.push(folder.id);
       }
     }
@@ -132,7 +156,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Ungültige Ordner-ID.' }, { status: 400 });
   }
 
-  const headers = { Authorization: `Bearer ${session.accessToken}` };
+  const includeFolderTags = await supportsFolderTags(session.accessToken);
+  const folderToken = includeFolderTags ? folderTagToken(session.accessToken) : session.accessToken;
+  const headers = { Authorization: `Bearer ${folderToken}` };
 
   const breadcrumb: { id: string; name: string }[] = [];
   // currentId startet mit dem bereits geprüften folderId. Alle weiteren
@@ -143,7 +169,8 @@ export async function GET(request: NextRequest) {
   let guard = 0;
   while (currentId && guard < 8) {
     guard++;
-    const res = await fetch(`${DIRECTUS_URL}/items/folders/${currentId}?fields=id,name,parent_folder,tags`, {
+    const fields = includeFolderTags ? 'id,name,parent_folder,tags' : 'id,name,parent_folder';
+    const res = await fetch(`${DIRECTUS_URL}/items/folders/${currentId}?fields=${fields}`, {
       headers,
       cache: 'no-store',
     });
@@ -155,11 +182,17 @@ export async function GET(request: NextRequest) {
 
   const parentFilter = folderId ? `filter[parent_folder][_eq]=${folderId}` : `filter[parent_folder][_null]=true`;
 
+  const subfolderFields = includeFolderTags ? 'id,name,tags' : 'id,name';
   const subfoldersRes = await fetch(
-    `${DIRECTUS_URL}/items/folders?filter[organization][_eq]=${user.organization.id}&${parentFilter}&fields=id,name,tags&sort=name&limit=200`,
+    `${DIRECTUS_URL}/items/folders?filter[organization][_eq]=${user.organization.id}&${parentFilter}&fields=${subfolderFields}&sort=name&limit=200`,
     { headers, cache: 'no-store' }
   );
-  const subfolders = subfoldersRes.ok ? (await subfoldersRes.json()).data : [];
+  const subfoldersRaw = subfoldersRes.ok ? (await subfoldersRes.json()).data : [];
+  const subfolders = (subfoldersRaw as { id: string; name: string; tags?: unknown }[]).map((f) => ({
+    id: f.id,
+    name: f.name,
+    tags: includeFolderTags ? normalizeTags(f.tags) : null,
+  }));
 
   return NextResponse.json({ breadcrumb, subfolders });
 }
@@ -187,27 +220,30 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Ungültige übergeordnete Ordner-ID.' }, { status: 400 });
   }
 
+  const includeFolderTags = await supportsFolderTags(session.accessToken);
   let inheritedTags: string[] = [];
   if (parent_folder) {
-    inheritedTags = await getEffectiveFolderTags(session.accessToken, parent_folder);
+    inheritedTags = await getEffectiveFolderTags(session.accessToken, parent_folder, includeFolderTags);
   }
   const ownTags = Array.isArray(tags) ? normalizeTags(tags) : [];
   const mergedTags = uniqueTags([...inheritedTags, ...ownTags]);
 
   const id = randomUUID();
+  const body: Record<string, unknown> = {
+    id,
+    name: String(name).trim(),
+    parent_folder: parent_folder || null,
+    organization: user.organization.id,
+  };
+  if (includeFolderTags) body.tags = mergedTags;
+
   const res = await fetch(`${DIRECTUS_URL}/items/folders`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${session.accessToken}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      id,
-      name: String(name).trim(),
-      parent_folder: parent_folder || null,
-      organization: user.organization.id,
-      tags: mergedTags,
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!res.ok) {
@@ -243,26 +279,27 @@ export async function PATCH(request: NextRequest) {
     );
   }
 
+  const includeFolderTags = await supportsFolderTags(session.accessToken);
   const patch: Record<string, unknown> = {};
-  const currentFolder = await getFolderById(session.accessToken, id);
+  const currentFolder = await getFolderById(session.accessToken, id, includeFolderTags);
   if (!currentFolder) {
     return NextResponse.json({ error: 'Ordner nicht gefunden.' }, { status: 404 });
   }
 
   let ancestorTagsForMove: string[] = [];
   if (parent_folder !== undefined) {
-    ancestorTagsForMove = await getEffectiveFolderTags(session.accessToken, parent_folder || null);
+    ancestorTagsForMove = await getEffectiveFolderTags(session.accessToken, parent_folder || null, includeFolderTags);
   }
 
   if (typeof name === 'string' && name.trim()) patch.name = name.trim();
   if (parent_folder !== undefined) patch.parent_folder = parent_folder;
-  if (tags !== undefined) {
+  if (tags !== undefined && includeFolderTags) {
     if (!Array.isArray(tags) && typeof tags !== 'string') {
       return NextResponse.json({ error: 'Ungültige Tags.' }, { status: 400 });
     }
     const incomingTags = normalizeTags(tags);
     patch.tags = parent_folder !== undefined ? uniqueTags([...ancestorTagsForMove, ...incomingTags]) : uniqueTags(incomingTags);
-  } else if (parent_folder !== undefined && ancestorTagsForMove.length > 0) {
+  } else if (parent_folder !== undefined && ancestorTagsForMove.length > 0 && includeFolderTags) {
     patch.tags = uniqueTags([...normalizeTags(currentFolder.tags), ...ancestorTagsForMove]);
   }
 
@@ -282,32 +319,41 @@ export async function PATCH(request: NextRequest) {
   }
 
   const shouldPropagate = Boolean(propagate_to_descendants) || parent_folder !== undefined || tags !== undefined;
-  const folderTagsToPropagate = normalizeTags(patch.tags ?? currentFolder.tags);
+  const folderTagsToPropagate = includeFolderTags
+    ? normalizeTags(patch.tags ?? currentFolder.tags)
+    : normalizeTags(tags);
 
   if (shouldPropagate && folderTagsToPropagate.length > 0) {
+    const folderPatchToken = includeFolderTags ? folderTagToken(session.accessToken) : session.accessToken;
     const jsonHeaders = {
-      Authorization: `Bearer ${session.accessToken}`,
+      Authorization: `Bearer ${folderPatchToken}`,
       'Content-Type': 'application/json',
     };
 
     try {
-      const subtree = await collectSubtreeTagTargets(session.accessToken, id);
+      const subtree = await collectSubtreeTagTargets(session.accessToken, id, includeFolderTags);
 
-      for (const folder of subtree.folders) {
-        if (folder.id === id) continue;
-        const merged = uniqueTags([...normalizeTags(folder.tags), ...folderTagsToPropagate]);
-        await fetch(`${DIRECTUS_URL}/items/folders/${folder.id}`, {
-          method: 'PATCH',
-          headers: jsonHeaders,
-          body: JSON.stringify({ tags: merged }),
-        });
+      if (includeFolderTags) {
+        for (const folder of subtree.folders) {
+          if (folder.id === id) continue;
+          const merged = uniqueTags([...normalizeTags(folder.tags), ...folderTagsToPropagate]);
+          await fetch(`${DIRECTUS_URL}/items/folders/${folder.id}`, {
+            method: 'PATCH',
+            headers: jsonHeaders,
+            body: JSON.stringify({ tags: merged }),
+          });
+        }
       }
 
+      const mediaHeaders = {
+        Authorization: `Bearer ${session.accessToken}`,
+        'Content-Type': 'application/json',
+      };
       for (const item of subtree.mediaItems) {
         const merged = uniqueTags([...normalizeTags(item.tags), ...folderTagsToPropagate]);
         await fetch(`${DIRECTUS_URL}/items/media_library/${item.id}`, {
           method: 'PATCH',
-          headers: jsonHeaders,
+          headers: mediaHeaders,
           body: JSON.stringify({ tags: merged }),
         });
       }
