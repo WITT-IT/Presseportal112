@@ -71,17 +71,15 @@ async function readFolderForTagInheritance(
   userToken: string,
   folderId: string
 ): Promise<{ id: string; parent_folder: string | null; tags: unknown } | null> {
-  const direct = await getFolderById(userToken, folderId);
-  if (direct) return direct;
-
   const fallbackToken = folderTagToken(userToken);
-  if (fallbackToken === userToken) return null;
+  if (fallbackToken !== userToken) {
+    if (!(await canAccessFolder(userToken, folderId))) return null;
 
-  if (!(await canAccessFolder(userToken, folderId))) {
-    return null;
+    const privileged = await getFolderById(fallbackToken, folderId);
+    if (privileged) return privileged;
   }
 
-  return getFolderById(fallbackToken, folderId);
+  return getFolderById(userToken, folderId);
 }
 
 async function getEffectiveFolderTags(
