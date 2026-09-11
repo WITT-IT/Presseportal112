@@ -7,7 +7,6 @@ import type { Post } from '@/lib/types';
 export default function MediaLibraryView({
   posts,
   mediaShares,
-  initialStatus = 'all',
 }: {
   posts: Post[];
   // "folders" ist hier ersatzlos entfallen. Der Ordner-Filter arbeitete über
@@ -24,14 +23,10 @@ export default function MediaLibraryView({
   // eigentliche Ordnernavigation. Diese Ansicht listet Beiträge, und die
   // sortieren sich über Status und Suche.
   mediaShares: { id: string; name: string }[];
-  initialStatus?: 'all' | 'public' | 'draft';
 }) {
   const [query, setQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'public' | 'draft'>(initialStatus);
 
   const filtered = posts.filter((post) => {
-    if (statusFilter === 'public' && !post.is_public) return false;
-    if (statusFilter === 'draft' && post.is_public) return false;
     if (!query.trim()) return true;
     const q = query.trim().toLowerCase();
     return (
@@ -56,22 +51,6 @@ export default function MediaLibraryView({
             placeholder="Titel, Alarmcode oder Ort durchsuchen …"
             className="w-full rounded-md border border-line-strong py-2 pl-9 pr-3 text-[13px] outline-none focus:border-ink"
           />
-        </div>
-        <div className="flex gap-1.5">
-          {(['all', 'public', 'draft'] as const).map((key) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setStatusFilter(key)}
-              className={`rounded-md px-3 py-2 text-[12px] font-semibold transition-colors ${
-                statusFilter === key
-                  ? 'bg-ink text-white'
-                  : 'border border-line-strong text-ink-2 hover:border-ink'
-              }`}
-            >
-              {key === 'all' ? 'Alle' : key === 'public' ? 'Öffentlich' : 'Entwürfe'}
-            </button>
-          ))}
         </div>
       </div>
 
