@@ -33,14 +33,9 @@ function uniqueTags(tags: string[]): string[] {
   return Array.from(new Set(tags.map((t) => t.trim()).filter(Boolean)));
 }
 
-function folderTagToken(userToken: string): string {
-  return process.env.DIRECTUS_SERVICE_TOKEN || userToken;
-}
-
 async function supportsFolderTags(accessToken: string): Promise<boolean> {
-  const token = folderTagToken(accessToken);
   const res = await fetch(`${DIRECTUS_URL}/items/folders?fields=tags&limit=1`, {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${accessToken}` },
     cache: 'no-store',
   });
   return res.ok;
@@ -51,10 +46,9 @@ async function getFolderById(
   folderId: string,
   includeTags: boolean
 ): Promise<{ id: string; parent_folder: string | null; tags: unknown } | null> {
-  const token = includeTags ? folderTagToken(accessToken) : accessToken;
   const fields = includeTags ? 'id,parent_folder,tags' : 'id,parent_folder';
   const res = await fetch(`${DIRECTUS_URL}/items/folders/${folderId}?fields=${fields}`, {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${accessToken}` },
     cache: 'no-store',
   });
   if (!res.ok) return null;
@@ -88,8 +82,7 @@ async function collectSubtreeTagTargets(
   rootFolderId: string,
   includeFolderTags: boolean
 ): Promise<{ folders: TagFolderTarget[]; mediaItems: TagMediaTarget[] }> {
-  const folderToken = includeFolderTags ? folderTagToken(accessToken) : accessToken;
-  const folderHeaders = { Authorization: `Bearer ${folderToken}` };
+  const folderHeaders = { Authorization: `Bearer ${accessToken}` };
   const mediaHeaders = { Authorization: `Bearer ${accessToken}` };
   const folders: TagFolderTarget[] = [];
   const mediaItems: TagMediaTarget[] = [];
@@ -157,8 +150,7 @@ export async function GET(request: NextRequest) {
   }
 
   const includeFolderTags = await supportsFolderTags(session.accessToken);
-  const folderToken = includeFolderTags ? folderTagToken(session.accessToken) : session.accessToken;
-  const headers = { Authorization: `Bearer ${folderToken}` };
+  const headers = { Authorization: `Bearer ${session.accessToken}` };
 
   const breadcrumb: { id: string; name: string }[] = [];
   // currentId startet mit dem bereits geprüften folderId. Alle weiteren
@@ -182,16 +174,21 @@ export async function GET(request: NextRequest) {
 
   const parentFilter = folderId ? `filter[parent_folder][_eq]=${folderId}` : `filter[parent_folder][_null]=true`;
 
-  const subfolderFields = includeFolderTags ? 'id,name,tags' : 'id,name';
-  const subfoldersRes = await fetch(
-    `${DIRECTUS_URL}/items/folders?filter[organization][_eq]=${user.organization.id}&${parentFilter}&fields=${subfolderFields}&sort=name&limit=200`,
-    { headers, cache: 'no-store' }
-  );
+  const taggedUrl = `${DIRECTUS_URL}/items/folders?filter[organization][_eq]=${user.organization.id}&${parentFilter}&fields=id,name,tags&sort=name&limit=200`;
+  const plainUrl = `${DIRECTUS_URL}/items/folders?filter[organization][_eq]=${user.organization.id}&${parentFilter}&fields=id,name&sort=name&limit=200`;
+
+  let subfoldersRes = await fetch(includeFolderTags ? taggedUrl : plainUrl, { headers, cache: 'no-store' });
+  let tagsReadable = includeFolderTags;
+  if (!subfoldersRes.ok && includeFolderTags && (subfoldersRes.status === 400 || subfoldersRes.status === 403)) {
+    tagsReadable = false;
+    subfoldersRes = await fetch(plainUrl, { headers, cache: 'no-store' });
+  }
+
   const subfoldersRaw = subfoldersRes.ok ? (await subfoldersRes.json()).data : [];
   const subfolders = (subfoldersRaw as { id: string; name: string; tags?: unknown }[]).map((f) => ({
     id: f.id,
     name: f.name,
-    tags: includeFolderTags ? normalizeTags(f.tags) : null,
+    tags: tagsReadable ? normalizeTags(f.tags) : null,
   }));
 
   return NextResponse.json({ breadcrumb, subfolders });
@@ -324,9 +321,8 @@ export async function PATCH(request: NextRequest) {
     : normalizeTags(tags);
 
   if (shouldPropagate && folderTagsToPropagate.length > 0) {
-    const folderPatchToken = includeFolderTags ? folderTagToken(session.accessToken) : session.accessToken;
     const jsonHeaders = {
-      Authorization: `Bearer ${folderPatchToken}`,
+      Authorization: `Bearer ${session.accessToken}`,
       'Content-Type': 'application/json',
     };
 

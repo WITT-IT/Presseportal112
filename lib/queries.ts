@@ -711,17 +711,21 @@ export async function getFolderContents(
   const parentFilter = folderId ? `filter[parent_folder][_eq]=${folderId}` : `filter[parent_folder][_null]=true`;
   const folderFilter = folderId ? `filter[folder][_eq]=${folderId}` : `filter[folder][_null]=true`;
 
-  const subfolderFields = folderTagsSupported ? 'id,name,tags' : 'id,name';
-  const [subfoldersRes, itemsRes] = await Promise.all([
-    fetch(
-      `${DIRECTUS_URL}/items/folders?filter[organization][_eq]=${organizationId}&${parentFilter}&fields=${subfolderFields}&sort=name&limit=200`,
-      { headers, cache: 'no-store' }
-    ),
-    fetch(
-      `${DIRECTUS_URL}/items/media_library?filter[organization][_eq]=${organizationId}&${folderFilter}&fields=id,display_name,file,file_preview,tags&sort=-uploaded_at&limit=200`,
-      { headers, cache: 'no-store' }
-    ),
-  ]);
+  const taggedSubfoldersUrl = `${DIRECTUS_URL}/items/folders?filter[organization][_eq]=${organizationId}&${parentFilter}&fields=id,name,tags&sort=name&limit=200`;
+  const plainSubfoldersUrl = `${DIRECTUS_URL}/items/folders?filter[organization][_eq]=${organizationId}&${parentFilter}&fields=id,name&sort=name&limit=200`;
+  let subfoldersRes = await fetch(folderTagsSupported ? taggedSubfoldersUrl : plainSubfoldersUrl, {
+    headers,
+    cache: 'no-store',
+  });
+  if (!subfoldersRes.ok && folderTagsSupported && (subfoldersRes.status === 400 || subfoldersRes.status === 403)) {
+    folderTagsSupported = false;
+    subfoldersRes = await fetch(plainSubfoldersUrl, { headers, cache: 'no-store' });
+  }
+
+  const itemsRes = await fetch(
+    `${DIRECTUS_URL}/items/media_library?filter[organization][_eq]=${organizationId}&${folderFilter}&fields=id,display_name,file,file_preview,tags&sort=-uploaded_at&limit=200`,
+    { headers, cache: 'no-store' }
+  );
 
   const subfoldersRaw = subfoldersRes.ok ? (await subfoldersRes.json()).data : [];
   const subfolders = (subfoldersRaw as { id: string; name: string; tags?: unknown }[]).map((folder) => ({
