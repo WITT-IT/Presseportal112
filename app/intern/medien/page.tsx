@@ -115,6 +115,7 @@ export default async function MedienPage({
         currentFolderId={folder ?? null}
         parentFolderId={contents.folder?.parent_folder ?? null}
         folderName={contents.folder?.name ?? null}
+        currentFolderTags={contents.folder?.tags ?? null}
         breadcrumb={contents.breadcrumb}
         subfolders={contents.subfolders}
         folderThumbs={folderThumbs}

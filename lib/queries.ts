@@ -657,14 +657,15 @@ export async function getFolderContents(
   organizationId: string,
   folderId: string | null
 ): Promise<{
-  folder: { id: string; name: string; parent_folder: string | null } | null;
+  folder: { id: string; name: string; parent_folder: string | null; tags: string[] | null } | null;
   breadcrumb: { id: string; name: string }[];
-  subfolders: { id: string; name: string }[];
+  subfolders: { id: string; name: string; tags: string[] | null }[];
   items: {
     id: string;
     display_name: string | null;
     file: string;
     file_preview: string | null;
+    tags: string[] | null;
   }[];
 }> {
   if (folderId !== null && !isUuid(folderId)) {
@@ -676,7 +677,7 @@ export async function getFolderContents(
 
   const breadcrumb: { id: string; name: string }[] = [];
   let currentId = folderId;
-  let currentFolder: { id: string; name: string; parent_folder: string | null } | null = null;
+  let currentFolder: { id: string; name: string; parent_folder: string | null; tags: string[] | null } | null = null;
   let guard = 0;
   while (currentId && guard < 8) {
     guard++;
@@ -684,7 +685,7 @@ export async function getFolderContents(
     // folderId; ab dem zweiten Durchlauf stammt es aus Directus' eigener
     // Antwort (data.parent_folder), nicht mehr vom Client -- dort ist
     // keine erneute Prüfung nötig.
-    const res = await fetch(`${DIRECTUS_URL}/items/folders/${currentId}?fields=id,name,parent_folder`, {
+    const res = await fetch(`${DIRECTUS_URL}/items/folders/${currentId}?fields=id,name,parent_folder,tags`, {
       headers,
       cache: 'no-store',
     });
@@ -700,11 +701,11 @@ export async function getFolderContents(
 
   const [subfoldersRes, itemsRes] = await Promise.all([
     fetch(
-      `${DIRECTUS_URL}/items/folders?filter[organization][_eq]=${organizationId}&${parentFilter}&fields=id,name&sort=name&limit=200`,
+      `${DIRECTUS_URL}/items/folders?filter[organization][_eq]=${organizationId}&${parentFilter}&fields=id,name,tags&sort=name&limit=200`,
       { headers, cache: 'no-store' }
     ),
     fetch(
-      `${DIRECTUS_URL}/items/media_library?filter[organization][_eq]=${organizationId}&${folderFilter}&fields=id,display_name,file,file_preview&sort=-uploaded_at&limit=200`,
+      `${DIRECTUS_URL}/items/media_library?filter[organization][_eq]=${organizationId}&${folderFilter}&fields=id,display_name,file,file_preview,tags&sort=-uploaded_at&limit=200`,
       { headers, cache: 'no-store' }
     ),
   ]);

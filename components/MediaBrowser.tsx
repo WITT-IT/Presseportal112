@@ -15,14 +15,15 @@ import PostCalendar from './PostCalendar';
 import ShareFolderControl from './ShareFolderControl';
 import MediaLightbox from './MediaLightbox';
 import StorageUsageBar from './StorageUsageBar';
-import type { Post } from '@/lib/types';
+import { normalizeTags, type Post } from '@/lib/types';
 
-type SubFolder = { id: string; name: string };
+type SubFolder = { id: string; name: string; tags: string[] | null };
 type MediaItem = {
   id: string;
   display_name: string | null;
   file: string;
   file_preview: string | null;
+  tags: string[] | null;
 };
 
 // Ziehen überträgt IMMER eine Liste, auch bei einem einzelnen Element.
@@ -32,6 +33,17 @@ type DragPayload = { type: 'folder' | 'media'; ids: string[] };
 // Absatz macht die eigentliche Frage unleserlich.
 function shortName(name: string, max = 52): string {
   return name.length <= max ? name : `${name.slice(0, max - 1)}…`;
+}
+
+function parseTagInput(raw: string): string[] {
+  return Array.from(
+    new Set(
+      raw
+        .split(',')
+        .map((tag) => tag.trim())
+        .filter(Boolean)
+    )
+  );
 }
 
 function IconUpload({ className }: { className?: string }) {
@@ -141,6 +153,7 @@ export default function MediaBrowser({
   currentFolderId,
   parentFolderId,
   folderName = null,
+  currentFolderTags = null,
   breadcrumb = [],
   subfolders,
   folderThumbs = {},
@@ -152,6 +165,7 @@ export default function MediaBrowser({
   currentFolderId: string | null;
   parentFolderId: string | null;
   folderName?: string | null;
+  currentFolderTags?: string[] | null;
   breadcrumb?: { id: string; name: string }[];
   subfolders: SubFolder[];
   /** Ordner-ID → media_library-ID des Vorschaubilds (oder null). */
@@ -374,6 +388,61 @@ export default function MediaBrowser({
   function startRenameFolder(e: React.MouseEvent, folder: SubFolder) {
     e.stopPropagation();
     setRenaming({ id: folder.id, type: 'folder', value: folder.name });
+  }
+
+  async function editFolderTags(folderId: string, currentTags: string[] | null) {
+    const initial = normalizeTags(currentTags).join(', ');
+    const value = window.prompt(
+      'Ordner-Tags (kommagetrennt). Diese Tags werden auf Bilder und Unterordner in diesem Ordner angewendet:',
+      initial
+    );
+    if (value === null) return;
+
+    setBusy(true);
+    setError(null);
+    try {
+      const tags = parseTagInput(value);
+      const res = await fetch('/api/intern/folders', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: folderId,
+          tags,
+          propagate_to_descendants: true,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || body.error) throw new Error(body.error || 'Tags konnten nicht gespeichert werden.');
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Tags konnten nicht gespeichert werden.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function editMediaTags(item: MediaItem) {
+    const initial = normalizeTags(item.tags).join(', ');
+    const value = window.prompt('Bild-Tags (kommagetrennt):', initial);
+    if (value === null) return;
+
+    setBusy(true);
+    setError(null);
+    try {
+      const tags = parseTagInput(value);
+      const res = await fetch('/api/intern/library', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: item.id, tags }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || body.error) throw new Error(body.error || 'Tags konnten nicht gespeichert werden.');
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Tags konnten nicht gespeichert werden.');
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function submitRename() {
@@ -654,6 +723,18 @@ export default function MediaBrowser({
           </div>
 
           <div className="flex flex-none flex-wrap items-center gap-2">
+            {isNested && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (currentFolderId) editFolderTags(currentFolderId, currentFolderTags);
+                }}
+                disabled={busy}
+                className="rounded-full border border-line-strong bg-white px-4 py-2.5 text-[13px] font-semibold text-ink transition-colors hover:border-ink disabled:opacity-50"
+              >
+                Ordner-Tags
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setCreatingFolder(true)}
@@ -794,6 +875,17 @@ export default function MediaBrowser({
                             <ShareFolderControl folderId={folder.id} folderName={folder.name} mediaShares={mediaShares} />
                             <button
                               type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                editFolderTags(folder.id, folder.tags);
+                              }}
+                              title="Ordner-Tags bearbeiten"
+                              className="flex h-7 w-7 items-center justify-center rounded-full bg-white/90 text-ink-2 shadow-sm ring-1 ring-line-strong backdrop-blur transition-colors hover:bg-panel hover:text-ink"
+                            >
+                              #
+                            </button>
+                            <button
+                              type="button"
                               onClick={(e) => startRenameFolder(e, folder)}
                               title="Ordner umbenennen"
                               className="flex h-7 w-7 items-center justify-center rounded-full bg-white/90 text-ink-2 shadow-sm ring-1 ring-line-strong backdrop-blur transition-colors hover:bg-panel hover:text-ink"
@@ -868,6 +960,11 @@ export default function MediaBrowser({
                                 <span className="line-clamp-1 text-[13px] font-semibold text-ink">
                                   {folder.name}
                                 </span>
+                                {normalizeTags(folder.tags).length > 0 && (
+                                  <span className="mt-0.5 line-clamp-1 block text-[10.5px] text-ink-2">
+                                    #{normalizeTags(folder.tags).join(' #')}
+                                  </span>
+                                )}
                                 <span className="mt-0.5 block text-[11px] text-ink-3">
                                   {isNested ? 'Unterordner' : 'Ordner'}
                                 </span>
@@ -1013,16 +1110,35 @@ export default function MediaBrowser({
                               className="w-full rounded-md border border-ink px-1.5 py-0.5 text-[12.5px] outline-none"
                             />
                           ) : (
-                            <span
-                              onDoubleClick={(e) => {
-                                e.stopPropagation();
-                                setRenaming({ id: item.id, type: 'media', value: label });
-                              }}
-                              title="Doppelklick zum schnellen Umbenennen"
-                              className="line-clamp-1 text-[12.5px] font-medium text-ink"
-                            >
-                              {label}
-                            </span>
+                            <div>
+                              <span
+                                onDoubleClick={(e) => {
+                                  e.stopPropagation();
+                                  setRenaming({ id: item.id, type: 'media', value: label });
+                                }}
+                                title="Doppelklick zum schnellen Umbenennen"
+                                className="line-clamp-1 text-[12.5px] font-medium text-ink"
+                              >
+                                {label}
+                              </span>
+                              <div className="mt-1 flex items-center justify-between gap-2">
+                                <span className="line-clamp-1 text-[10.5px] text-ink-2">
+                                  {normalizeTags(item.tags).length > 0
+                                    ? `#${normalizeTags(item.tags).join(' #')}`
+                                    : 'Keine Tags'}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    editMediaTags(item);
+                                  }}
+                                  className="rounded-full border border-line-strong px-2 py-0.5 text-[10.5px] font-semibold text-ink-2 transition-colors hover:border-ink hover:text-ink"
+                                >
+                                  Tags
+                                </button>
+                              </div>
+                            </div>
                           )}
                         </figcaption>
                       </figure>

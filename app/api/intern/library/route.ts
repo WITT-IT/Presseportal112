@@ -37,6 +37,37 @@ function normalizeIdArray(raw: unknown): string[] {
   return [];
 }
 
+function uniqueTags(tags: string[]): string[] {
+  return Array.from(new Set(tags.map((t) => t.trim()).filter(Boolean)));
+}
+
+async function getFolderById(accessToken: string, folderId: string): Promise<{ id: string; parent_folder: string | null; tags: unknown } | null> {
+  const res = await fetch(`${DIRECTUS_URL}/items/folders/${folderId}?fields=id,parent_folder,tags`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    cache: 'no-store',
+  });
+  if (!res.ok) return null;
+  const { data } = await res.json();
+  return data ?? null;
+}
+
+async function getEffectiveFolderTags(accessToken: string, folderId: string | null): Promise<string[]> {
+  if (!folderId) return [];
+  const tags: string[] = [];
+  let currentId: string | null = folderId;
+  let guard = 0;
+
+  while (currentId && guard < 32) {
+    guard++;
+    const folder = await getFolderById(accessToken, currentId);
+    if (!folder) break;
+    tags.unshift(...normalizeTags(folder.tags));
+    currentId = folder.parent_folder;
+  }
+
+  return uniqueTags(tags);
+}
+
 async function uploadBuffer(
   token: string,
   buffer: Buffer,
@@ -467,6 +498,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Ungültige Ordner-ID.' }, { status: 400 });
   }
 
+  const inheritedFolderTags = folderId
+    ? await getEffectiveFolderTags(session.accessToken, folderId)
+    : [];
+
   const imageCount = Number(formData.get('image_count') || 0);
   const headers = { Authorization: `Bearer ${session.accessToken}`, 'Content-Type': 'application/json' };
   const created: string[] = [];
@@ -528,7 +563,7 @@ export async function POST(request: NextRequest) {
           folder: folderId,
           file: fileId,
           display_name: file.name,
-          tags: [],
+          tags: inheritedFolderTags,
           uploaded_at: new Date().toISOString(),
           used_in_posts: [],
         }),
@@ -577,7 +612,7 @@ export async function PATCH(request: NextRequest) {
   const session = getSession(request);
   if (!session) return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
 
-  const { id, display_name, folder } = await request.json().catch(() => ({}));
+  const { id, display_name, folder, tags } = await request.json().catch(() => ({}));
 
   if (!isUuid(id)) {
     return NextResponse.json({ error: 'Ungültige ID.' }, { status: 400 });
@@ -589,6 +624,24 @@ export async function PATCH(request: NextRequest) {
   const patch: Record<string, unknown> = {};
   if (typeof display_name === 'string') patch.display_name = display_name.trim();
   if (folder !== undefined) patch.folder = folder;
+  if (tags !== undefined) {
+    if (!Array.isArray(tags) && typeof tags !== 'string') {
+      return NextResponse.json({ error: 'Ungültige Tags.' }, { status: 400 });
+    }
+    patch.tags = uniqueTags(normalizeTags(tags));
+  } else if (folder !== undefined) {
+    const inheritedTags = await getEffectiveFolderTags(session.accessToken, folder || null);
+    const checkRes = await fetch(`${DIRECTUS_URL}/items/media_library/${id}?fields=tags`, {
+      headers: { Authorization: `Bearer ${session.accessToken}` },
+      cache: 'no-store',
+    });
+    if (checkRes.ok) {
+      const { data } = await checkRes.json();
+      patch.tags = uniqueTags([...normalizeTags(data?.tags), ...inheritedTags]);
+    } else if (inheritedTags.length > 0) {
+      patch.tags = inheritedTags;
+    }
+  }
 
   const res = await fetch(`${DIRECTUS_URL}/items/media_library/${id}`, {
     method: 'PATCH',
