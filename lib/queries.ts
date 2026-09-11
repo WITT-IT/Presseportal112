@@ -12,6 +12,33 @@ import type {
 } from './types';
 import { normalizeTags } from './types';
 
+function folderTagToken(userToken: string): string {
+  return process.env.DIRECTUS_SERVICE_TOKEN || userToken;
+}
+
+async function supportsFolderTags(accessToken: string): Promise<boolean> {
+  const res = await fetch(`${DIRECTUS_URL}/items/folders?fields=tags&limit=1`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    cache: 'no-store',
+  });
+  return res.ok;
+}
+
+async function resolveFolderTagReaderToken(
+  userToken: string
+): Promise<{ token: string; viaFallback: boolean } | null> {
+  if (await supportsFolderTags(userToken)) {
+    return { token: userToken, viaFallback: false };
+  }
+
+  const fallback = folderTagToken(userToken);
+  if (fallback !== userToken && (await supportsFolderTags(fallback))) {
+    return { token: fallback, viaFallback: true };
+  }
+
+  return null;
+}
+
 const PUBLIC_POST_FIELDS = [
   'id',
   'title',
@@ -674,11 +701,14 @@ export async function getFolderContents(
   }
 
   const headers = { Authorization: `Bearer ${accessToken}` };
+  const folderTagReader = await resolveFolderTagReaderToken(accessToken);
+  const folderReadHeaders = {
+    Authorization: `Bearer ${folderTagReader ? folderTagReader.token : accessToken}`,
+  };
 
   const breadcrumb: { id: string; name: string }[] = [];
   let currentId = folderId;
   let currentFolder: { id: string; name: string; parent_folder: string | null; tags: string[] | null } | null = null;
-  let folderTagsSupported = true;
   let guard = 0;
   while (currentId && guard < 8) {
     guard++;
@@ -686,22 +716,34 @@ export async function getFolderContents(
     // folderId; ab dem zweiten Durchlauf stammt es aus Directus' eigener
     // Antwort (data.parent_folder), nicht mehr vom Client -- dort ist
     // keine erneute Prüfung nötig.
-    const fields = folderTagsSupported ? 'id,name,parent_folder,tags' : 'id,name,parent_folder';
+    const fields = folderTagReader
+      ? folderTagReader.viaFallback
+        ? 'id,name,parent_folder,tags,organization'
+        : 'id,name,parent_folder,tags'
+      : 'id,name,parent_folder';
     const res = await fetch(`${DIRECTUS_URL}/items/folders/${currentId}?fields=${fields}`, {
-      headers,
+      headers: folderReadHeaders,
       cache: 'no-store',
     });
-    if (!res.ok && folderTagsSupported && (res.status === 400 || res.status === 403)) {
-      folderTagsSupported = false;
-      continue;
-    }
     if (!res.ok) break;
     const { data } = await res.json();
+    if (folderTagReader?.viaFallback) {
+      const orgId =
+        typeof data.organization === 'string'
+          ? data.organization
+          : typeof data.organization?.id === 'string'
+          ? data.organization.id
+          : null;
+      if (orgId !== organizationId) {
+        console.error(`getFolderContents: Fallback-Lesezugriff auf fremde Organisation für Ordner ${data.id} geblockt.`);
+        return { folder: null, breadcrumb: [], subfolders: [], items: [] };
+      }
+    }
     const normalizedFolder = {
       id: data.id,
       name: data.name,
       parent_folder: data.parent_folder ?? null,
-      tags: folderTagsSupported ? normalizeTags(data.tags) : null,
+      tags: folderTagReader ? normalizeTags(data.tags) : null,
     };
     if (!currentFolder) currentFolder = normalizedFolder;
     breadcrumb.unshift({ id: data.id, name: data.name });
@@ -711,14 +753,16 @@ export async function getFolderContents(
   const parentFilter = folderId ? `filter[parent_folder][_eq]=${folderId}` : `filter[parent_folder][_null]=true`;
   const folderFilter = folderId ? `filter[folder][_eq]=${folderId}` : `filter[folder][_null]=true`;
 
-  const taggedSubfoldersUrl = `${DIRECTUS_URL}/items/folders?filter[organization][_eq]=${organizationId}&${parentFilter}&fields=id,name,tags&sort=name&limit=200`;
+  const taggedSubfoldersFields = folderTagReader?.viaFallback ? 'id,name,tags,organization' : 'id,name,tags';
+  const taggedSubfoldersUrl = `${DIRECTUS_URL}/items/folders?filter[organization][_eq]=${organizationId}&${parentFilter}&fields=${taggedSubfoldersFields}&sort=name&limit=200`;
   const plainSubfoldersUrl = `${DIRECTUS_URL}/items/folders?filter[organization][_eq]=${organizationId}&${parentFilter}&fields=id,name&sort=name&limit=200`;
-  let subfoldersRes = await fetch(folderTagsSupported ? taggedSubfoldersUrl : plainSubfoldersUrl, {
-    headers,
+  let subfoldersRes = await fetch(folderTagReader ? taggedSubfoldersUrl : plainSubfoldersUrl, {
+    headers: folderTagReader ? folderReadHeaders : headers,
     cache: 'no-store',
   });
-  if (!subfoldersRes.ok && folderTagsSupported && (subfoldersRes.status === 400 || subfoldersRes.status === 403)) {
-    folderTagsSupported = false;
+  let tagsReadable = Boolean(folderTagReader);
+  if (!subfoldersRes.ok && folderTagReader) {
+    tagsReadable = false;
     subfoldersRes = await fetch(plainSubfoldersUrl, { headers, cache: 'no-store' });
   }
 
@@ -728,11 +772,22 @@ export async function getFolderContents(
   );
 
   const subfoldersRaw = subfoldersRes.ok ? (await subfoldersRes.json()).data : [];
-  const subfolders = (subfoldersRaw as { id: string; name: string; tags?: unknown }[]).map((folder) => ({
-    id: folder.id,
-    name: folder.name,
-    tags: folderTagsSupported ? normalizeTags(folder.tags) : null,
-  }));
+  const subfolders = (subfoldersRaw as { id: string; name: string; tags?: unknown; organization?: unknown }[])
+    .filter((folder) => {
+      if (!tagsReadable || !folderTagReader?.viaFallback) return true;
+      const orgId =
+        typeof folder.organization === 'string'
+          ? folder.organization
+          : typeof (folder.organization as { id?: unknown } | null)?.id === 'string'
+          ? ((folder.organization as { id: string }).id)
+          : null;
+      return orgId === organizationId;
+    })
+    .map((folder) => ({
+      id: folder.id,
+      name: folder.name,
+      tags: tagsReadable ? normalizeTags(folder.tags) : null,
+    }));
   const items = itemsRes.ok ? (await itemsRes.json()).data : [];
 
   return { folder: currentFolder, breadcrumb, subfolders, items };
