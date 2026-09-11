@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { getCurrentUser, isAdministrator, SESSION_COOKIE } from '@/lib/auth';
 import { getMyOrganizationImages, getMyMediaShares } from '@/lib/queries';
 import MediaLibraryView from '@/components/MediaLibraryView';
+import { DIRECTUS_URL } from '@/lib/directus';
 
 export const dynamic = 'force-dynamic';
 
@@ -72,21 +73,42 @@ export default async function InternPage() {
   ]);
 
   // Count total number of pictures (images) instead of posts
-  const totalPictureCount = posts.reduce((sum, post) => {
-    const imageCount = Array.isArray(post.images) ? post.images.length : 0;
-    return sum + imageCount;
-  }, 0);
+  // Query ALL posts without pagination to get the true total count
+  const allPostsRes = await fetch(
+    `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${user.organization.id}&fields=id,is_public,images.id&limit=-1`,
+    { 
+      headers: { Authorization: `Bearer ${session.accessToken}` },
+      cache: 'no-store'
+    }
+  );
+  
+  let totalPictureCount = 0;
+  let allPostsCount = 0;
+  let publicPostCount = 0;
+  
+  if (allPostsRes.ok) {
+    const allPostsData = await allPostsRes.json();
+    const allPosts = allPostsData.data || [];
+    
+    allPostsCount = allPosts.length;
+    publicPostCount = allPosts.filter((p: any) => p.is_public).length;
+    
+    // Sum all images from all posts
+    totalPictureCount = allPosts.reduce((sum: number, post: any) => {
+      const imageCount = Array.isArray(post.images) ? post.images.length : 0;
+      return sum + imageCount;
+    }, 0);
+  }
 
-  const publicCount = posts.filter((p) => p.is_public).length;
-  const privateCount = posts.length - publicCount;
+  const privatePostCount = allPostsCount - publicPostCount;
   const activeShareCount = mediaShares.filter((s) => s.active).length;
 
   const mediaSharesForPicker = mediaShares.map((s) => ({ id: s.id, name: s.name }));
 
   const tiles = [
     { label: 'Uploads gesamt', value: totalPictureCount },
-    { label: 'Öffentlich', value: publicCount },
-    { label: 'Privat', value: privateCount },
+    { label: 'Öffentlich', value: publicPostCount },
+    { label: 'Privat', value: privatePostCount },
     { label: 'Aktive Freigaben', value: activeShareCount },
   ];
 
