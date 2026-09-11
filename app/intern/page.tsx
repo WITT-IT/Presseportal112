@@ -8,6 +8,56 @@ import { DIRECTUS_URL } from '@/lib/directus';
 
 export const dynamic = 'force-dynamic';
 
+function readAggregateCount(payload: any): number | null {
+  const raw = payload?.meta?.aggregate?.[0]?.count?.id;
+  const count = typeof raw === 'number' ? raw : Number(raw);
+  return Number.isFinite(count) ? count : null;
+}
+
+async function countAllOrganizationImages(accessToken: string, organizationId: string): Promise<number> {
+  try {
+    const aggregateRes = await fetch(
+      `${DIRECTUS_URL}/items/images?filter[post][organization][_eq]=${organizationId}&aggregate[count]=id&meta=*`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        cache: 'no-store',
+      }
+    );
+    if (aggregateRes.ok) {
+      const aggregateBody = await aggregateRes.json().catch(() => ({}));
+      const aggregateCount = readAggregateCount(aggregateBody);
+      if (aggregateCount !== null) return aggregateCount;
+    }
+  } catch (error) {
+    console.error('countAllOrganizationImages aggregate fehlgeschlagen:', error);
+  }
+
+  // Fallback ohne hartes Global-Limit.
+  let total = 0;
+  const pageSize = 500;
+  const maxPages = 2000;
+
+  for (let page = 1; page <= maxPages; page += 1) {
+    const pageRes = await fetch(
+      `${DIRECTUS_URL}/items/images?filter[post][organization][_eq]=${organizationId}&fields=id&limit=${pageSize}&page=${page}`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        cache: 'no-store',
+      }
+    );
+    if (!pageRes.ok) {
+      console.error(`countAllOrganizationImages Seite ${page} fehlgeschlagen (Status ${pageRes.status}).`);
+      break;
+    }
+    const pageBody = await pageRes.json().catch(() => ({}));
+    const rows = Array.isArray(pageBody?.data) ? pageBody.data : [];
+    total += rows.length;
+    if (rows.length < pageSize) break;
+  }
+
+  return total;
+}
+
 export default async function InternPage() {
   const cookieStore = await cookies();
   const raw = cookieStore.get(SESSION_COOKIE)?.value;
@@ -52,52 +102,44 @@ export default async function InternPage() {
     getMyMediaShares(session.accessToken, user.organization.id),
   ]);
 
-  // Fetch ALL posts without pagination to count total images accurately
-  let totalPictureCount = 0;
+  let totalUploadCount = posts.reduce((sum, post) => sum + (Array.isArray(post.images) ? post.images.length : 0), 0);
   let publicPostCount = posts.filter((p) => p.is_public).length;
   let privatePostCount = posts.length - publicPostCount;
 
   try {
-    const allPostsRes = await fetch(
-      `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${user.organization.id}&fields=id,is_public,images.id&limit=99999`,
-      { 
-        headers: { Authorization: `Bearer ${session.accessToken}` },
-        cache: 'no-store'
-      }
-    );
-    
-    if (allPostsRes.ok) {
-      const allPostsData = await allPostsRes.json();
-      const allPosts = allPostsData.data || [];
-      
-      publicPostCount = allPosts.filter((p: any) => p.is_public).length;
-      privatePostCount = allPosts.length - publicPostCount;
-      
-      // Sum all images from all posts - this is the key fix
-      totalPictureCount = allPosts.reduce((sum: number, post: any) => {
-        const imageCount = Array.isArray(post.images) ? post.images.length : 0;
-        return sum + imageCount;
-      }, 0);
-    } else {
-      // Fallback if the full query fails
-      totalPictureCount = posts.reduce((sum, post) => {
-        const imageCount = Array.isArray(post.images) ? post.images.length : 0;
-        return sum + imageCount;
-      }, 0);
+    const [statsPublicRes, statsPrivateRes, totalImages] = await Promise.all([
+      fetch(
+        `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${user.organization.id}&filter[is_public][_eq]=true&aggregate[count]=id&meta=*`,
+        { headers: { Authorization: `Bearer ${session.accessToken}` }, cache: 'no-store' }
+      ),
+      fetch(
+        `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${user.organization.id}&filter[is_public][_eq]=false&aggregate[count]=id&meta=*`,
+        { headers: { Authorization: `Bearer ${session.accessToken}` }, cache: 'no-store' }
+      ),
+      countAllOrganizationImages(session.accessToken, user.organization.id),
+    ]);
+
+    if (statsPublicRes.ok) {
+      const body = await statsPublicRes.json().catch(() => ({}));
+      const count = readAggregateCount(body);
+      if (count !== null) publicPostCount = count;
     }
+    if (statsPrivateRes.ok) {
+      const body = await statsPrivateRes.json().catch(() => ({}));
+      const count = readAggregateCount(body);
+      if (count !== null) privatePostCount = count;
+    }
+
+    totalUploadCount = totalImages;
   } catch (error) {
-    // Fallback if there's an error
-    totalPictureCount = posts.reduce((sum, post) => {
-      const imageCount = Array.isArray(post.images) ? post.images.length : 0;
-      return sum + imageCount;
-    }, 0);
+    console.error('InternPage Stats-Laden fehlgeschlagen:', error);
   }
 
   const activeShareCount = mediaShares.filter((s) => s.active).length;
   const mediaSharesForPicker = mediaShares.map((s) => ({ id: s.id, name: s.name }));
 
   const tiles = [
-    { label: 'Uploads gesamt', value: totalPictureCount },
+    { label: 'Uploads gesamt', value: totalUploadCount },
     { label: 'Öffentlich', value: publicPostCount },
     { label: 'Privat', value: privatePostCount },
     { label: 'Aktive Freigaben', value: activeShareCount },
