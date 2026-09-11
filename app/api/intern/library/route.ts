@@ -41,17 +41,38 @@ function uniqueTags(tags: string[]): string[] {
   return Array.from(new Set(tags.map((t) => t.trim()).filter(Boolean)));
 }
 
-async function getFolderById(accessToken: string, folderId: string): Promise<{ id: string; parent_folder: string | null; tags: unknown } | null> {
-  const res = await fetch(`${DIRECTUS_URL}/items/folders/${folderId}?fields=id,parent_folder,tags`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
+function folderTagToken(userToken: string): string {
+  return process.env.DIRECTUS_SERVICE_TOKEN || userToken;
+}
+
+async function supportsFolderTags(accessToken: string): Promise<boolean> {
+  const token = folderTagToken(accessToken);
+  const res = await fetch(`${DIRECTUS_URL}/items/folders?fields=tags&limit=1`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: 'no-store',
+  });
+  return res.ok;
+}
+
+async function getFolderById(
+  accessToken: string,
+  folderId: string,
+  includeTags: boolean
+): Promise<{ id: string; parent_folder: string | null; tags: unknown } | null> {
+  const token = includeTags ? folderTagToken(accessToken) : accessToken;
+  const fields = includeTags ? 'id,parent_folder,tags' : 'id,parent_folder';
+  const res = await fetch(`${DIRECTUS_URL}/items/folders/${folderId}?fields=${fields}`, {
+    headers: { Authorization: `Bearer ${token}` },
     cache: 'no-store',
   });
   if (!res.ok) return null;
   const { data } = await res.json();
-  return data ?? null;
+  return data ? { id: data.id, parent_folder: data.parent_folder ?? null, tags: data.tags ?? null } : null;
 }
 
 async function getEffectiveFolderTags(accessToken: string, folderId: string | null): Promise<string[]> {
+  const includeTags = await supportsFolderTags(accessToken);
+  if (!includeTags) return [];
   if (!folderId) return [];
   const tags: string[] = [];
   let currentId: string | null = folderId;
@@ -59,7 +80,7 @@ async function getEffectiveFolderTags(accessToken: string, folderId: string | nu
 
   while (currentId && guard < 32) {
     guard++;
-    const folder = await getFolderById(accessToken, currentId);
+    const folder = await getFolderById(accessToken, currentId, true);
     if (!folder) break;
     tags.unshift(...normalizeTags(folder.tags));
     currentId = folder.parent_folder;

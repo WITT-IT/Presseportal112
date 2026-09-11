@@ -678,6 +678,7 @@ export async function getFolderContents(
   const breadcrumb: { id: string; name: string }[] = [];
   let currentId = folderId;
   let currentFolder: { id: string; name: string; parent_folder: string | null; tags: string[] | null } | null = null;
+  let folderTagsSupported = true;
   let guard = 0;
   while (currentId && guard < 8) {
     guard++;
@@ -685,13 +686,24 @@ export async function getFolderContents(
     // folderId; ab dem zweiten Durchlauf stammt es aus Directus' eigener
     // Antwort (data.parent_folder), nicht mehr vom Client -- dort ist
     // keine erneute Prüfung nötig.
-    const res = await fetch(`${DIRECTUS_URL}/items/folders/${currentId}?fields=id,name,parent_folder,tags`, {
+    const fields = folderTagsSupported ? 'id,name,parent_folder,tags' : 'id,name,parent_folder';
+    const res = await fetch(`${DIRECTUS_URL}/items/folders/${currentId}?fields=${fields}`, {
       headers,
       cache: 'no-store',
     });
+    if (!res.ok && folderTagsSupported && (res.status === 400 || res.status === 403)) {
+      folderTagsSupported = false;
+      continue;
+    }
     if (!res.ok) break;
     const { data } = await res.json();
-    if (!currentFolder) currentFolder = data;
+    const normalizedFolder = {
+      id: data.id,
+      name: data.name,
+      parent_folder: data.parent_folder ?? null,
+      tags: folderTagsSupported ? normalizeTags(data.tags) : null,
+    };
+    if (!currentFolder) currentFolder = normalizedFolder;
     breadcrumb.unshift({ id: data.id, name: data.name });
     currentId = data.parent_folder;
   }
@@ -699,9 +711,10 @@ export async function getFolderContents(
   const parentFilter = folderId ? `filter[parent_folder][_eq]=${folderId}` : `filter[parent_folder][_null]=true`;
   const folderFilter = folderId ? `filter[folder][_eq]=${folderId}` : `filter[folder][_null]=true`;
 
+  const subfolderFields = folderTagsSupported ? 'id,name,tags' : 'id,name';
   const [subfoldersRes, itemsRes] = await Promise.all([
     fetch(
-      `${DIRECTUS_URL}/items/folders?filter[organization][_eq]=${organizationId}&${parentFilter}&fields=id,name,tags&sort=name&limit=200`,
+      `${DIRECTUS_URL}/items/folders?filter[organization][_eq]=${organizationId}&${parentFilter}&fields=${subfolderFields}&sort=name&limit=200`,
       { headers, cache: 'no-store' }
     ),
     fetch(
@@ -710,7 +723,12 @@ export async function getFolderContents(
     ),
   ]);
 
-  const subfolders = subfoldersRes.ok ? (await subfoldersRes.json()).data : [];
+  const subfoldersRaw = subfoldersRes.ok ? (await subfoldersRes.json()).data : [];
+  const subfolders = (subfoldersRaw as { id: string; name: string; tags?: unknown }[]).map((folder) => ({
+    id: folder.id,
+    name: folder.name,
+    tags: folderTagsSupported ? normalizeTags(folder.tags) : null,
+  }));
   const items = itemsRes.ok ? (await itemsRes.json()).data : [];
 
   return { folder: currentFolder, breadcrumb, subfolders, items };
