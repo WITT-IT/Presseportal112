@@ -75,7 +75,7 @@ export async function GET(request: NextRequest) {
   ].join(",");
 
   try {
-    const [statsPublic, statsPrivate, statsShares, publicPosts, privatePosts] =
+    const [statsPublic, statsPrivate, statsShares, publicPosts, privatePosts, allPosts] =
       await Promise.all([
         fetchJSON(
           "statsPublic",
@@ -106,17 +106,20 @@ export async function GET(request: NextRequest) {
           `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${organizationId}&filter[is_public][_eq]=false&limit=${pageSize}&page=${privatePage}&sort=-event_date&meta=filter_count&fields=${postFields}`,
           token
         ),
+        // Alle Beiträge OHNE Pagination für korrekte Bilderzählung
+        fetchJSON(
+          "allPosts",
+          `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${organizationId}&fields=id,is_public,images.id&limit=-1`,
+          token
+        ),
       ]);
 
     const publicCount = statsPublic?.meta?.aggregate?.[0]?.count?.id || 0;
     const privateCount = statsPrivate?.meta?.aggregate?.[0]?.count?.id || 0;
     const activeShares = statsShares?.meta?.aggregate?.[0]?.count?.id || 0;
 
-    // Count total pictures (images) instead of posts
-    const totalUploads = (publicPosts?.data || []).reduce((sum: number, post: any) => {
-      const imageCount = Array.isArray(post.images) ? post.images.length : 0;
-      return sum + imageCount;
-    }, 0) + (privatePosts?.data || []).reduce((sum: number, post: any) => {
+    // Count total pictures (images) from ALL posts, not just paginated results
+    const totalUploads = (allPosts?.data || []).reduce((sum: number, post: any) => {
       const imageCount = Array.isArray(post.images) ? post.images.length : 0;
       return sum + imageCount;
     }, 0);
