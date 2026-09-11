@@ -45,6 +45,33 @@ async function supportsFolderTags(accessToken: string): Promise<boolean> {
   return res.ok;
 }
 
+async function persistFolderTags(
+  folderId: string,
+  tags: string[],
+  userToken: string,
+  fallbackToken: string
+): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+  const tokens = [userToken, ...(fallbackToken !== userToken ? [fallbackToken] : [])];
+  let lastStatus = 500;
+  let lastError = 'Unbekannter Fehler';
+
+  for (const token of tokens) {
+    const res = await fetch(`${DIRECTUS_URL}/items/folders/${folderId}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ tags }),
+    });
+    if (res.ok) return { ok: true };
+    lastStatus = res.status;
+    lastError = await res.text().catch(() => '');
+  }
+
+  return { ok: false, status: lastStatus, error: lastError || 'Unbekannter Fehler' };
+}
+
 async function getFolderById(
   accessToken: string,
   folderId: string,
@@ -329,17 +356,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Ordner konnte nicht angelegt werden.' }, { status: 500 });
   }
 
-  if (!includeFolderTags && canPersistFolderTagsWithFallback) {
-    await fetch(`${DIRECTUS_URL}/items/folders/${id}`, {
-      method: 'PATCH',
-      headers: {
-        Authorization: `Bearer ${fallbackFolderToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ tags: mergedTags }),
-    }).catch((error) => {
-      console.error('Ordner-Tags konnten nachträglich nicht geschrieben werden:', error);
-    });
+  if (!includeFolderTags && mergedTags.length > 0) {
+    try {
+      const persist = await persistFolderTags(id, mergedTags, session.accessToken, fallbackFolderToken);
+      if (!persist.ok) {
+        console.error('Ordner-Tags konnten nach dem Anlegen nicht geschrieben werden:', persist.status, persist.error);
+      }
+    } catch (error) {
+      console.error('Ordner-Tags konnten nach dem Anlegen nicht geschrieben werden:', error);
+    }
   }
 
   return NextResponse.json({ ok: true, id });
@@ -410,12 +435,6 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'Ungültige Tags.' }, { status: 400 });
     }
     incomingTags = normalizeTags(tags);
-    if (!includeFolderTags && !canPersistFolderTagsWithFallback) {
-      return NextResponse.json(
-        { error: 'Ordner-Tags können aktuell nicht gespeichert werden. Bitte Admin-Berechtigung prüfen.' },
-        { status: 403 }
-      );
-    }
   }
 
   if (typeof name === 'string' && name.trim()) patch.name = name.trim();
@@ -450,17 +469,12 @@ export async function PATCH(request: NextRequest) {
     }
   }
 
-  if (fallbackFolderTags && canPersistFolderTagsWithFallback) {
-    await fetch(`${DIRECTUS_URL}/items/folders/${id}`, {
-      method: 'PATCH',
-      headers: {
-        Authorization: `Bearer ${fallbackFolderToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ tags: fallbackFolderTags }),
-    }).catch((error) => {
-      console.error('Ordner-Tags konnten nicht über den Fallback gespeichert werden:', error);
-    });
+  if (fallbackFolderTags) {
+    const persist = await persistFolderTags(id, fallbackFolderTags, session.accessToken, fallbackFolderToken);
+    if (!persist.ok) {
+      console.error('Ordner-Tags konnten nicht gespeichert werden:', persist.status, persist.error);
+      return NextResponse.json({ error: 'Ordner-Tags konnten nicht gespeichert werden.' }, { status: persist.status === 403 ? 403 : 500 });
+    }
   }
 
   const shouldPropagate = Boolean(propagate_to_descendants) || parent_folder !== undefined || tags !== undefined;
