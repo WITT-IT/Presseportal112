@@ -44,6 +44,7 @@ export default function QuickUploadButton({
       // 1) Alle Dateien in einem Rutsch in die Bibliothek hochladen.
       setProgress('Wird hochgeladen …');
       const libraryForm = new FormData();
+      libraryForm.append('folder', folderId);
       libraryForm.append('image_count', String(limited.length));
       limited.forEach((file, i) => libraryForm.append(`file_${i}`, file, file.name));
 
