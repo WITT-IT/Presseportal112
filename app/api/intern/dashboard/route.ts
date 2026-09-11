@@ -34,15 +34,30 @@ function readAggregateCount(payload: any): number | null {
 }
 
 async function countAllOrganizationImages(token: string, organizationId: string): Promise<number> {
-  // Robust über die Posts-Relation zählen: diese Query-Form ist im Projekt
-  // bereits etabliert und vermeidet fehleranfällige Tiefen-Filter auf /images.
+  // "Uploads gesamt" zählt Bilder in der Medienbibliothek. So steigt der
+  // Wert sofort nach jedem Upload, auch ohne veröffentlichte Beiträge.
+  try {
+    const aggregateRes = await fetch(
+      `${DIRECTUS_URL}/items/media_library?filter[organization][_eq]=${organizationId}&aggregate[count]=id&meta=*`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (aggregateRes.ok) {
+      const aggregateBody = await aggregateRes.json().catch(() => ({}));
+      const aggregateCount = readAggregateCount(aggregateBody);
+      if (aggregateCount !== null) return aggregateCount;
+    }
+  } catch (error) {
+    console.error("[dashboard] media_library-aggregate fehlgeschlagen:", { organizationId, error });
+  }
+
+  // Fallback ohne hartes Global-Limit.
   let total = 0;
   const pageSize = 500;
   const maxPages = 2000;
 
   for (let page = 1; page <= maxPages; page += 1) {
     const pageRes = await fetch(
-      `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${organizationId}&fields=images.id&limit=${pageSize}&page=${page}`,
+      `${DIRECTUS_URL}/items/media_library?filter[organization][_eq]=${organizationId}&fields=id&limit=${pageSize}&page=${page}`,
       { headers: { Authorization: `Bearer ${token}` } }
     );
     if (!pageRes.ok) {
@@ -55,10 +70,7 @@ async function countAllOrganizationImages(token: string, organizationId: string)
     }
     const pageBody = await pageRes.json().catch(() => ({}));
     const rows = Array.isArray(pageBody?.data) ? pageBody.data : [];
-    total += rows.reduce(
-      (sum: number, post: any) => sum + (Array.isArray(post?.images) ? post.images.length : 0),
-      0
-    );
+    total += rows.length;
     if (rows.length < pageSize) break;
   }
 

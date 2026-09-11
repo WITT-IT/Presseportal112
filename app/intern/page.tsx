@@ -15,15 +15,34 @@ function readAggregateCount(payload: any): number | null {
 }
 
 async function countAllOrganizationImages(accessToken: string, organizationId: string): Promise<number> {
-  // Robust über die Posts-Relation zählen: diese Query-Form ist im Projekt
-  // bereits etabliert und vermeidet fehleranfällige Tiefen-Filter auf /images.
+  // "Uploads gesamt" zählt hochgeladene Bilder in der Medienbibliothek.
+  // Das greift direkt nach dem Upload, auch bevor ein Bild veröffentlicht
+  // und damit einem Beitrag zugeordnet wurde.
+  try {
+    const aggregateRes = await fetch(
+      `${DIRECTUS_URL}/items/media_library?filter[organization][_eq]=${organizationId}&aggregate[count]=id&meta=*`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        cache: 'no-store',
+      }
+    );
+    if (aggregateRes.ok) {
+      const aggregateBody = await aggregateRes.json().catch(() => ({}));
+      const aggregateCount = readAggregateCount(aggregateBody);
+      if (aggregateCount !== null) return aggregateCount;
+    }
+  } catch (error) {
+    console.error('countAllOrganizationImages aggregate fehlgeschlagen:', error);
+  }
+
+  // Fallback ohne hartes Global-Limit.
   let total = 0;
   const pageSize = 500;
   const maxPages = 2000;
 
   for (let page = 1; page <= maxPages; page += 1) {
     const pageRes = await fetch(
-      `${DIRECTUS_URL}/items/posts?filter[organization][_eq]=${organizationId}&fields=images.id&limit=${pageSize}&page=${page}`,
+      `${DIRECTUS_URL}/items/media_library?filter[organization][_eq]=${organizationId}&fields=id&limit=${pageSize}&page=${page}`,
       {
         headers: { Authorization: `Bearer ${accessToken}` },
         cache: 'no-store',
@@ -35,10 +54,7 @@ async function countAllOrganizationImages(accessToken: string, organizationId: s
     }
     const pageBody = await pageRes.json().catch(() => ({}));
     const rows = Array.isArray(pageBody?.data) ? pageBody.data : [];
-    total += rows.reduce(
-      (sum: number, post: any) => sum + (Array.isArray(post?.images) ? post.images.length : 0),
-      0
-    );
+    total += rows.length;
     if (rows.length < pageSize) break;
   }
 
