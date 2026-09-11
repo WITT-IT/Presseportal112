@@ -23,6 +23,10 @@ function storageToken(userToken: string): string {
   return process.env.DIRECTUS_SERVICE_TOKEN || userToken;
 }
 
+function folderTagToken(userToken: string): string {
+  return process.env.DIRECTUS_SERVICE_TOKEN || userToken;
+}
+
 function normalizeIdArray(raw: unknown): string[] {
   if (!raw) return [];
   if (Array.isArray(raw)) return raw.filter((v): v is string => typeof v === 'string');
@@ -49,33 +53,67 @@ async function supportsFolderTags(accessToken: string): Promise<boolean> {
   return res.ok;
 }
 
+async function resolveFolderTagReaderToken(
+  userToken: string
+): Promise<{ token: string; viaFallback: boolean } | null> {
+  if (await supportsFolderTags(userToken)) {
+    return { token: userToken, viaFallback: false };
+  }
+
+  const fallback = folderTagToken(userToken);
+  if (fallback !== userToken && (await supportsFolderTags(fallback))) {
+    return { token: fallback, viaFallback: true };
+  }
+
+  return null;
+}
+
 async function getFolderById(
   accessToken: string,
   folderId: string,
   includeTags: boolean
-): Promise<{ id: string; parent_folder: string | null; tags: unknown } | null> {
-  const fields = includeTags ? 'id,parent_folder,tags' : 'id,parent_folder';
+): Promise<{ id: string; parent_folder: string | null; tags: unknown; organization: string | null } | null> {
+  const fields = includeTags ? 'id,parent_folder,tags,organization' : 'id,parent_folder,organization';
   const res = await fetch(`${DIRECTUS_URL}/items/folders/${folderId}?fields=${fields}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
     cache: 'no-store',
   });
   if (!res.ok) return null;
   const { data } = await res.json();
-  return data ? { id: data.id, parent_folder: data.parent_folder ?? null, tags: data.tags ?? null } : null;
+  return data
+    ? {
+        id: data.id,
+        parent_folder: data.parent_folder ?? null,
+        tags: data.tags ?? null,
+        organization:
+          typeof data.organization === 'string'
+            ? data.organization
+            : typeof data.organization?.id === 'string'
+            ? data.organization.id
+            : null,
+      }
+    : null;
 }
 
-async function getEffectiveFolderTags(accessToken: string, folderId: string | null): Promise<string[]> {
-  const includeTags = await supportsFolderTags(accessToken);
-  if (!includeTags) return [];
+async function getEffectiveFolderTags(
+  accessToken: string,
+  folderId: string | null,
+  organizationId: string
+): Promise<string[]> {
   if (!folderId) return [];
+  const reader = await resolveFolderTagReaderToken(accessToken);
+  if (!reader) return [];
   const tags: string[] = [];
   let currentId: string | null = folderId;
   let guard = 0;
 
   while (currentId && guard < 32) {
     guard++;
-    const folder = await getFolderById(accessToken, currentId, true);
+    const folder = await getFolderById(reader.token, currentId, true);
     if (!folder) break;
+    if (reader.viaFallback && folder.organization !== organizationId) {
+      return [];
+    }
     tags.unshift(...normalizeTags(folder.tags));
     currentId = folder.parent_folder;
   }
@@ -514,7 +552,7 @@ export async function POST(request: NextRequest) {
   }
 
   const inheritedFolderTags = folderId
-    ? await getEffectiveFolderTags(session.accessToken, folderId)
+    ? await getEffectiveFolderTags(session.accessToken, folderId, user.organization.id)
     : [];
 
   const imageCount = Number(formData.get('image_count') || 0);
@@ -627,6 +665,9 @@ export async function PATCH(request: NextRequest) {
   const session = getSession(request);
   if (!session) return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
 
+  const user = await getCurrentUser(session.accessToken);
+  if (!user?.organization?.id) return NextResponse.json({ error: 'Keine Organisation.' }, { status: 403 });
+
   const { id, display_name, folder, tags } = await request.json().catch(() => ({}));
 
   if (!isUuid(id)) {
@@ -645,7 +686,7 @@ export async function PATCH(request: NextRequest) {
     }
     patch.tags = uniqueTags(normalizeTags(tags));
   } else if (folder !== undefined) {
-    const inheritedTags = await getEffectiveFolderTags(session.accessToken, folder || null);
+    const inheritedTags = await getEffectiveFolderTags(session.accessToken, folder || null, user.organization.id);
     const checkRes = await fetch(`${DIRECTUS_URL}/items/media_library/${id}?fields=tags`, {
       headers: { Authorization: `Bearer ${session.accessToken}` },
       cache: 'no-store',

@@ -33,6 +33,10 @@ function uniqueTags(tags: string[]): string[] {
   return Array.from(new Set(tags.map((t) => t.trim()).filter(Boolean)));
 }
 
+function folderTagToken(userToken: string): string {
+  return process.env.DIRECTUS_SERVICE_TOKEN || userToken;
+}
+
 async function supportsFolderTags(accessToken: string): Promise<boolean> {
   const res = await fetch(`${DIRECTUS_URL}/items/folders?fields=tags&limit=1`, {
     headers: { Authorization: `Bearer ${accessToken}` },
@@ -218,9 +222,20 @@ export async function POST(request: NextRequest) {
   }
 
   const includeFolderTags = await supportsFolderTags(session.accessToken);
+  const fallbackFolderToken = folderTagToken(session.accessToken);
+  const canPersistFolderTagsWithFallback =
+    !includeFolderTags &&
+    fallbackFolderToken !== session.accessToken &&
+    (await supportsFolderTags(fallbackFolderToken));
+  const folderTagReadToken = includeFolderTags
+    ? session.accessToken
+    : canPersistFolderTagsWithFallback
+    ? fallbackFolderToken
+    : session.accessToken;
+  const canReadFolderTags = includeFolderTags || canPersistFolderTagsWithFallback;
   let inheritedTags: string[] = [];
   if (parent_folder) {
-    inheritedTags = await getEffectiveFolderTags(session.accessToken, parent_folder, includeFolderTags);
+    inheritedTags = await getEffectiveFolderTags(folderTagReadToken, parent_folder, canReadFolderTags);
   }
   const ownTags = Array.isArray(tags) ? normalizeTags(tags) : [];
   const mergedTags = uniqueTags([...inheritedTags, ...ownTags]);
@@ -247,6 +262,19 @@ export async function POST(request: NextRequest) {
     const body = await res.text();
     console.error('Ordner anlegen fehlgeschlagen:', body);
     return NextResponse.json({ error: 'Ordner konnte nicht angelegt werden.' }, { status: 500 });
+  }
+
+  if (!includeFolderTags && canPersistFolderTagsWithFallback) {
+    await fetch(`${DIRECTUS_URL}/items/folders/${id}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${fallbackFolderToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ tags: mergedTags }),
+    }).catch((error) => {
+      console.error('Ordner-Tags konnten nachträglich nicht geschrieben werden:', error);
+    });
   }
 
   return NextResponse.json({ ok: true, id });
@@ -277,6 +305,17 @@ export async function PATCH(request: NextRequest) {
   }
 
   const includeFolderTags = await supportsFolderTags(session.accessToken);
+  const fallbackFolderToken = folderTagToken(session.accessToken);
+  const canPersistFolderTagsWithFallback =
+    !includeFolderTags &&
+    fallbackFolderToken !== session.accessToken &&
+    (await supportsFolderTags(fallbackFolderToken));
+  const folderTagReadToken = includeFolderTags
+    ? session.accessToken
+    : canPersistFolderTagsWithFallback
+    ? fallbackFolderToken
+    : session.accessToken;
+  const canReadFolderTags = includeFolderTags || canPersistFolderTagsWithFallback;
   const patch: Record<string, unknown> = {};
   const currentFolder = await getFolderById(session.accessToken, id, includeFolderTags);
   if (!currentFolder) {
@@ -285,20 +324,31 @@ export async function PATCH(request: NextRequest) {
 
   let ancestorTagsForMove: string[] = [];
   if (parent_folder !== undefined) {
-    ancestorTagsForMove = await getEffectiveFolderTags(session.accessToken, parent_folder || null, includeFolderTags);
+    ancestorTagsForMove = await getEffectiveFolderTags(folderTagReadToken, parent_folder || null, canReadFolderTags);
+  }
+
+  let incomingTags: string[] | null = null;
+  if (tags !== undefined) {
+    if (!Array.isArray(tags) && typeof tags !== 'string') {
+      return NextResponse.json({ error: 'Ungültige Tags.' }, { status: 400 });
+    }
+    incomingTags = normalizeTags(tags);
   }
 
   if (typeof name === 'string' && name.trim()) patch.name = name.trim();
   if (parent_folder !== undefined) patch.parent_folder = parent_folder;
-  if (tags !== undefined && includeFolderTags) {
-    if (!Array.isArray(tags) && typeof tags !== 'string') {
-      return NextResponse.json({ error: 'Ungültige Tags.' }, { status: 400 });
-    }
-    const incomingTags = normalizeTags(tags);
+  if (incomingTags && includeFolderTags) {
     patch.tags = parent_folder !== undefined ? uniqueTags([...ancestorTagsForMove, ...incomingTags]) : uniqueTags(incomingTags);
   } else if (parent_folder !== undefined && ancestorTagsForMove.length > 0 && includeFolderTags) {
     patch.tags = uniqueTags([...normalizeTags(currentFolder.tags), ...ancestorTagsForMove]);
   }
+
+  const fallbackFolderTags =
+    !includeFolderTags && incomingTags
+      ? parent_folder !== undefined
+        ? uniqueTags([...ancestorTagsForMove, ...incomingTags])
+        : uniqueTags(incomingTags)
+      : null;
 
   const res = await fetch(`${DIRECTUS_URL}/items/folders/${id}`, {
     method: 'PATCH',
@@ -315,10 +365,23 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: 'Aktualisieren fehlgeschlagen.' }, { status: 500 });
   }
 
+  if (fallbackFolderTags && canPersistFolderTagsWithFallback) {
+    await fetch(`${DIRECTUS_URL}/items/folders/${id}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${fallbackFolderToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ tags: fallbackFolderTags }),
+    }).catch((error) => {
+      console.error('Ordner-Tags konnten nicht über den Fallback gespeichert werden:', error);
+    });
+  }
+
   const shouldPropagate = Boolean(propagate_to_descendants) || parent_folder !== undefined || tags !== undefined;
   const folderTagsToPropagate = includeFolderTags
     ? normalizeTags(patch.tags ?? currentFolder.tags)
-    : normalizeTags(tags);
+    : incomingTags ?? [];
 
   if (shouldPropagate && folderTagsToPropagate.length > 0) {
     const jsonHeaders = {
