@@ -3,12 +3,14 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useDialog } from './DialogProvider';
+import { normalizeTags } from '@/lib/types';
 
 type MediaItem = {
   id: string;
   display_name: string | null;
   file: string;
   file_preview: string | null;
+  tags: string[] | null;
 };
 
 // Großansicht für ein Bild aus der internen Medienbibliothek -- optisch an
@@ -22,11 +24,13 @@ export default function MediaLightbox({
   activeId,
   onClose,
   onChangeActive,
+  onEditTags,
 }: {
   items: MediaItem[];
   activeId: string;
   onClose: () => void;
   onChangeActive: (id: string) => void;
+  onEditTags?: (item: MediaItem) => void;
 }) {
   const router = useRouter();
   const { confirm } = useDialog();
@@ -38,6 +42,7 @@ export default function MediaLightbox({
   const [savingName, setSavingName] = useState(false);
   const [nameSaved, setNameSaved] = useState(false);
   const [busy, setBusy] = useState(false);
+  const activeTags = normalizeTags(active?.tags);
 
   useEffect(() => {
     setNameDraft(active?.display_name ?? '');
@@ -153,12 +158,26 @@ export default function MediaLightbox({
             <p className="mt-1.5 font-mono text-[11px] text-white/40">
               Bild {index + 1} von {items.length}
             </p>
+            <p className="mt-1 text-[11px] text-white/55">
+              {activeTags.length > 0 ? `#${activeTags.join(' #')}` : 'Keine Tags gesetzt'}
+            </p>
           </div>
 
           <div className="flex flex-none flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => router.push(`/intern/upload?mediaId=${active.id}`)}
+              onClick={() => onEditTags?.(active)}
+              className="rounded-full bg-white/15 px-4 py-2 text-[12px] font-semibold text-white transition-colors hover:bg-white/25"
+            >
+              Tags
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const qp = new URLSearchParams({ mediaId: active.id });
+                if (activeTags.length > 0) qp.set('prefillTags', activeTags.join(','));
+                router.push(`/intern/upload?${qp.toString()}`);
+              }}
               className="rounded-full bg-signal px-4 py-2 text-[12px] font-semibold text-white transition-colors hover:bg-signal-deep"
             >
               Veröffentlichen

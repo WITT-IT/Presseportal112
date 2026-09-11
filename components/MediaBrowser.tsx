@@ -1,7 +1,7 @@
 'use client';
 
 import { getStorageStatus } from '@/lib/storage';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { useDialog } from './DialogProvider';
@@ -26,6 +26,10 @@ type MediaItem = {
   tags: string[] | null;
 };
 
+type TagEditorTarget =
+  | { kind: 'folder'; id: string; title: string; description: string; tags: string[] }
+  | { kind: 'media'; id: string; title: string; description: string; tags: string[] };
+
 // Ziehen überträgt IMMER eine Liste, auch bei einem einzelnen Element.
 type DragPayload = { type: 'folder' | 'media'; ids: string[] };
 
@@ -35,15 +39,8 @@ function shortName(name: string, max = 52): string {
   return name.length <= max ? name : `${name.slice(0, max - 1)}…`;
 }
 
-function parseTagInput(raw: string): string[] {
-  return Array.from(
-    new Set(
-      raw
-        .split(',')
-        .map((tag) => tag.trim())
-        .filter(Boolean)
-    )
-  );
+function uniqueTags(tags: string[]): string[] {
+  return Array.from(new Set(tags.map((tag) => tag.trim()).filter(Boolean)));
 }
 
 function IconUpload({ className }: { className?: string }) {
@@ -189,6 +186,12 @@ export default function MediaBrowser({
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tagEditor, setTagEditor] = useState<TagEditorTarget | null>(null);
+  const [tagDraft, setTagDraft] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState('');
+  const [tagSaving, setTagSaving] = useState(false);
+  const [folderTagOverrides, setFolderTagOverrides] = useState<Record<string, string[]>>({});
+  const [mediaTagOverrides, setMediaTagOverrides] = useState<Record<string, string[]>>({});
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [anchorIndex, setAnchorIndex] = useState<number | null>(null);
@@ -219,6 +222,29 @@ export default function MediaBrowser({
   const selectedItems = items.filter((it) => selectedIds.has(it.id));
   const selectionCount = selectedItems.length;
   const hasSelection = selectionCount > 0;
+  const effectiveCurrentFolderTags = useMemo(
+    () =>
+      currentFolderId
+        ? folderTagOverrides[currentFolderId] ?? normalizeTags(currentFolderTags)
+        : normalizeTags(currentFolderTags),
+    [currentFolderId, currentFolderTags, folderTagOverrides]
+  );
+  const tagSuggestions = useMemo(() => {
+    const collected: string[] = [];
+    collected.push(...effectiveCurrentFolderTags);
+    for (const folder of subfolders) {
+      const tags = folderTagOverrides[folder.id] ?? normalizeTags(folder.tags);
+      collected.push(...tags);
+    }
+    for (const item of items) {
+      const tags = mediaTagOverrides[item.id] ?? normalizeTags(item.tags);
+      collected.push(...tags);
+    }
+    for (const post of calendarPosts) {
+      collected.push(...normalizeTags(post.tags));
+    }
+    return uniqueTags(collected).sort((a, b) => a.localeCompare(b, 'de'));
+  }, [calendarPosts, effectiveCurrentFolderTags, folderTagOverrides, mediaTagOverrides, items, subfolders]);
 
   useEffect(() => {
     if (!hasSelection || lightboxId) return;
@@ -301,6 +327,85 @@ export default function MediaBrowser({
 
   function selectAll() {
     setSelectedIds(new Set(items.map((it) => it.id)));
+  }
+
+  function openFolderTagEditor(folderId: string, title: string, tags: string[] | null) {
+    const effectiveTags = folderTagOverrides[folderId] ?? normalizeTags(tags);
+    setTagEditor({
+      kind: 'folder',
+      id: folderId,
+      title,
+      description: 'Ordner-Tags werden auf Bilder und Unterordner in diesem Ordner angewendet.',
+      tags: effectiveTags,
+    });
+    setTagDraft(effectiveTags);
+    setTagInput('');
+  }
+
+  function openMediaTagEditor(item: MediaItem) {
+    const effectiveTags = mediaTagOverrides[item.id] ?? normalizeTags(item.tags);
+    setTagEditor({
+      kind: 'media',
+      id: item.id,
+      title: item.display_name || 'Bild',
+      description: 'Diese Tags werden beim Veröffentlichen automatisch ins Upload-Studio übernommen.',
+      tags: effectiveTags,
+    });
+    setTagDraft(effectiveTags);
+    setTagInput('');
+  }
+
+  function addDraftTag(value: string) {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    setTagDraft((prev) => (prev.includes(trimmed) ? prev : [...prev, trimmed]));
+    setTagInput('');
+  }
+
+  function removeDraftTag(value: string) {
+    setTagDraft((prev) => prev.filter((tag) => tag !== value));
+  }
+
+  async function saveTagEditor() {
+    if (!tagEditor || tagSaving) return;
+    setTagSaving(true);
+    setBusy(true);
+    setError(null);
+
+    try {
+      const normalized = uniqueTags(tagDraft);
+      const endpoint = tagEditor.kind === 'folder' ? '/api/intern/folders' : '/api/intern/library';
+      const body =
+        tagEditor.kind === 'folder'
+          ? { id: tagEditor.id, tags: normalized, propagate_to_descendants: true }
+          : { id: tagEditor.id, tags: normalized };
+
+      const res = await fetch(endpoint, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok || payload.error) {
+        throw new Error(payload.error || 'Tags konnten nicht gespeichert werden.');
+      }
+
+      if (tagEditor.kind === 'folder') {
+        setFolderTagOverrides((prev) => ({ ...prev, [tagEditor.id]: normalized }));
+      } else {
+        setMediaTagOverrides((prev) => ({ ...prev, [tagEditor.id]: normalized }));
+      }
+
+      setTagEditor(null);
+      setTagDraft([]);
+      setTagInput('');
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Tags konnten nicht gespeichert werden.');
+    } finally {
+      setTagSaving(false);
+      setBusy(false);
+    }
   }
 
   // ── Upload ─────────────────────────────────────────────────────────────
@@ -388,61 +493,6 @@ export default function MediaBrowser({
   function startRenameFolder(e: React.MouseEvent, folder: SubFolder) {
     e.stopPropagation();
     setRenaming({ id: folder.id, type: 'folder', value: folder.name });
-  }
-
-  async function editFolderTags(folderId: string, currentTags: string[] | null) {
-    const initial = normalizeTags(currentTags).join(', ');
-    const value = window.prompt(
-      'Ordner-Tags (kommagetrennt). Diese Tags werden auf Bilder und Unterordner in diesem Ordner angewendet:',
-      initial
-    );
-    if (value === null) return;
-
-    setBusy(true);
-    setError(null);
-    try {
-      const tags = parseTagInput(value);
-      const res = await fetch('/api/intern/folders', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: folderId,
-          tags,
-          propagate_to_descendants: true,
-        }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok || body.error) throw new Error(body.error || 'Tags konnten nicht gespeichert werden.');
-      router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Tags konnten nicht gespeichert werden.');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function editMediaTags(item: MediaItem) {
-    const initial = normalizeTags(item.tags).join(', ');
-    const value = window.prompt('Bild-Tags (kommagetrennt):', initial);
-    if (value === null) return;
-
-    setBusy(true);
-    setError(null);
-    try {
-      const tags = parseTagInput(value);
-      const res = await fetch('/api/intern/library', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: item.id, tags }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok || body.error) throw new Error(body.error || 'Tags konnten nicht gespeichert werden.');
-      router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Tags konnten nicht gespeichert werden.');
-    } finally {
-      setBusy(false);
-    }
   }
 
   async function submitRename() {
@@ -727,7 +777,7 @@ export default function MediaBrowser({
               <button
                 type="button"
                 onClick={() => {
-                  if (currentFolderId) editFolderTags(currentFolderId, currentFolderTags);
+                  if (currentFolderId) openFolderTagEditor(currentFolderId, folderName || 'Aktueller Ordner', effectiveCurrentFolderTags);
                 }}
                 disabled={busy}
                 className="rounded-full border border-line-strong bg-white px-4 py-2.5 text-[13px] font-semibold text-ink transition-colors hover:border-ink disabled:opacity-50"
@@ -853,6 +903,7 @@ export default function MediaBrowser({
 
                     {subfolders.map((folder) => {
                       const thumbId = folderThumbs[folder.id] ?? null;
+                      const effectiveFolderTags = folderTagOverrides[folder.id] ?? normalizeTags(folder.tags);
                       return (
                         <div
                           key={folder.id}
@@ -877,7 +928,7 @@ export default function MediaBrowser({
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                editFolderTags(folder.id, folder.tags);
+                                openFolderTagEditor(folder.id, folder.name, folder.tags);
                               }}
                               title="Ordner-Tags bearbeiten"
                               className="flex h-7 w-7 items-center justify-center rounded-full bg-white/90 text-ink-2 shadow-sm ring-1 ring-line-strong backdrop-blur transition-colors hover:bg-panel hover:text-ink"
@@ -960,9 +1011,9 @@ export default function MediaBrowser({
                                 <span className="line-clamp-1 text-[13px] font-semibold text-ink">
                                   {folder.name}
                                 </span>
-                                {normalizeTags(folder.tags).length > 0 && (
+                                {effectiveFolderTags.length > 0 && (
                                   <span className="mt-0.5 line-clamp-1 block text-[10.5px] text-ink-2">
-                                    #{normalizeTags(folder.tags).join(' #')}
+                                    #{effectiveFolderTags.join(' #')}
                                   </span>
                                 )}
                                 <span className="mt-0.5 block text-[11px] text-ink-3">
@@ -1031,6 +1082,7 @@ export default function MediaBrowser({
                   {items.map((item, index) => {
                     const label = item.display_name || 'Bild';
                     const selected = selectedIds.has(item.id);
+                    const effectiveMediaTags = mediaTagOverrides[item.id] ?? normalizeTags(item.tags);
                     return (
                       <figure
                         key={item.id}
@@ -1123,15 +1175,15 @@ export default function MediaBrowser({
                               </span>
                               <div className="mt-1 flex items-center justify-between gap-2">
                                 <span className="line-clamp-1 text-[10.5px] text-ink-2">
-                                  {normalizeTags(item.tags).length > 0
-                                    ? `#${normalizeTags(item.tags).join(' #')}`
+                                  {effectiveMediaTags.length > 0
+                                    ? `#${effectiveMediaTags.join(' #')}`
                                     : 'Keine Tags'}
                                 </span>
                                 <button
                                   type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    editMediaTags(item);
+                                    openMediaTagEditor({ ...item, tags: effectiveMediaTags });
                                   }}
                                   className="rounded-full border border-line-strong px-2 py-0.5 text-[10.5px] font-semibold text-ink-2 transition-colors hover:border-ink hover:text-ink"
                                 >
@@ -1181,11 +1233,95 @@ export default function MediaBrowser({
 
       {lightboxId && (
         <MediaLightbox
-          items={items}
+          items={items.map((item) => ({
+            ...item,
+            tags: mediaTagOverrides[item.id] ?? normalizeTags(item.tags),
+          }))}
           activeId={lightboxId}
           onClose={() => setLightboxId(null)}
           onChangeActive={setLightboxId}
+          onEditTags={(item) => openMediaTagEditor(item)}
         />
+      )}
+
+      {tagEditor && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-xl rounded-[14px] border border-line bg-white p-4 shadow-raised">
+            <h3 className="mb-1 font-display text-[19px] font-bold">
+              {tagEditor.kind === 'folder' ? 'Ordner-Tags bearbeiten' : 'Bild-Tags bearbeiten'}
+            </h3>
+            <p className="mb-2 text-[12px] font-semibold text-ink">{tagEditor.title}</p>
+            <p className="mb-3 text-[12px] text-ink-2">{tagEditor.description}</p>
+
+            <div className="rounded-[10px] border border-line bg-panel/30 p-3">
+              <div className="mb-2 flex flex-wrap gap-1.5">
+                {tagDraft.map((tag) => (
+                  <span
+                    key={tag}
+                    className="flex items-center gap-1 rounded-[4px] bg-white px-2 py-1 text-[11.5px] font-medium text-ink-2"
+                  >
+                    {tag}
+                    <button
+                      type="button"
+                      onClick={() => removeDraftTag(tag)}
+                      className="text-ink-3 hover:text-signal-deep"
+                    >
+                      ✕
+                    </button>
+                  </span>
+                ))}
+              </div>
+              <input
+                type="text"
+                value={tagInput}
+                onChange={(e) => setTagInput(e.target.value)}
+                onKeyDown={(e) => {
+                  const shouldAdd =
+                    e.key === 'Enter' ||
+                    e.key === ',' ||
+                    (e.key === 'Tab' && tagInput.trim().length > 0);
+                  if (shouldAdd) {
+                    e.preventDefault();
+                    addDraftTag(tagInput);
+                  }
+                }}
+                onBlur={() => addDraftTag(tagInput)}
+                list="media-tag-suggestions"
+                placeholder="Tag eingeben, Enter/Tab zum Hinzufügen"
+                className="w-full rounded-md border border-line-strong bg-white px-2.5 py-1.5 text-[13px] outline-none focus:border-ink"
+              />
+              <datalist id="media-tag-suggestions">
+                {tagSuggestions.map((tag) => (
+                  <option key={tag} value={tag} />
+                ))}
+              </datalist>
+            </div>
+
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                onClick={saveTagEditor}
+                disabled={tagSaving}
+                className="flex-1 rounded-md bg-ink px-4 py-2.5 text-[13px] font-semibold text-white hover:opacity-90 disabled:opacity-60"
+              >
+                {tagSaving ? 'Wird gespeichert …' : 'Speichern'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (tagSaving) return;
+                  setTagEditor(null);
+                  setTagDraft([]);
+                  setTagInput('');
+                }}
+                disabled={tagSaving}
+                className="flex-1 rounded-md border border-line-strong bg-white px-4 py-2.5 text-[13px] font-semibold text-ink hover:border-ink disabled:opacity-60"
+              >
+                Abbrechen
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
