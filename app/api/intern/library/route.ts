@@ -104,6 +104,41 @@ async function getEffectiveFolderTags(
   return uniqueTags(tags);
 }
 
+async function persistMediaTags(
+  mediaId: string,
+  tags: string[],
+  userToken: string
+): Promise<boolean> {
+  if (tags.length === 0) return true;
+
+  const tokens = [folderTagToken(userToken)];
+  if (tokens[0] !== userToken) tokens.push(userToken);
+
+  for (const token of tokens) {
+    const res = await fetch(`${DIRECTUS_URL}/items/media_library/${mediaId}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ tags }),
+    });
+    if (!res.ok) continue;
+
+    const verify = await fetch(`${DIRECTUS_URL}/items/media_library/${mediaId}?fields=tags`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: 'no-store',
+    });
+    if (!verify.ok) continue;
+
+    const { data } = await verify.json();
+    const storedTags = normalizeTags(data?.tags);
+    if (tags.every((tag) => storedTags.includes(tag))) return true;
+  }
+
+  return false;
+}
+
 async function uploadBuffer(
   token: string,
   buffer: Buffer,
@@ -610,6 +645,15 @@ export async function POST(request: NextRequest) {
         console.error(`media_library-Eintrag anlegen fehlgeschlagen (${itemRes.status}) für "${file.name}":`, body);
         errors.push(`${file.name}: ${body || `Status ${itemRes.status}`}`);
         continue;
+      }
+
+      if (inheritedFolderTags.length > 0) {
+        const tagsPersisted = await persistMediaTags(itemId, inheritedFolderTags, session.accessToken);
+        if (!tagsPersisted) {
+          console.error(`Vererbte Tags konnten für "${file.name}" nicht gespeichert werden.`);
+          errors.push(`${file.name}: Vererbte Tags konnten nicht gespeichert werden.`);
+          continue;
+        }
       }
 
       created.push(itemId);
