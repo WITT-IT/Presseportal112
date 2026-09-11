@@ -55,6 +55,7 @@ async function getFolderById(
   });
   if (!res.ok) return null;
   const { data } = await res.json();
+  if (!data || !Object.prototype.hasOwnProperty.call(data, 'tags')) return null;
   return data ? { id: data.id, parent_folder: data.parent_folder ?? null, tags: data.tags ?? null } : null;
 }
 
