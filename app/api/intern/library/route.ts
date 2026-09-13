@@ -56,12 +56,18 @@ async function getFolderById(
   if (!res.ok) return null;
   const { data } = await res.json();
   if (!data || !Object.prototype.hasOwnProperty.call(data, 'tags')) return null;
+  const orgId =
+    typeof data.organization === 'string'
+      ? data.organization
+      : typeof data.organization?.id === 'string'
+      ? data.organization.id
+      : null;
   return data
     ? {
         id: data.id,
         parent_folder: data.parent_folder ?? null,
         tags: data.tags ?? null,
-        organization: typeof data.organization === 'string' ? data.organization : null,
+        organization: orgId,
       }
     : null;
 }
@@ -74,11 +80,17 @@ async function readFolderForTagInheritance(
   const fallbackToken = folderTagToken(userToken);
   if (fallbackToken !== userToken) {
     const privileged = await getFolderById(fallbackToken, folderId);
-    if (privileged?.organization === organizationId) return privileged;
+    if (privileged && (privileged.organization === organizationId || !privileged.organization)) {
+      return privileged;
+    }
   }
 
   const direct = await getFolderById(userToken, folderId);
-  return direct?.organization === organizationId ? direct : null;
+  if (direct && (direct.organization === organizationId || !direct.organization)) {
+    return direct;
+  }
+
+  return null;
 }
 
 async function getEffectiveFolderTags(
@@ -737,6 +749,14 @@ export async function PATCH(request: NextRequest) {
     console.error(`media_library-Eintrag aktualisieren fehlgeschlagen (${res.status}):`, body);
     return NextResponse.json({ error: body || 'Aktualisieren fehlgeschlagen.' }, { status: 500 });
   }
+
+  if (Array.isArray(patch.tags) && patch.tags.length > 0) {
+    const persisted = await persistMediaTags(id, patch.tags, session.accessToken);
+    if (!persisted) {
+      console.error(`Media-Tags konnten nach PATCH nicht gespeichert werden für ID ${id}`);
+    }
+  }
+
   return NextResponse.json({ ok: true });
 }
 
