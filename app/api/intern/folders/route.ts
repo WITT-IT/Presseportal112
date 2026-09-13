@@ -51,7 +51,7 @@ async function persistFolderTags(
   userToken: string,
   fallbackToken: string
 ): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
-  const tokens = [userToken, ...(fallbackToken !== userToken ? [fallbackToken] : [])];
+  const tokens = Array.from(new Set([fallbackToken, userToken]));
   let lastStatus = 500;
   let lastError = 'Unbekannter Fehler';
 
@@ -64,9 +64,23 @@ async function persistFolderTags(
       },
       body: JSON.stringify({ tags }),
     });
-    if (res.ok) return { ok: true };
-    lastStatus = res.status;
-    lastError = await res.text().catch(() => '');
+    if (!res.ok) {
+      lastStatus = res.status;
+      lastError = await res.text().catch(() => '');
+      continue;
+    }
+
+    const verify = await fetch(`${DIRECTUS_URL}/items/folders/${folderId}?fields=tags`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: 'no-store',
+    });
+    if (!verify.ok) continue;
+
+    const { data } = await verify.json();
+    const storedTags = normalizeTags(data?.tags);
+    if (tags.every((tag) => storedTags.includes(tag))) {
+      return { ok: true };
+    }
   }
 
   return { ok: false, status: lastStatus, error: lastError || 'Unbekannter Fehler' };
@@ -356,7 +370,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Ordner konnte nicht angelegt werden.' }, { status: 500 });
   }
 
-  if (!includeFolderTags && mergedTags.length > 0) {
+  if (mergedTags.length > 0) {
     try {
       const persist = await persistFolderTags(id, mergedTags, session.accessToken, fallbackFolderToken);
       if (!persist.ok) {
@@ -445,11 +459,13 @@ export async function PATCH(request: NextRequest) {
     patch.tags = uniqueTags([...normalizeTags(currentFolder.tags), ...ancestorTagsForMove]);
   }
 
-  const fallbackFolderTags =
-    !includeFolderTags && incomingTags
+  const tagsToPersist =
+    incomingTags !== null
       ? parent_folder !== undefined
         ? uniqueTags([...ancestorTagsForMove, ...incomingTags])
         : uniqueTags(incomingTags)
+      : parent_folder !== undefined && ancestorTagsForMove.length > 0
+      ? uniqueTags([...normalizeTags(currentFolder.tags), ...ancestorTagsForMove])
       : null;
 
   if (Object.keys(patch).length > 0) {
@@ -469,8 +485,8 @@ export async function PATCH(request: NextRequest) {
     }
   }
 
-  if (fallbackFolderTags) {
-    const persist = await persistFolderTags(id, fallbackFolderTags, session.accessToken, fallbackFolderToken);
+  if (tagsToPersist && tagsToPersist.length > 0) {
+    const persist = await persistFolderTags(id, tagsToPersist, session.accessToken, fallbackFolderToken);
     if (!persist.ok) {
       console.error('Ordner-Tags konnten nicht gespeichert werden:', persist.status, persist.error);
       return NextResponse.json({ error: 'Ordner-Tags konnten nicht gespeichert werden.' }, { status: persist.status === 403 ? 403 : 500 });
@@ -478,29 +494,16 @@ export async function PATCH(request: NextRequest) {
   }
 
   const shouldPropagate = Boolean(propagate_to_descendants) || parent_folder !== undefined || tags !== undefined;
-  const folderTagsToPropagate = includeFolderTags
-    ? normalizeTags(patch.tags ?? currentFolder.tags)
-    : incomingTags ?? [];
+  const folderTagsToPropagate = tagsToPersist ?? normalizeTags(patch.tags ?? currentFolder.tags);
 
   if (shouldPropagate && folderTagsToPropagate.length > 0) {
-    const jsonHeaders = {
-      Authorization: `Bearer ${session.accessToken}`,
-      'Content-Type': 'application/json',
-    };
-
     try {
       const subtree = await collectSubtreeTagTargets(session.accessToken, id, includeFolderTags);
 
-      if (includeFolderTags) {
-        for (const folder of subtree.folders) {
-          if (folder.id === id) continue;
-          const merged = uniqueTags([...normalizeTags(folder.tags), ...folderTagsToPropagate]);
-          await fetch(`${DIRECTUS_URL}/items/folders/${folder.id}`, {
-            method: 'PATCH',
-            headers: jsonHeaders,
-            body: JSON.stringify({ tags: merged }),
-          });
-        }
+      for (const folder of subtree.folders) {
+        if (folder.id === id) continue;
+        const merged = uniqueTags([...normalizeTags(folder.tags), ...folderTagsToPropagate]);
+        await persistFolderTags(folder.id, merged, session.accessToken, fallbackFolderToken);
       }
 
       const mediaHeaders = {
