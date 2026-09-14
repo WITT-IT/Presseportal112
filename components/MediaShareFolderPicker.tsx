@@ -22,26 +22,6 @@ function IconFolder({ className }: { className?: string }) {
     </svg>
   );
 }
-function IconShare({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      <circle cx="18" cy="5" r="2.5" />
-      <circle cx="6" cy="12" r="2.5" />
-      <circle cx="18" cy="19" r="2.5" />
-      <path d="M8.2 10.6l7.6-4.2" />
-      <path d="M8.2 13.4l7.6 4.2" />
-    </svg>
-  );
-}
 
 export default function MediaShareFolderPicker({ shareId }: { shareId: string }) {
   const router = useRouter();
@@ -166,7 +146,7 @@ export default function MediaShareFolderPicker({ shareId }: { shareId: string })
                 disabled={busyFolderId === folder.id}
                 className="flex flex-none items-center gap-1.5 rounded-md border border-line-strong px-2.5 py-1.5 text-[11.5px] font-semibold text-ink transition-colors hover:border-ink disabled:opacity-50"
               >
-                <IconShare className="h-[13px] w-[13px]" />
+                <i className="ti ti-share text-[13px]" aria-hidden="true" />
                 {busyFolderId === folder.id ? '…' : 'Freigeben'}
               </button>
             </div>

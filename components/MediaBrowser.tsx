@@ -13,6 +13,7 @@ import {
 } from './UploadQueueProvider';
 import PostCalendar from './PostCalendar';
 import ShareFolderControl from './ShareFolderControl';
+import ShareMediaModal, { type ShareTarget } from './ShareMediaModal';
 import MediaLightbox from './MediaLightbox';
 import StorageUsageBar from './StorageUsageBar';
 import { normalizeTags, type Post } from '@/lib/types';
@@ -190,6 +191,7 @@ export default function MediaBrowser({
   const [tagDraft, setTagDraft] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
   const [tagSaving, setTagSaving] = useState(false);
+  const [shareTarget, setShareTarget] = useState<ShareTarget | null>(null);
   const [folderTagOverrides, setFolderTagOverrides] = useState<Record<string, string[]>>({});
   const [mediaTagOverrides, setMediaTagOverrides] = useState<Record<string, string[]>>({});
 
@@ -785,6 +787,19 @@ export default function MediaBrowser({
                 Ordner-Tags
               </button>
             )}
+            {isNested && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (currentFolderId) setShareTarget({ kind: 'folder', id: currentFolderId, name: folderName || 'Aktueller Ordner' });
+                }}
+                disabled={busy}
+                className="flex items-center gap-2 rounded-full border border-line-strong bg-white px-4 py-2.5 text-[13px] font-semibold text-ink transition-colors hover:border-ink disabled:opacity-50"
+              >
+                <i className="ti ti-share text-[15px]" aria-hidden="true" />
+                Freigeben
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setCreatingFolder(true)}
@@ -923,7 +938,9 @@ export default function MediaBrowser({
                           }`}
                         >
                           <div className="absolute right-2 top-2 z-10 flex gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-                            <ShareFolderControl folderId={folder.id} folderName={folder.name} mediaShares={mediaShares} />
+                            <ShareFolderControl
+                              onClick={() => setShareTarget({ kind: 'folder', id: folder.id, name: folder.name })}
+                            />
                             <button
                               type="button"
                               onClick={(e) => {
@@ -1063,6 +1080,20 @@ export default function MediaBrowser({
                       </button>
                       <button
                         type="button"
+                        onClick={() =>
+                          setShareTarget({
+                            kind: 'media',
+                            ids: selectedItems.map((it) => it.id),
+                            label: `${selectionCount} ${selectionCount === 1 ? 'Bild' : 'Bilder'}`,
+                          })
+                        }
+                        className="flex items-center gap-1.5 rounded-full border border-line-strong bg-white px-3.5 py-1.5 text-[12px] font-semibold text-ink transition-colors hover:border-ink"
+                      >
+                        <i className="ti ti-share text-[13px]" aria-hidden="true" />
+                        Freigeben
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => deleteMedia(selectedItems)}
                         disabled={busy}
                         className="flex items-center gap-1.5 rounded-full bg-signal-deep px-3.5 py-1.5 text-[12px] font-semibold text-white transition-colors hover:bg-black disabled:opacity-50"
@@ -1111,6 +1142,18 @@ export default function MediaBrowser({
                           } ${hasSelection || selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
                         >
                           <IconCheck className="h-[12px] w-[12px]" />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShareTarget({ kind: 'media', ids: [item.id], label: label });
+                          }}
+                          title="Bild freigeben"
+                          className="absolute right-10 top-2.5 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-white/90 text-ink-2 opacity-0 shadow-sm ring-1 ring-line-strong backdrop-blur transition-opacity group-hover:opacity-100 hover:bg-panel hover:text-ink"
+                        >
+                          <i className="ti ti-share text-[13px]" aria-hidden="true" />
                         </button>
 
                         <button
@@ -1241,6 +1284,14 @@ export default function MediaBrowser({
           onClose={() => setLightboxId(null)}
           onChangeActive={setLightboxId}
           onEditTags={(item) => openMediaTagEditor(item)}
+        />
+      )}
+
+      {shareTarget && (
+        <ShareMediaModal
+          target={shareTarget}
+          mediaShares={mediaShares}
+          onClose={() => setShareTarget(null)}
         />
       )}
 
