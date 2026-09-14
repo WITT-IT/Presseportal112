@@ -158,6 +158,10 @@ export type MediaShareSummary = {
   active: boolean;
   expiresAt: string;
   postCount: number;
+  // Direkt (ohne Beitrag) angehängte Bibliotheksbilder -- Freigaben, die
+  // ausschließlich über die neue Ordner-/Bild-Freigabe aus der Mediathek
+  // befüllt wurden, haben postCount 0, sind aber trotzdem nicht leer.
+  mediaCount: number;
 };
 
 // Medienfreigabe mit allen Beiträgen für die Detailseite.

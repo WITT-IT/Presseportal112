@@ -68,7 +68,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Freigabe konnte nicht angelegt werden.' }, { status: 500 });
     }
 
-    return NextResponse.json({ ok: true });
+    // id/name werden zurückgegeben, damit Aufrufer (z. B. das
+    // Freigabe-Popup direkt aus der Mediathek) die frisch angelegte
+    // Freigabe SOFORT weiterverwenden können -- ohne id müsste man raten
+    // oder erst neu laden, bevor Bilder/Ordner zugeordnet werden können.
+    const { data } = await res.json();
+    return NextResponse.json({ ok: true, id: data.id as string, name: data.name as string });
   } catch (err) {
     console.error('Freigabe anlegen -- Netzwerkfehler:', err);
     return NextResponse.json({ error: 'Freigabe konnte nicht angelegt werden.' }, { status: 500 });

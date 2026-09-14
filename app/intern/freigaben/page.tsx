@@ -86,7 +86,7 @@ export default async function MediaSharesPage() {
                     </span>
                   </div>
                   <span className="ml-3 flex flex-none items-center gap-2 font-mono text-[11px] text-ink-3">
-                    {share.postCount} Beitrag{share.postCount === 1 ? '' : 'e'}
+                    {share.postCount + share.mediaCount} {share.postCount + share.mediaCount === 1 ? 'Medium' : 'Medien'}
                     <span
                       className={`rounded-full px-2 py-1 ${
                         unavailable ? 'bg-panel text-ink-3' : 'bg-signal/10 text-signal-deep'
@@ -150,7 +150,7 @@ export default async function MediaSharesPage() {
                   )}
                 </div>
                 <span className="ml-3 flex flex-none items-center gap-2 font-mono text-[11px] text-ink-3">
-                  {share.postCount} Beitrag{share.postCount === 1 ? '' : 'e'}
+                  {share.postCount + share.mediaCount} {share.postCount + share.mediaCount === 1 ? 'Medium' : 'Medien'}
                   <span
                     className={`rounded-full px-2 py-1 ${
                       !share.active ? 'bg-panel text-ink-3' : expired ? 'bg-signal/10 text-signal-deep' : 'bg-signal/10 text-signal-deep'

@@ -454,6 +454,35 @@ export async function getMyFoldersWithPostIds(
   }));
 }
 
+// Zählt direkt angehängte Bibliotheksbilder (media_shares_media) pro
+// Freigabe -- über eine Aggregation statt N Einzelabfragen, eine Anfrage
+// für beliebig viele Freigaben auf einmal. Es gibt bewusst kein
+// umgekehrtes Relationsfeld auf media_shares selbst (siehe
+// getMediaShareWithPosts), deshalb der Umweg über die Junction-Collection.
+async function getMediaShareLibraryCounts(
+  shareIds: string[],
+  accessToken: string
+): Promise<Record<string, number>> {
+  if (shareIds.length === 0) return {};
+  try {
+    const res = await fetch(
+      `${DIRECTUS_URL}/items/media_shares_media?filter[media_shares_id][_in]=${shareIds.join(',')}` +
+        `&aggregate[count]=id&groupBy[]=media_shares_id`,
+      { headers: { Authorization: `Bearer ${accessToken}` }, cache: 'no-store' }
+    );
+    if (!res.ok) return {};
+    const { data } = await res.json();
+    const counts: Record<string, number> = {};
+    for (const row of data as { media_shares_id: string; count: { id: string } }[]) {
+      counts[row.media_shares_id] = Number(row.count.id) || 0;
+    }
+    return counts;
+  } catch (error) {
+    console.error('getMediaShareLibraryCounts fehlgeschlagen:', error);
+    return {};
+  }
+}
+
 export async function getMyMediaShares(
   accessToken: string,
   organizationId: string
@@ -468,11 +497,13 @@ export async function getMyMediaShares(
     return [];
   }
   const { data } = await res.json();
-  return (data as { id: string; name: string; recipient_name: string | null; active: boolean; expires_at: string; posts?: unknown[] }[])
-    .map((row) => ({
-      id: row.id, name: row.name, recipientName: row.recipient_name,
-      active: row.active, expiresAt: row.expires_at, postCount: (row.posts || []).length,
-    }));
+  const rows = data as { id: string; name: string; recipient_name: string | null; active: boolean; expires_at: string; posts?: unknown[] }[];
+  const mediaCounts = await getMediaShareLibraryCounts(rows.map((row) => row.id), accessToken);
+  return rows.map((row) => ({
+    id: row.id, name: row.name, recipientName: row.recipient_name,
+    active: row.active, expiresAt: row.expires_at, postCount: (row.posts || []).length,
+    mediaCount: mediaCounts[row.id] ?? 0,
+  }));
 }
 
 // Eine einzelne Freigabe mit allen zugeordneten Beiträgen UND direkt
@@ -565,7 +596,7 @@ export async function getMediaShareWithPosts(
 
 export async function getReceivedMediaShares(organizationId: string): Promise<{
   id: string; name: string; senderOrganizationName: string | null;
-  token: string; active: boolean; expiresAt: string; postCount: number;
+  token: string; active: boolean; expiresAt: string; postCount: number; mediaCount: number;
 }[]> {
   const serviceToken = process.env.DIRECTUS_SERVICE_TOKEN;
   if (!serviceToken) return [];
@@ -580,11 +611,13 @@ export async function getReceivedMediaShares(organizationId: string): Promise<{
       return [];
     }
     const { data } = await res.json();
-    return (data as { id: string; name: string; token: string; active: boolean; expires_at: string; organization: { name: string } | null; posts?: unknown[] }[])
-      .map((row) => ({
-        id: row.id, name: row.name, senderOrganizationName: row.organization?.name ?? null,
-        token: row.token, active: row.active, expiresAt: row.expires_at, postCount: (row.posts || []).length,
-      }));
+    const rows = data as { id: string; name: string; token: string; active: boolean; expires_at: string; organization: { name: string } | null; posts?: unknown[] }[];
+    const mediaCounts = await getMediaShareLibraryCounts(rows.map((row) => row.id), serviceToken);
+    return rows.map((row) => ({
+      id: row.id, name: row.name, senderOrganizationName: row.organization?.name ?? null,
+      token: row.token, active: row.active, expiresAt: row.expires_at, postCount: (row.posts || []).length,
+      mediaCount: mediaCounts[row.id] ?? 0,
+    }));
   } catch (error) {
     console.error('getReceivedMediaShares fehlgeschlagen:', error);
     return [];
